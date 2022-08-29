@@ -36,7 +36,7 @@ class task {
   task(std::vector<std::shared_ptr<task>> const& dependencies, int32_t task_id, int32_t stage_id);
 
   virtual ~task();
-  task(const task&)            = delete;
+  task(const task&) = delete;
   task& operator=(const task&) = delete;
 
   /**

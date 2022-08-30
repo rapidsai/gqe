@@ -16,11 +16,9 @@
 
 namespace gqe {
 
-task::task(std::vector<std::shared_ptr<task>> const& dependencies,
-           int32_t task_id,
-           int32_t stage_id)
+task::task(std::vector<std::shared_ptr<task>> dependencies, int32_t task_id, int32_t stage_id)
   : _result_status(result_status_type::not_available),
-    _dependencies(dependencies),
+    _dependencies(std::move(dependencies)),
     _task_id(task_id),
     _stage_id(stage_id)
 {

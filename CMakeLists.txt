@@ -27,6 +27,9 @@ if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   set(CMAKE_CUDA_ARCHITECTURES "70" "80")
 endif()
 
+# needed for clang-tidy
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 find_package(CUDF CONFIG REQUIRED)
 
 add_subdirectory(src)

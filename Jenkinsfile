@@ -3,8 +3,8 @@ apiVersion: v1
 kind: Pod
 spec:
   containers:
-  - name: ubuntu
-    image: ubuntu:20.04
+  - name: cuda
+    image: nvcr.io/nvidia/cuda:11.5.2-devel-ubuntu20.04
     command:
     - cat
     resources:
@@ -21,7 +21,7 @@ spec:
     kubernetes.io/os: linux
 ''') {
   node(POD_LABEL) {
-    container('ubuntu') {
+    container('cuda') {
       updateGitlabCommitStatus name: "code style", state: "running"
 
       try {
@@ -35,32 +35,50 @@ spec:
         }
         stage("Install miniconda") {
           sh '''#!/bin/bash
-            apt-get update -y && apt-get install -y --no-install-recommends wget ca-certificates
+            apt-get update -y && apt-get install -y --no-install-recommends wget ca-certificates build-essential
             wget -q https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /miniconda.sh
             sh /miniconda.sh -b -p /conda
+            /conda/bin/conda install -q -c conda-forge -y mamba -n base
           '''
         }
-        stage("Install clang-tools using conda") {
+        stage("Install dependencies using conda") {
           sh '''#!/bin/bash
-            /conda/bin/conda create --name clang-tools -y
-            source /conda/bin/activate clang-tools
-            conda install -q -c rapidsai -c nvidia -c conda-forge -y clang-tools=11.1.0
+            /conda/bin/mamba env create -q -f conda/environment.yml
           '''
         }
+        stage("Check style") {
+          error = false
 
-        try {
-          stage("Check clang-format") {
-            sh '''#!/bin/bash
-              source /conda/bin/activate clang-tools
-              find ./include ./src -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file --dry-run -Werror
-            '''
+          def tests = [:]
+          tests["clang-format"] = {
+            try {
+              sh '''#!/bin/bash
+                source /conda/bin/activate gqe
+                find ./include ./src -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file --dry-run -Werror
+              '''
+            } catch (exc) {
+              error = true
+            }
           }
-          // FIXME: Add another stage for clang-tidy
-          updateGitlabCommitStatus name: 'code style', state: 'success'
-        } catch (exc) {
-          updateGitlabCommitStatus name: 'code style', state: 'failed'
-        }
+          tests["clang-tidy"] = {
+            try {
+              sh'''#!/bin/bash
+                source /conda/bin/activate gqe
+                mkdir build && cd build && cmake .. && cd ..
+                find ./include ./src -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-tidy -p build --header-filter=.* --warnings-as-errors=*
+              '''
+            } catch (exc) {
+              error = true
+            }
+          }
+          parallel(tests)
 
+          if (error) {
+            updateGitlabCommitStatus name: 'code style', state: 'failed'
+          } else {
+            updateGitlabCommitStatus name: 'code style', state: 'success'
+          }
+        }
       } catch (exc) {
         updateGitlabCommitStatus name: 'code style', state: 'failed'
         throw exc

@@ -33,7 +33,7 @@ class task {
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    */
-  task(std::vector<std::shared_ptr<task>> const& dependencies, int32_t task_id, int32_t stage_id);
+  task(std::vector<std::shared_ptr<task>> dependencies, int32_t task_id, int32_t stage_id);
 
   virtual ~task();
   task(const task&) = delete;
@@ -55,7 +55,7 @@ class task {
    * @return result_status_type::available The task result is available.
    * @return result_status_type::not_available The task result is unavailable.
    */
-  result_status_type result_status() const noexcept { return _result_status; }
+  [[nodiscard]] result_status_type result_status() const noexcept { return _result_status; }
 
   /**
    * @brief Return the task result.
@@ -64,19 +64,19 @@ class task {
    * user can check that by calling `result_status()`. If the result is unavailable, this function
    * has undefined behavior.
    */
-  cudf::table_view result() const noexcept { return _result; }
+  [[nodiscard]] cudf::table_view result() const noexcept { return _result; }
 
   /**
    * @brief Return the task ID.
    *
    * @note Task ID is the globally unique identifier of the task.
    */
-  int32_t task_id() const noexcept { return _task_id; }
+  [[nodiscard]] int32_t task_id() const noexcept { return _task_id; }
 
   /**
    * @brief Return the stage ID of this task.
    */
-  int32_t stage_id() const noexcept { return _stage_id; }
+  [[nodiscard]] int32_t stage_id() const noexcept { return _stage_id; }
 
  protected:
   /**
@@ -93,7 +93,10 @@ class task {
    *
    * @note The depedent tasks are the children node of the current task in the task graph.
    */
-  std::vector<std::shared_ptr<task>> dependencies() const noexcept { return _dependencies; }
+  [[nodiscard]] std::vector<std::shared_ptr<task>> dependencies() const noexcept
+  {
+    return _dependencies;
+  }
 
  private:
   result_status_type _result_status;

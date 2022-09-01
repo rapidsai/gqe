@@ -1,0 +1,90 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+#pragma once
+
+#include <gqe/expression/expression.hpp>
+
+#include <cudf/binaryop.hpp>
+
+#include <memory>
+
+namespace gqe {
+
+/**
+ * @brief A binary-operator expression supported by cuDF.
+ */
+class binary_op_expression : public expression {
+ public:
+  /**
+   * @brief Construct a binary-operator expression.
+   *
+   * @param[in] binary_operator Binary operator of the expression.
+   * @param[in] lhs Left-hand side of the expression.
+   * @param[in] rhs Right-hand side of the expression.
+   */
+  binary_op_expression(cudf::binary_operator binary_operator,
+                       std::shared_ptr<expression> lhs,
+                       std::shared_ptr<expression> rhs)
+    : expression({std::move(lhs), std::move(rhs)}), _binary_operator(binary_operator)
+  {
+  }
+
+  /**
+   * @copydoc gqe::expression::type()
+   */
+  [[nodiscard]] expression_type type() const noexcept final { return expression_type::binary_op; }
+
+  /**
+   * @brief Return the type of the binary operator.
+   */
+  [[nodiscard]] cudf::binary_operator binary_operator() const noexcept { return _binary_operator; }
+
+ private:
+  cudf::binary_operator _binary_operator;
+};
+
+// operator =
+class equal_expression : public binary_op_expression {
+ public:
+  equal_expression(std::shared_ptr<expression> lhs, std::shared_ptr<expression> rhs)
+    : binary_op_expression(cudf::binary_operator::EQUAL, std::move(lhs), std::move(rhs))
+  {
+  }
+
+  /**
+   * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
+   */
+  [[nodiscard]] cudf::data_type data_type(std::vector<cudf::data_type> const&) const final
+  {
+    return cudf::data_type(cudf::type_id::BOOL8);
+  }
+};
+
+// operator <
+class less_expression : public binary_op_expression {
+ public:
+  less_expression(std::shared_ptr<expression> lhs, std::shared_ptr<expression> rhs)
+    : binary_op_expression(cudf::binary_operator::LESS, std::move(lhs), std::move(rhs))
+  {
+  }
+
+  /**
+   * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
+   */
+  [[nodiscard]] cudf::data_type data_type(std::vector<cudf::data_type> const&) const final
+  {
+    return cudf::data_type(cudf::type_id::BOOL8);
+  }
+};
+
+}  // namespace gqe

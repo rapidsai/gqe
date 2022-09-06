@@ -54,6 +54,14 @@ class column_reference_expression : public expression {
    */
   [[nodiscard]] cudf::size_type column_idx() const noexcept { return _column_idx; }
 
+  /**
+   * @copydoc gqe::expression::to_string()
+   */
+  [[nodiscard]] std::string to_string() const noexcept override
+  {
+    return "column_reference(" + std::to_string(_column_idx) + ")";
+  }
+
  private:
   cudf::size_type _column_idx;
 };

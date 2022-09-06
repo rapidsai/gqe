@@ -15,6 +15,7 @@
 #include <cudf/types.hpp>
 
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace gqe {
@@ -98,6 +99,11 @@ class expression {
 
     return children_to_return;
   }
+
+  /**
+   * @brief Return the string representation of the expression.
+   */
+  [[nodiscard]] virtual std::string to_string() const noexcept = 0;
 
  private:
   // Child nodes of the current expression

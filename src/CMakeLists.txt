@@ -8,6 +8,6 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-add_library(gqe STATIC executor/task.cpp)
+add_library(gqe STATIC executor/task.cpp logical/relation.cpp)
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(gqe PUBLIC cudf::cudf)

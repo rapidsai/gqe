@@ -54,6 +54,60 @@ class binary_op_expression : public expression {
   cudf::binary_operator _binary_operator;
 };
 
+// operator &&
+class logical_and_expression : public binary_op_expression {
+ public:
+  logical_and_expression(std::shared_ptr<expression> lhs, std::shared_ptr<expression> rhs)
+    : binary_op_expression(cudf::binary_operator::LOGICAL_AND, std::move(lhs), std::move(rhs))
+  {
+  }
+
+  /**
+   * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
+   */
+  [[nodiscard]] cudf::data_type data_type(std::vector<cudf::data_type> const&) const final
+  {
+    return cudf::data_type(cudf::type_id::BOOL8);
+  }
+
+  /**
+   * @copydoc gqe::expression::to_string()
+   */
+  [[nodiscard]] std::string to_string() const noexcept final
+  {
+    auto child_exprs = children();
+    assert(child_exprs.size() == 2);
+    return child_exprs[0]->to_string() + " && " + child_exprs[1]->to_string();
+  }
+};
+
+// operator ||
+class logical_or_expression : public binary_op_expression {
+ public:
+  logical_or_expression(std::shared_ptr<expression> lhs, std::shared_ptr<expression> rhs)
+    : binary_op_expression(cudf::binary_operator::LOGICAL_OR, std::move(lhs), std::move(rhs))
+  {
+  }
+
+  /**
+   * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
+   */
+  [[nodiscard]] cudf::data_type data_type(std::vector<cudf::data_type> const&) const final
+  {
+    return cudf::data_type(cudf::type_id::BOOL8);
+  }
+
+  /**
+   * @copydoc gqe::expression::to_string()
+   */
+  [[nodiscard]] std::string to_string() const noexcept final
+  {
+    auto child_exprs = children();
+    assert(child_exprs.size() == 2);
+    return child_exprs[0]->to_string() + " || " + child_exprs[1]->to_string();
+  }
+};
+
 // operator =
 class equal_expression : public binary_op_expression {
  public:
@@ -73,7 +127,7 @@ class equal_expression : public binary_op_expression {
   /**
    * @copydoc gqe::expression::to_string()
    */
-  [[nodiscard]] std::string to_string() const noexcept override
+  [[nodiscard]] std::string to_string() const noexcept final
   {
     auto child_exprs = children();
     assert(child_exprs.size() == 2);
@@ -100,7 +154,7 @@ class less_expression : public binary_op_expression {
   /**
    * @copydoc gqe::expression::to_string()
    */
-  [[nodiscard]] std::string to_string() const noexcept override
+  [[nodiscard]] std::string to_string() const noexcept final
   {
     auto child_exprs = children();
     assert(child_exprs.size() == 2);

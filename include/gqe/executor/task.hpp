@@ -17,14 +17,13 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace gqe {
 
 class task {
  public:
-  enum class result_status_type { available, not_available };
-
   /**
    * @brief Construct a new task.
    *
@@ -35,36 +34,28 @@ class task {
    */
   task(std::vector<std::shared_ptr<task>> dependencies, int32_t task_id, int32_t stage_id);
 
-  virtual ~task();
+  virtual ~task()   = default;
   task(const task&) = delete;
   task& operator=(const task&) = delete;
 
   /**
    * @brief Execute the task on the local GPU.
+   *
+   * After executing this function, `result()` will return a valid table view.
    */
   virtual void execute() = 0;
 
   /**
    * @brief Migrate the task result from a remote GPU.
+   *
+   * After executing this function, `result()` will return a valid table view.
    */
   void migrate();
 
   /**
-   * @brief Return whether the task result is available to the local GPU.
-   *
-   * @return result_status_type::available The task result is available.
-   * @return result_status_type::not_available The task result is unavailable.
-   */
-  [[nodiscard]] result_status_type result_status() const noexcept { return _result_status; }
-
-  /**
    * @brief Return the task result.
-   *
-   * @note This function will not check whether the result is available to the local GPU. The
-   * user can check that by calling `result_status()`. If the result is unavailable, this function
-   * has undefined behavior.
    */
-  [[nodiscard]] cudf::table_view result() const noexcept { return _result; }
+  [[nodiscard]] std::optional<cudf::table_view> result() const noexcept { return _result; }
 
   /**
    * @brief Return the task ID.
@@ -91,16 +82,20 @@ class task {
   /**
    * @brief Return the dependent tasks.
    *
-   * @note The depedent tasks are the children node of the current task in the task graph.
+   * The dependent tasks are the children node of the current task in the task graph.
+   *
+   * @note The returned tasks do not share ownership. This object must be kept alive for the
+   * returned tasks to be valid.
    */
-  [[nodiscard]] std::vector<std::shared_ptr<task>> dependencies() const noexcept
-  {
-    return _dependencies;
-  }
+  [[nodiscard]] std::vector<task*> dependencies() const noexcept;
+
+  /**
+   * @brief Make the results of all dependencies available to the local GPU.
+   */
+  void prepare_dependencies();
 
  private:
-  result_status_type _result_status;
-  cudf::table_view _result;
+  std::optional<cudf::table_view> _result;
   // This field could hold the result after execution, or the migrated table from a remote GPU. Note
   // that it is possible that this field is empty but `_result` contains the valid view, when
   // directly accessing a remote GPU's mapped memory.

@@ -1,3 +1,33 @@
+def checkout_code() {
+  branch = env.gitlabMergeRequestLastCommit ?: "*/main"
+  url = env.gitlabSourceRepoHttpUrl ?: "https://gitlab-master.nvidia.com/GPUDB/gqe.git"
+  stage("Checkout code") {
+    checkout([$class: 'GitSCM',
+              branches: [[name: branch]],
+              userRemoteConfigs: [[credentialsId: 'dtcomp-ci-pw',
+                                    url: url]]])
+  }
+}
+
+def install_dependencies_with_conda() {
+  stage("Install miniconda") {
+    sh '''#!/bin/bash
+      apt-get update -y && apt-get install -y --no-install-recommends wget git ca-certificates build-essential
+      wget -q https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-$(uname -m).sh -O /miniconda.sh
+      sh /miniconda.sh -b -p /conda
+      /conda/bin/conda install -q -c conda-forge -y mamba -n base
+    '''
+  }
+  stage("Install dependencies using conda") {
+    sh '''#!/bin/bash
+      /conda/bin/mamba env create -q -f conda/environment.yml
+    '''
+  }
+}
+
+def tests = [:]
+
+tests["code style"] = {
 podTemplate(yaml: '''
 apiVersion: v1
 kind: Pod
@@ -25,59 +55,26 @@ spec:
       updateGitlabCommitStatus name: "code style", state: "running"
 
       try {
-        branch = env.gitlabMergeRequestLastCommit ?: "*/main"
-        url = env.gitlabSourceRepoHttpUrl ?: "https://gitlab-master.nvidia.com/GPUDB/gqe.git"
-        stage("Checkout code") {
-          checkout([$class: 'GitSCM',
-                    branches: [[name: branch]],
-                    userRemoteConfigs: [[credentialsId: 'dtcomp-ci-pw',
-                                         url: url]]])
-        }
-        stage("Install miniconda") {
-          sh '''#!/bin/bash
-            apt-get update -y && apt-get install -y --no-install-recommends wget ca-certificates build-essential
-            wget -q https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /miniconda.sh
-            sh /miniconda.sh -b -p /conda
-            /conda/bin/conda install -q -c conda-forge -y mamba -n base
-          '''
-        }
-        stage("Install dependencies using conda") {
-          sh '''#!/bin/bash
-            /conda/bin/mamba env create -q -f conda/environment.yml
-          '''
-        }
-        stage("Check style") {
-          error = false
+        checkout_code()
+        install_dependencies_with_conda()
 
-          def tests = [:]
-          tests["clang-format"] = {
-            try {
-              sh '''#!/bin/bash
-                source /conda/bin/activate gqe
-                find ./include ./src -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file --dry-run -Werror
-              '''
-            } catch (exc) {
-              error = true
-            }
+        try {
+          stage("clang-format") {
+            sh '''#!/bin/bash
+              source /conda/bin/activate gqe
+              find ./include ./src -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file --dry-run -Werror
+            '''
           }
-          tests["clang-tidy"] = {
-            try {
-              sh'''#!/bin/bash
-                source /conda/bin/activate gqe
-                mkdir build && cd build && cmake .. && cd ..
-                find ./include ./src -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-tidy -p build --header-filter=.* --warnings-as-errors=*
-              '''
-            } catch (exc) {
-              error = true
-            }
+          stage("clang-tidy") {
+            sh'''#!/bin/bash
+              source /conda/bin/activate gqe
+              mkdir build && cd build && cmake .. && cd ..
+              find ./include ./src ./test -name *.cpp -o -name *.cu | xargs clang-tidy -p build --header-filter=.* --warnings-as-errors=*
+            '''
           }
-          parallel(tests)
-
-          if (error) {
-            updateGitlabCommitStatus name: 'code style', state: 'failed'
-          } else {
-            updateGitlabCommitStatus name: 'code style', state: 'success'
-          }
+          updateGitlabCommitStatus name: 'code style', state: 'success'
+        } catch (exc) {
+          updateGitlabCommitStatus name: 'code style', state: 'failed'
         }
       } catch (exc) {
         updateGitlabCommitStatus name: 'code style', state: 'failed'
@@ -86,3 +83,56 @@ spec:
     }
   }
 }
+}  // code style
+
+tests["CUDA 11.5 conda"] = {
+podTemplate (yaml: '''
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: cuda
+    image: nvcr.io/nvidia/cuda:11.5.2-devel-ubuntu20.04
+    command:
+    - cat
+    resources:
+          requests:
+             nvidia.com/gpu: 1
+          limits:
+             nvidia.com/gpu: 1
+    restartPolicy: Never
+    backoffLimit: 4
+    tty: true
+  nodeSelector:
+    kubernetes.io/os: linux
+    nvidia.com/gpu_type: "TITAN_V"
+''') {
+  node(POD_LABEL) {
+    container('cuda') {
+      updateGitlabCommitStatus name: "CUDA 11.5 conda", state: "running"
+
+      try {
+        checkout_code()
+        install_dependencies_with_conda()
+
+        try {
+          stage("Run tests") {
+            sh'''#!/bin/bash
+              source /conda/bin/activate gqe
+              mkdir build && cd build && cmake .. && make -j8 && make test
+            '''
+          }
+          updateGitlabCommitStatus name: "CUDA 11.5 conda", state: "success"
+        } catch (exc) {
+          updateGitlabCommitStatus name: "CUDA 11.5 conda", state: "failed"
+        }
+      } catch (exc) {
+        updateGitlabCommitStatus name: "CUDA 11.5 conda", state: "failed"
+        throw exc
+      }
+    }
+  }
+}
+}
+
+parallel(tests)

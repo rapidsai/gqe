@@ -17,19 +17,46 @@
 namespace gqe {
 
 task::task(std::vector<std::shared_ptr<task>> dependencies, int32_t task_id, int32_t stage_id)
-  : _result_status(result_status_type::not_available),
-    _dependencies(std::move(dependencies)),
-    _task_id(task_id),
-    _stage_id(stage_id)
+  : _dependencies(std::move(dependencies)), _task_id(task_id), _stage_id(stage_id)
 {
 }
 
-void task::migrate() { throw std::logic_error("tash::migrate() has not been implemented"); }
+void task::migrate() { throw std::logic_error("task::migrate() has not been implemented"); }
 
 void task::update_result_cache(std::unique_ptr<cudf::table> new_result)
 {
   _result_cache = std::move(new_result);
   _result       = _result_cache->view();
+}
+
+std::vector<task*> task::dependencies() const noexcept
+{
+  std::vector<task*> dependencies_to_return;
+  dependencies_to_return.reserve(_dependencies.size());
+
+  for (auto const& dependency : _dependencies)
+    dependencies_to_return.push_back(dependency.get());
+
+  return dependencies_to_return;
+}
+
+void task::prepare_dependencies()
+{
+  for (auto const& dependent_task : _dependencies) {
+    if (!dependent_task->_result.has_value()) {
+      if (dependent_task->stage_id() == this->stage_id()) {
+        // If the dependent task belongs to the same stage, it has not been executed by any other
+        // GPUs, so the current GPU executes the task.
+        dependent_task->execute();
+      } else if (dependent_task->stage_id() < this->stage_id()) {
+        // If the dependent task belongs to a previous stage, it has already been executed by
+        // another GPU, so we migrate the result to the current GPU.
+        dependent_task->migrate();
+      } else {
+        throw std::logic_error("Dependent task belongs to a later stage than the current task");
+      }
+    }
+  }
 }
 
 }  // namespace gqe

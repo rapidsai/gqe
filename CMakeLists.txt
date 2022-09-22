@@ -8,7 +8,18 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-cmake_minimum_required(VERSION 3.20.1 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
+
+# Setup rapids-cmake
+if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/GQE_RAPIDS.cmake)
+  file(DOWNLOAD https://raw.githubusercontent.com/rapidsai/rapids-cmake/branch-22.08/RAPIDS.cmake
+       ${CMAKE_CURRENT_BINARY_DIR}/GQE_RAPIDS.cmake
+  )
+endif()
+include(${CMAKE_CURRENT_BINARY_DIR}/GQE_RAPIDS.cmake)
+include(rapids-cpm)
+include(rapids-find)
+rapids_cpm_init()
 
 project(gqe LANGUAGES CXX CUDA)
 
@@ -30,6 +41,18 @@ endif()
 # needed for clang-tidy
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(CUDF CONFIG REQUIRED)
+# Setup gtest
+include(${rapids-cmake-dir}/cpm/gtest.cmake)
+rapids_cpm_gtest()
+
+# Setup CTest
+if(PROJECT_IS_TOP_LEVEL)
+  include(CTest)
+endif()
+
+rapids_find_package(cudf CONFIG REQUIRED COMPONENTS testing)
 
 add_subdirectory(src)
+if(PROJECT_IS_TOP_LEVEL)
+  add_subdirectory(test)
+endif()

@@ -2,10 +2,30 @@ def checkout_code() {
   branch = env.gitlabMergeRequestLastCommit ?: "*/main"
   url = env.gitlabSourceRepoHttpUrl ?: "https://gitlab-master.nvidia.com/GPUDB/gqe.git"
   stage("Checkout code") {
-    checkout([$class: 'GitSCM',
-              branches: [[name: branch]],
-              userRemoteConfigs: [[credentialsId: 'dtcomp-ci-pw',
-                                    url: url]]])
+    checkout(
+      [
+        $class: 'GitSCM',
+        branches: [[name: branch]],
+        doGenerateSubmoduleConfigurations: false, 
+        extensions: [
+          [
+            $class: 'SubmoduleOption', 
+            disableSubmodules: false, 
+            parentCredentials: true, 
+            recursiveSubmodules: false, 
+            reference: '', 
+            trackingSubmodules: false
+          ]
+        ], 
+        submoduleCfg: [],
+        userRemoteConfigs: [
+          [
+            credentialsId: 'dtcomp-ci-pw',
+            url: url
+          ]
+        ]
+      ]
+    )
   }
 }
 
@@ -68,8 +88,8 @@ spec:
           stage("clang-tidy") {
             sh'''#!/bin/bash
               source /conda/bin/activate gqe
-              mkdir build && cd build && cmake .. && cd ..
-              find ./include ./src ./test -name *.cpp -o -name *.cu | xargs clang-tidy -p build --header-filter=.* --warnings-as-errors=*
+              mkdir build && cd build && cmake -DProtobuf_USE_STATIC_LIBS=ON .. && cd ..
+              find ./include ./src -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-tidy -p build --warnings-as-errors=*
             '''
           }
           updateGitlabCommitStatus name: 'code style', state: 'success'
@@ -119,7 +139,7 @@ spec:
           stage("Run tests") {
             sh'''#!/bin/bash
               source /conda/bin/activate gqe
-              mkdir build && cd build && cmake .. && make -j8 && make test
+              mkdir build && cd build && cmake -DProtobuf_USE_STATIC_LIBS=ON .. && make -j8 && make test
             '''
           }
           updateGitlabCommitStatus name: "CUDA 11.5 conda", state: "success"

@@ -8,6 +8,25 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-add_library(gqe STATIC executor/task.cpp logical/relation.cpp executor/join.cpp)
+# We cannot use add_custom_command() since the file names need to be known at
+#  configuration time so depenencies can be known during compile time
+# Note that we're assuming Substrait protobuf is stable and, in most cases, will not
+#  need to be updated after the first header and source file generation. So the
+#  generate_substrait.sh will not generate anything if the subtrait files in the
+#  include directory already exist. In the rare circumstances that we want to
+#  re-generate the substrait include files, the include/substrait directory needs
+#  to be removed before running CMAKE again
+execute_process(
+    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_substrait.sh
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../
+)
+
+file(GLOB substrait_sources ${CMAKE_CURRENT_SOURCE_DIR}/../include/substrait/*.cc ${CMAKE_CURRENT_SOURCE_DIR}/../include/substrait/extensions/*.cc)
+add_library(substrait ${substrait_sources})
+target_include_directories(substrait PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(substrait PRIVATE protobuf::libprotobuf)
+
+add_library(gqe STATIC executor/task.cpp logical/relation.cpp logical/from_substrait.cpp executor/join.cpp)
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(gqe PUBLIC cudf::cudf)
+target_link_libraries(gqe PRIVATE substrait)

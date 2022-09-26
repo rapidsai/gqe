@@ -51,6 +51,7 @@ if(PROJECT_IS_TOP_LEVEL)
 endif()
 
 rapids_find_package(cudf CONFIG REQUIRED COMPONENTS testing)
+find_package(Protobuf REQUIRED)
 
 add_subdirectory(src)
 if(PROJECT_IS_TOP_LEVEL)

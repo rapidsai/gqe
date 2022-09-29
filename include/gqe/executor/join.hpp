@@ -14,6 +14,7 @@
 
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
+#include <gqe/types.hpp>
 
 #include <cudf/types.hpp>
 
@@ -25,8 +26,6 @@ namespace gqe {
 
 class join_task : public task {
  public:
-  enum class join_type_type { inner, left, left_semi, left_anti, full };
-
   /**
    * @brief Construct a new join task.
    *
@@ -52,13 +51,13 @@ class join_task : public task {
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    */
-  join_task(std::shared_ptr<task> left,
+  join_task(int32_t task_id,
+            int32_t stage_id,
+            std::shared_ptr<task> left,
             std::shared_ptr<task> right,
             join_type_type join_type,
             std::unique_ptr<expression> condition,
-            std::vector<cudf::size_type> projection_indices,
-            int32_t task_id,
-            int32_t stage_id);
+            std::vector<cudf::size_type> projection_indices);
 
   /**
    * @copydoc gqe::task::execute()

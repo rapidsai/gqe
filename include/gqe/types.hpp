@@ -12,31 +12,16 @@
 
 #pragma once
 
-#include <gqe/executor/task.hpp>
-
-#include <cudf/table/table.hpp>
-
-#include <cstdint>
-#include <memory>
-
 namespace gqe {
 
-namespace test {
+/**
+ * @brief Enum to specify the type of a join.
+ */
+enum class join_type_type { inner, left, left_semi, left_anti, full };
 
 /**
- * @brief A task that has a valid result during construction time. Used for testing.
+ * @brief List of input file formats.
  */
-class executed_task : public task {
- public:
-  executed_task(std::unique_ptr<cudf::table> result, int32_t task_id, int32_t stage_id)
-    : task(task_id, stage_id, {})
-  {
-    update_result_cache(std::move(result));
-  }
-
-  void execute() override {}
-};
-
-}  // namespace test
+enum class file_format_type { parquet };
 
 }  // namespace gqe

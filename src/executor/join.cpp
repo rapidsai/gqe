@@ -28,14 +28,14 @@
 
 namespace gqe {
 
-join_task::join_task(std::shared_ptr<task> left,
+join_task::join_task(int32_t task_id,
+                     int32_t stage_id,
+                     std::shared_ptr<task> left,
                      std::shared_ptr<task> right,
                      join_type_type join_type,
                      std::unique_ptr<expression> condition,
-                     std::vector<cudf::size_type> projection_indices,
-                     int32_t task_id,
-                     int32_t stage_id)
-  : task({std::move(left), std::move(right)}, task_id, stage_id),
+                     std::vector<cudf::size_type> projection_indices)
+  : task(task_id, stage_id, {std::move(left), std::move(right)}),
     _join_type(join_type),
     _condition(std::move(condition)),
     _projection_indices(std::move(projection_indices))

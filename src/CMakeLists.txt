@@ -26,7 +26,15 @@ add_library(substrait ${substrait_sources})
 target_include_directories(substrait PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(substrait PRIVATE protobuf::libprotobuf)
 
-add_library(gqe STATIC executor/task.cpp logical/relation.cpp logical/from_substrait.cpp executor/join.cpp)
+add_library(
+    gqe STATIC
+    logical/relation.cpp
+    logical/from_substrait.cpp
+    executor/task.cpp
+    executor/join.cpp
+    executor/read.cpp
+)
+
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(gqe PUBLIC cudf::cudf)
 target_link_libraries(gqe PRIVATE substrait)

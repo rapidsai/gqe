@@ -32,7 +32,7 @@ class task {
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    */
-  task(std::vector<std::shared_ptr<task>> dependencies, int32_t task_id, int32_t stage_id);
+  task(int32_t task_id, int32_t stage_id, std::vector<std::shared_ptr<task>> dependencies);
 
   virtual ~task()   = default;
   task(const task&) = delete;
@@ -95,14 +95,14 @@ class task {
   void prepare_dependencies();
 
  private:
+  int32_t _task_id;
+  int32_t _stage_id;
+  std::vector<std::shared_ptr<task>> _dependencies;
   std::optional<cudf::table_view> _result;
   // This field could hold the result after execution, or the migrated table from a remote GPU. Note
   // that it is possible that this field is empty but `_result` contains the valid view, when
   // directly accessing a remote GPU's mapped memory.
   std::unique_ptr<cudf::table> _result_cache;
-  std::vector<std::shared_ptr<task>> _dependencies;
-  int32_t _task_id;
-  int32_t _stage_id;
 };
 
 }  // namespace gqe

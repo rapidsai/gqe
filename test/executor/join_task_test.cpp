@@ -34,7 +34,7 @@ using int64_column_wrapper = cudf::test::fixed_width_column_wrapper<int64_t>;
  */
 class SingleKeyColumnJoinTest : public ::testing::Test {
  protected:
-  void construct_join_task(gqe::join_task::join_type_type join_type,
+  void construct_join_task(gqe::join_type_type join_type,
                            std::vector<cudf::size_type> projection_indices)
   {
     int64_column_wrapper left_key({2, 1, 1, 3, 4, 1});
@@ -65,13 +65,13 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
       std::make_shared<gqe::column_reference_expression>(0),
       std::make_shared<gqe::column_reference_expression>(2));
 
-    join_task = std::make_unique<gqe::join_task>(left_task,
+    join_task = std::make_unique<gqe::join_task>(join_task_id,
+                                                 stage_id,
+                                                 left_task,
                                                  right_task,
                                                  join_type,
                                                  std::move(join_condition),
-                                                 std::move(projection_indices),
-                                                 join_task_id,
-                                                 stage_id);
+                                                 std::move(projection_indices));
   }
 
   std::unique_ptr<gqe::join_task> join_task;
@@ -79,7 +79,7 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
 
 TEST_F(SingleKeyColumnJoinTest, InnerJoin)
 {
-  construct_join_task(gqe::join_task::join_type_type::inner, {0, 1, 3});
+  construct_join_task(gqe::join_type_type::inner, {0, 1, 3});
 
   join_task->execute();
 
@@ -103,7 +103,7 @@ TEST_F(SingleKeyColumnJoinTest, InnerJoin)
 
 TEST_F(SingleKeyColumnJoinTest, LeftJoin)
 {
-  construct_join_task(gqe::join_task::join_type_type::left, {0, 1, 3});
+  construct_join_task(gqe::join_type_type::left, {0, 1, 3});
 
   join_task->execute();
 
@@ -128,7 +128,7 @@ TEST_F(SingleKeyColumnJoinTest, LeftJoin)
 
 TEST_F(SingleKeyColumnJoinTest, LeftSemiJoin)
 {
-  construct_join_task(gqe::join_task::join_type_type::left_semi, {0, 1});
+  construct_join_task(gqe::join_type_type::left_semi, {0, 1});
 
   join_task->execute();
 
@@ -150,7 +150,7 @@ TEST_F(SingleKeyColumnJoinTest, LeftSemiJoin)
 
 TEST_F(SingleKeyColumnJoinTest, LeftAntiJoin)
 {
-  construct_join_task(gqe::join_task::join_type_type::left_anti, {0, 1});
+  construct_join_task(gqe::join_type_type::left_anti, {0, 1});
 
   join_task->execute();
 
@@ -172,7 +172,7 @@ TEST_F(SingleKeyColumnJoinTest, LeftAntiJoin)
 
 TEST_F(SingleKeyColumnJoinTest, FullJoin)
 {
-  construct_join_task(gqe::join_task::join_type_type::full, {0, 1, 2, 3});
+  construct_join_task(gqe::join_type_type::full, {0, 1, 2, 3});
 
   join_task->execute();
 

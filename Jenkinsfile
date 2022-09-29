@@ -6,17 +6,17 @@ def checkout_code() {
       [
         $class: 'GitSCM',
         branches: [[name: branch]],
-        doGenerateSubmoduleConfigurations: false, 
+        doGenerateSubmoduleConfigurations: false,
         extensions: [
           [
-            $class: 'SubmoduleOption', 
-            disableSubmodules: false, 
-            parentCredentials: true, 
-            recursiveSubmodules: false, 
-            reference: '', 
+            $class: 'SubmoduleOption',
+            disableSubmodules: false,
+            parentCredentials: true,
+            recursiveSubmodules: false,
+            reference: '',
             trackingSubmodules: false
           ]
-        ], 
+        ],
         submoduleCfg: [],
         userRemoteConfigs: [
           [
@@ -126,6 +126,7 @@ spec:
   nodeSelector:
     kubernetes.io/os: linux
     nvidia.com/gpu_type: "TITAN_V"
+    nvidia.com/driver_version: 510.41
 ''') {
   node(POD_LABEL) {
     container('cuda') {
@@ -138,8 +139,10 @@ spec:
         try {
           stage("Run tests") {
             sh'''#!/bin/bash
+              hostname
+              nvidia-smi
               source /conda/bin/activate gqe
-              mkdir build && cd build && cmake -DProtobuf_USE_STATIC_LIBS=ON .. && make -j8 && make test
+              mkdir build && cd build && cmake -DProtobuf_USE_STATIC_LIBS=ON .. && make -j8 && ctest --output-on-failure
             '''
           }
           updateGitlabCommitStatus name: "CUDA 11.5 conda", state: "success"

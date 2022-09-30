@@ -40,14 +40,10 @@ int main(int argc, char** argv)
   // Read and parse substrait file
   std::vector<std::shared_ptr<gqe::logical::relation>> query_plan =
     parser.from_file(substrait_file);
+  // Print gqe logical relation in json format
   std::cout << "Visiting plan nodes" << std::endl;
   std::cout << "Relation size = " << query_plan.size() << std::endl;
-  // Topological sort relations in the plan
-  auto ordered_relations = ordered_relation_list(query_plan[0].get());
-  // Print relations
-  for (auto relation : ordered_relations) {
-    std::cout << relation->to_string() << std::endl;
-  }
+  std::cout << query_plan[0]->to_string() << std::endl;
 
   return 0;
 }

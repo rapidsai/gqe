@@ -13,14 +13,12 @@
 #pragma once
 
 #include <gqe/expression/expression.hpp>
+#include <gqe/types.hpp>
 
 #include <cudf/types.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
-#include <memory>
-#include <optional>
-#include <ostream>
-#include <regex>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -57,7 +55,17 @@ class relation {
   [[nodiscard]] virtual std::vector<cudf::data_type> data_types() const = 0;
 
   /**
-   * @brief Return a string representation of this relation.
+   * @brief Return the number of columns in the output relation.
+   *
+   * @return Number of columns.
+   */
+  [[nodiscard]] virtual cudf::size_type num_columns() const = 0;
+
+  /**
+   * @brief Return a string representation (in json format) of this relation.
+   *
+   * @note The returned json string is not prettified. This is meant to be used in
+   * conjunction with tools like [PlantUML](www.plantuml.com).
    */
   [[nodiscard]] virtual std::string to_string() const = 0;
 
@@ -109,6 +117,78 @@ class relation {
   std::vector<std::shared_ptr<relation>> _children;
 };
 
+class join_relation : public relation {
+ public:
+  /**
+   * @brief Construct a new join relation object
+   *
+   * @param left The left input relation
+   * @param right The right input relation
+   * @param condition The expression to apply to input keys
+   * @param join_type Type of join
+   */
+  join_relation(std::shared_ptr<relation> left,
+                std::shared_ptr<relation> right,
+                std::unique_ptr<expression> condition,
+                join_type_type join_type);
+
+  /**
+   * @copydoc relation::type()
+   */
+  [[nodiscard]] relation_type type() const noexcept override { return relation_type::join; }
+
+  /**
+   * @copydoc relation::data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> data_types() const override;
+
+  /**
+   * @copydoc relation::num_columns()
+   */
+  [[nodiscard]] cudf::size_type num_columns() const override;
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  std::string to_string() const override;
+
+  /**
+   * @brief Return join type for this relation
+   *
+   * @return Type of join to perform
+   */
+  [[nodiscard]] join_type_type join_type() const noexcept { return _join_type; }
+
+  /**
+   * @brief Return the join condition for this relation
+   *
+   * @return Join condition
+   *
+   * @note This function does not share ownership. The caller is responsible for keeping
+   * the returned pointer alive.
+   */
+  [[nodiscard]] expression* condition() const noexcept { return _condition.get(); }
+
+  /**
+   * @brief Return the list of projection indices that indicate columns to return
+   *
+   * @return List of projection indices
+   */
+  [[nodiscard]] std::vector<cudf::size_type> projection_indices() const noexcept
+  {
+    return _projection_indices;
+  }
+
+ private:
+  void _init_data_types() const;
+  std::unique_ptr<expression>
+    _condition;  //!< Join condition to define when a left tuple matches with a right tuple
+  std::vector<cudf::size_type> _projection_indices;  //!< Columns to retain after joined
+  join_type_type _join_type;
+  mutable std::vector<cudf::data_type>
+    _data_types;  //!< Data types of columns in the output relation
+};
+
 class read_relation : public relation {
  public:
   /**
@@ -133,22 +213,24 @@ class read_relation : public relation {
   /**
    * @copydoc relation::to_string()
    */
-  std::string to_string() const override;
+  [[nodiscard]] std::string to_string() const override;
 
   /**
    * @brief Getter for name of the table to read from
    *
    * @return Name of table to read from
    */
-  std::string table_name() const { return _table_name; }
+  [[nodiscard]] std::string table_name() const { return _table_name; }
+
+  /**
+   * @copydoc relation::num_columns()
+   */
+  [[nodiscard]] cudf::size_type num_columns() const override { return this->_data_types.size(); }
 
  private:
-  // List of columns to read
-  std::vector<std::string> _column_names;
-  // Name of the table to read data from
-  std::string _table_name;
-  // Data types of columns in the output relation
-  mutable std::vector<cudf::data_type> _data_types;
+  std::vector<std::string> _column_names;    //!< List of columns to read
+  std::string _table_name;                   //!< Name of the table to read data from
+  std::vector<cudf::data_type> _data_types;  //!< Data types of columns in the output relation
 };
 
 class project_relation : public relation {
@@ -157,7 +239,7 @@ class project_relation : public relation {
    * @brief Constructs a projection relation.
    */
   project_relation(std::shared_ptr<relation> children,
-                   std::vector<std::shared_ptr<expression>> output_expressions);
+                   std::vector<std::unique_ptr<expression>> output_expressions);
 
   /**
    * @copydoc relation::type()
@@ -174,11 +256,45 @@ class project_relation : public relation {
    */
   std::string to_string() const override;
 
-  // List of one or more expressions to add to the input
-  // This is usually used in SELECT and its order of selection
-  std::vector<std::shared_ptr<expression>> output_expressions;
-  // Data types of columns in the output relation
-  mutable std::optional<std::vector<cudf::data_type>> _data_types;
+  /**
+   * @copydoc relation::num_columns()
+   */
+  [[nodiscard]] cudf::size_type num_columns() const override
+  {
+    if (!(this->_data_types)) { this->_init_data_types(); }
+    return this->_data_types.value().size();
+  }
+
+  /**
+   * @brief Return a list of raw pointers to the output expressions.
+   *
+   * @return Vector of output expression raw pointers
+   *
+   * @note The returned relations do not share ownership. This object must be kept alive for the
+   * returned relations to be valid.
+   */
+  std::vector<expression*> output_expressions_unsafe() const
+  {
+    std::vector<expression*> expressions_to_return;
+    expressions_to_return.reserve(_output_expressions.size());
+
+    for (auto const& expr : _output_expressions) {
+      expressions_to_return.push_back(expr.get());
+    }
+    return expressions_to_return;
+  }
+
+ private:
+  void _init_data_types() const;
+  //! List of one or more expressions to add to the input
+  /*!
+    This is usually used in SELECT and its order of selection.
+  */
+  std::vector<std::unique_ptr<expression>> _output_expressions;
+  mutable std::optional<std::vector<cudf::data_type>>
+    _data_types;  //!< Data types of columns in the output relation
+  // TODO: Pass projection information into JOIN. For now, we're going to return all columns.
+  //       Projection will be handled in its own relation.
 };
 }  // namespace logical
 }  // namespace gqe

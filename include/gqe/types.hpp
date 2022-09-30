@@ -17,7 +17,7 @@ namespace gqe {
 /**
  * @brief Enum to specify the type of a join.
  */
-enum class join_type_type { inner, left, left_semi, left_anti, full };
+enum class join_type_type { inner, left, left_semi, left_anti, full, single };
 
 /**
  * @brief List of input file formats.

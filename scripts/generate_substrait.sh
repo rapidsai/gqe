@@ -22,7 +22,6 @@ else
     echo "Generating Substrait header files ..."
     echo "Assuming substrait submodule is already initialized"
     cd substrait/proto
-    mkdir -p cppout
     protoc substrait/*.proto substrait/extensions/*.proto --cpp_out=../../include
     echo "Done generating Substrait header files"
 fi

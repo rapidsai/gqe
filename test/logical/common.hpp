@@ -14,8 +14,17 @@
 
 #include <gqe/logical/from_substrait.hpp>
 
+#include <stack>
+
 void topological_sort(gqe::logical::relation* root,
                       std::unordered_set<gqe::logical::relation*>& visited,
                       std::stack<gqe::logical::relation*>& stack);
 
 std::vector<gqe::logical::relation*> ordered_relation_list(gqe::logical::relation* root);
+
+/**
+ * @brief Given a logical plan rooted at relation `root`, print in json format
+ * 
+ * @param root The root relation of the plan to print
+ */
+void print_plan(gqe::logical::relation* root);

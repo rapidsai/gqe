@@ -12,13 +12,14 @@
 
 #pragma once
 
+#include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/logical/relation.hpp>
+
+#include <substrait/algebra.pb.h>
 #include <substrait/plan.pb.h>
 
-#include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace gqe {
@@ -36,7 +37,10 @@ class substrait_parser {
   std::vector<std::shared_ptr<gqe::logical::relation>> from_file(std::string substrait_file);
 
   /**
-   * @brief Parse substrait Expression message into gqe::expression
+   * @brief Parse substrait Expression message into gqe::expression.
+   *
+   * This function calls appropriate `parse_[expression_type]()` by check which `rex_type` field
+   * is set.
    *
    * @param expression Substrait expression
    * @return The parsed expression
@@ -53,7 +57,7 @@ class substrait_parser {
 
   /**
    * @brief Store information about table `table_name` and its columns and types in
-   * `input_column_types`. This is used for validating table and column references.
+   * `input_column_types`
    *
    * @param table_name Name of the table to register
    * @param column_names List of column names in table `table_name`
@@ -69,7 +73,34 @@ class substrait_parser {
 
  private:
   /**
-   * @brief Parse Substrait FieldReference expression message into gqe::column_reference_expression
+   * @brief Storing function references and their names into `function_reference_to_name` map
+   *
+   * @param reference Substrait function anchor id
+   * @param function_name Substrait function name
+   */
+  void add_function_reference(uint32_t reference, std::string function_name);
+
+  /**
+   * @brief Parse Substrait Literal expression message into `gqe::literal_expression`
+   *
+   * @param literal_expression Substrait literal expression
+   * @return The parsed lireral expression
+   */
+  std::unique_ptr<expression> parse_literal_expression(
+    substrait::Expression_Literal const& literal_expression) const;
+
+  /**
+   * @brief Parse Substrait ScalarFunction expression message into `gqe::scalar_function_expression`
+   *
+   * @param selection_expression Substrait scalar function expression
+   * @return The parsed ScalarFunction expression
+   */
+  std::unique_ptr<gqe::expression> parse_scalar_function_expression(
+    substrait::Expression_ScalarFunction const& selection_expression) const;
+
+  /**
+   * @brief Parse Substrait FieldReference expression message into
+   * `gqe::column_reference_expression`
    *
    * @param selection_expression Substrait field reference expression
    * @return The parsed FieldReference (select) expression
@@ -77,6 +108,15 @@ class substrait_parser {
   std::unique_ptr<gqe::expression> parse_selection_expression(
     substrait::Expression_FieldReference const& selection_expression) const;
   // TODO: Add more expressions
+
+  /**
+   * @brief Parse Substrait Join Relation into gqe::logical::join_relation
+   *
+   * @param join_relation Substrait join relation
+   * @return The parsed join relation
+   */
+  std::unique_ptr<gqe::logical::relation> parse_join_relation(
+    substrait::JoinRel const& join_relation) const;
 
   /**
    * @brief Parse Substrait Project Relation into gqe::logical::project_relation
@@ -101,5 +141,6 @@ class substrait_parser {
   // table_name => [column_name => [column_type]]
   std::unordered_map<std::string, std::unordered_map<std::string, cudf::data_type>>
     input_column_types;
+  std::unordered_map<uint32_t, std::string> function_reference_to_name;
 };
 }  // namespace gqe

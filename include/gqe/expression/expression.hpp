@@ -66,9 +66,31 @@ class expression {
    */
   expression(std::vector<std::shared_ptr<expression>> children) : _children(std::move(children)) {}
 
-  virtual ~expression()         = default;
-  expression(const expression&) = delete;
-  expression& operator=(const expression&) = delete;
+  virtual ~expression() = default;
+
+  /**
+   * @brief Construct a new expression by deep copying `expr`.
+   */
+  expression(const expression& expr)
+  {
+    _children.reserve(expr._children.size());
+    for (auto const& child : expr._children)
+      _children.push_back(child->clone());
+  }
+
+  /**
+   * @brief Assign to the current object by deep copying `expr`.
+   */
+  expression& operator=(const expression& expr)
+  {
+    if (this != &expr) {
+      _children.clear();
+      _children.reserve(expr._children.size());
+      for (auto const& child : expr._children)
+        _children.push_back(child->clone());
+    }
+    return *this;
+  }
 
   /**
    * @brief Return the operator type of the expression.
@@ -104,6 +126,11 @@ class expression {
    * @brief Return the string representation of the expression.
    */
   [[nodiscard]] virtual std::string to_string() const noexcept = 0;
+
+  /**
+   * @brief Return a deep copy of the current object.
+   */
+  [[nodiscard]] virtual std::unique_ptr<expression> clone() const = 0;
 
  private:
   // Child nodes of the current expression

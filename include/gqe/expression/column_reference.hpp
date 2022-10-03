@@ -62,6 +62,14 @@ class column_reference_expression : public expression {
     return "column_reference(" + std::to_string(_column_idx) + ")";
   }
 
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<column_reference_expression>(*this);
+  }
+
  private:
   cudf::size_type _column_idx;
 };

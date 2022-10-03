@@ -87,6 +87,14 @@ class literal_expression : public gqe::expression {
            value_string + ")";
   }
 
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<literal_expression>(*this);
+  }
+
  private:
   /**
    * @brief Return the corresponding cuDF type from a C++ type

@@ -79,6 +79,14 @@ class logical_and_expression : public binary_op_expression {
     assert(child_exprs.size() == 2);
     return child_exprs[0]->to_string() + " && " + child_exprs[1]->to_string();
   }
+
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<logical_and_expression>(*this);
+  }
 };
 
 // operator ||
@@ -105,6 +113,14 @@ class logical_or_expression : public binary_op_expression {
     auto child_exprs = children();
     assert(child_exprs.size() == 2);
     return child_exprs[0]->to_string() + " || " + child_exprs[1]->to_string();
+  }
+
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<logical_or_expression>(*this);
   }
 };
 
@@ -133,6 +149,14 @@ class equal_expression : public binary_op_expression {
     assert(child_exprs.size() == 2);
     return child_exprs[0]->to_string() + " = " + child_exprs[1]->to_string();
   }
+
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<equal_expression>(*this);
+  }
 };
 
 // operator <
@@ -159,6 +183,14 @@ class less_expression : public binary_op_expression {
     auto child_exprs = children();
     assert(child_exprs.size() == 2);
     return child_exprs[0]->to_string() + " < " + child_exprs[1]->to_string();
+  }
+
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<less_expression>(*this);
   }
 };
 

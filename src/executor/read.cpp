@@ -81,6 +81,7 @@ void read_task::execute()
 
   assert(converted_columns.size() == num_columns);
   update_result_cache(std::make_unique<cudf::table>(std::move(converted_columns)));
+  remove_dependencies();
 }
 
 }  // namespace gqe

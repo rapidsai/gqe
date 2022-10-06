@@ -33,6 +33,7 @@ add_library(
     executor/task.cpp
     executor/join.cpp
     executor/read.cpp
+    executor/concatenate.cpp
 )
 
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)

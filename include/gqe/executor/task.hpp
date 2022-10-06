@@ -94,6 +94,14 @@ class task {
    */
   void prepare_dependencies();
 
+  /**
+   * @brief Remove all dependencies from this task.
+   *
+   * This function should be called after the current task has a valid result, as the dependencies
+   * are no longer needed.
+   */
+  void remove_dependencies() noexcept { _dependencies.clear(); }
+
  private:
   int32_t _task_id;
   int32_t _stage_id;

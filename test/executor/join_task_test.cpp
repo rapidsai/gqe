@@ -58,9 +58,9 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
     constexpr int32_t stage_id      = 0;
 
     auto left_task =
-      std::make_shared<gqe::test::executed_task>(std::move(left_table), left_task_id, stage_id);
+      std::make_shared<gqe::test::executed_task>(left_task_id, stage_id, std::move(left_table));
     auto right_task =
-      std::make_shared<gqe::test::executed_task>(std::move(right_table), right_task_id, stage_id);
+      std::make_shared<gqe::test::executed_task>(right_task_id, stage_id, std::move(right_table));
     auto join_condition = std::make_unique<gqe::equal_expression>(
       std::make_shared<gqe::column_reference_expression>(0),
       std::make_shared<gqe::column_reference_expression>(2));

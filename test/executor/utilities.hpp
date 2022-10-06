@@ -28,7 +28,7 @@ namespace test {
  */
 class executed_task : public task {
  public:
-  executed_task(std::unique_ptr<cudf::table> result, int32_t task_id, int32_t stage_id)
+  executed_task(int32_t task_id, int32_t stage_id, std::unique_ptr<cudf::table> result)
     : task(task_id, stage_id, {})
   {
     update_result_cache(std::move(result));

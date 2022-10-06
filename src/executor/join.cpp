@@ -298,6 +298,7 @@ void join_task::execute()
                                  _projection_indices);
 
   update_result_cache(std::move(join_result));
+  remove_dependencies();
 }
 
 }  // namespace gqe

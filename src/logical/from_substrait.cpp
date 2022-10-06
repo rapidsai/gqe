@@ -161,8 +161,71 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_relation(
     return parse_project_relation(relation.project());
   else if (relation.has_join())
     return parse_join_relation(relation.join());
+  else if (relation.has_fetch())
+    return parse_fetch_relation(relation.fetch());
+  else if (relation.has_sort())
+    return parse_sort_relation(relation.sort());
   else
     throw std::runtime_error("Unsupported relation type");
+}
+
+std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_fetch_relation(
+  substrait::FetchRel const& fetch_relation) const
+{
+  auto input_relation = parse_relation(fetch_relation.input());
+
+  return std::make_unique<gqe::logical::fetch_relation>(
+    std::move(input_relation), fetch_relation.offset(), fetch_relation.count());
+}
+
+std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_sort_relation(
+  substrait::SortRel const& sort_relation) const
+{
+  auto input_relation = parse_relation(sort_relation.input());
+
+  std::vector<cudf::order> column_orders;
+  std::vector<cudf::null_order> null_precedences;
+  std::vector<std::unique_ptr<expression>> expressions;
+
+  const size_t num_sorts = sort_relation.sorts_size();
+  column_orders.reserve(num_sorts);
+  null_precedences.reserve(num_sorts);
+  expressions.reserve(num_sorts);
+
+  for (auto const& sort_order : sort_relation.sorts()) {
+    if (!sort_order.has_direction())
+      throw std::runtime_error("Does not support sort with comparison function reference");
+
+    expressions.push_back(parse_expression(sort_order.expr()));
+
+    switch (sort_order.direction()) {
+      case substrait::SortField_SortDirection::
+        SortField_SortDirection_SORT_DIRECTION_ASC_NULLS_FIRST:
+        column_orders.push_back(cudf::order::ASCENDING);
+        null_precedences.push_back(cudf::null_order::BEFORE);
+        break;
+      case substrait::SortField_SortDirection::
+        SortField_SortDirection_SORT_DIRECTION_ASC_NULLS_LAST:
+        column_orders.push_back(cudf::order::ASCENDING);
+        null_precedences.push_back(cudf::null_order::AFTER);
+        break;
+      case substrait::SortField_SortDirection::
+        SortField_SortDirection_SORT_DIRECTION_DESC_NULLS_FIRST:
+        column_orders.push_back(cudf::order::DESCENDING);
+        null_precedences.push_back(cudf::null_order::BEFORE);
+        break;
+      case substrait::SortField_SortDirection::
+        SortField_SortDirection_SORT_DIRECTION_DESC_NULLS_LAST:
+        column_orders.push_back(cudf::order::DESCENDING);
+        null_precedences.push_back(cudf::null_order::AFTER);
+        break;
+      default: throw std::runtime_error("Unsupported SortField_SortDirection");
+    }
+  }
+  return std::make_unique<gqe::logical::sort_relation>(std::move(input_relation),
+                                                       std::move(column_orders),
+                                                       std::move(null_precedences),
+                                                       std::move(expressions));
 }
 
 std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_project_relation(

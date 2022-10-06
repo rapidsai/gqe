@@ -10,11 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <cudf/types.hpp>
 #include <gqe/logical/relation.hpp>
 
+#include <memory>
 #include <numeric>
+#include <ostream>
 #include <regex>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace gqe {
@@ -56,6 +60,49 @@ std::string list_to_string(std::vector<logical::relation*> relation_list)
   }
   relation_list_string += "]";
   return relation_list_string;
+}
+
+/**
+ * @brief Return string representation of expression list
+ *
+ * @param expression_list The list of relations to convert to string
+ * @return Expression list string representation
+ */
+std::string list_to_string(std::vector<expression*> expression_list)
+{
+  std::string expression_list_string = "[";
+  bool first                         = true;
+  for (auto expr : expression_list) {
+    if (!first) expression_list_string += ", ";
+    expression_list_string += "\"" + expr->to_string() + "\"";
+    first = false;
+  }
+  expression_list_string += "]";
+  return expression_list_string;
+}
+
+std::ostream& operator<<(std::ostream& os, cudf::order order)
+{
+  switch (order) {
+    case cudf::order::ASCENDING: os << "ASC"; break;
+    case cudf::order::DESCENDING: os << "DESC"; break;
+    default:
+      throw std::runtime_error("Invalid sort order enum: " +
+                               std::to_string(static_cast<int>(order)));
+  }
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, cudf::null_order prec)
+{
+  switch (prec) {
+    case cudf::null_order::BEFORE: os << "NULLS FIRST"; break;
+    case cudf::null_order::AFTER: os << "NULLS LAST"; break;
+    default:
+      throw std::runtime_error("Invalid null order enum: " +
+                               std::to_string(static_cast<int>(prec)));
+  }
+  return os;
 }
 
 /**
@@ -108,6 +155,65 @@ std::string join_type_str(join_type_type join_type)
 
 namespace logical {
 
+fetch_relation::fetch_relation(std::shared_ptr<relation> input_relation,
+                               int64_t offset,
+                               int64_t count)
+  : relation({std::move(input_relation)}), _offset(offset), _count(count)
+{
+  assert(this->children_size() == 1);
+  // Output data types are the same as input data types
+  _data_types = this->children_unsafe()[0]->data_types();
+}
+
+std::string fetch_relation::to_string() const
+{
+  std::string fetch_relation_string = "{\"Fetch\" : {\n";
+  // Offset
+  fetch_relation_string += "\t\"offset\" : \"" + std::to_string(_offset) + "\",\n";
+  // Count
+  fetch_relation_string += "\t\"count\" : \"" + std::to_string(_count) + "\",\n";
+  // Data types
+  fetch_relation_string += "\t\"data types\" : " + gqe::list_to_string(data_types()) + ",\n";
+  // Children
+  fetch_relation_string += "\t\"children\" : " + gqe::list_to_string(children_unsafe()) + "\n";
+  fetch_relation_string += "}}";
+  return fetch_relation_string;
+}
+
+sort_relation::sort_relation(std::shared_ptr<relation> input_relation,
+                             std::vector<cudf::order> column_orders,
+                             std::vector<cudf::null_order> null_precedences,
+                             std::vector<std::unique_ptr<expression>> expressions)
+  : relation({std::move(input_relation)}),
+    _expressions(std::move(expressions)),
+    _column_orders(std::move(column_orders)),
+    _null_orders(std::move(null_precedences))
+{
+  assert(this->children_size() == 1);
+  // Output data types are the same as input data types
+  _data_types = this->children_unsafe()[0]->data_types();
+}
+
+std::string sort_relation::to_string() const
+{
+  std::string sort_relation_string = "{\"Sort\" : {\n";
+  // Sort expressions
+  sort_relation_string +=
+    "\t\"sort expressions\" : " + list_to_string(expressions_unsafe()) + ",\n";
+  // Column orders
+  sort_relation_string +=
+    "\t\"column orders\" : " + list_to_string(_column_orders.begin(), _column_orders.end()) + ",\n";
+  // Null precedences
+  sort_relation_string +=
+    "\t\"null orders\" : " + list_to_string(_null_orders.begin(), _null_orders.end()) + ",\n";
+  // Data types
+  sort_relation_string += "\t\"data types\" : " + gqe::list_to_string(data_types()) + ",\n";
+  // Children
+  sort_relation_string += "\t\"children\" : " + gqe::list_to_string(children_unsafe()) + "\n";
+  sort_relation_string += "}}";
+  return sort_relation_string;
+}
+
 join_relation::join_relation(std::shared_ptr<relation> left,
                              std::shared_ptr<relation> right,
                              std::unique_ptr<expression> condition,
@@ -145,8 +251,6 @@ void join_relation::_init_data_types() const
 }
 
 std::vector<cudf::data_type> join_relation::data_types() const { return _data_types; }
-
-cudf::size_type join_relation::num_columns() const { return _data_types.size(); }
 
 std::string join_relation::to_string() const
 {
@@ -223,14 +327,8 @@ std::string project_relation::to_string() const
 {
   std::string project_relation_str = "{\"Project\" : {\n";
   // Output expressions
-  bool first = true;
-  project_relation_str += "\t\"output expressions\" : [";
-  for (auto expression : output_expressions_unsafe()) {
-    if (!first) project_relation_str += ",\n";
-    project_relation_str += "\"" + expression->to_string() + "\"";
-    first = false;
-  }
-  project_relation_str += "\t],\n";
+  project_relation_str +=
+    "\t\"output expressions\" : " + gqe::list_to_string(output_expressions_unsafe()) + ",\n";
   // Data types
   project_relation_str += "\t\"data types\" : " + gqe::list_to_string(data_types()) + ",\n";
   // Children

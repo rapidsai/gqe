@@ -55,19 +55,19 @@ class relation {
   [[nodiscard]] virtual std::vector<cudf::data_type> data_types() const = 0;
 
   /**
-   * @brief Return the number of columns in the output relation.
-   *
-   * @return Number of columns.
-   */
-  [[nodiscard]] virtual cudf::size_type num_columns() const = 0;
-
-  /**
    * @brief Return a string representation (in json format) of this relation.
    *
    * @note The returned json string is not prettified. This is meant to be used in
    * conjunction with tools like [PlantUML](www.plantuml.com).
    */
   [[nodiscard]] virtual std::string to_string() const = 0;
+
+  /**
+   * @brief Return the number of columns in the output relation.
+   *
+   * @return Number of columns.
+   */
+  [[nodiscard]] cudf::size_type num_columns() const { return data_types().size(); }
 
   /**
    * @brief Return the children nodes as a list of `shared_ptr`.
@@ -117,6 +117,115 @@ class relation {
   std::vector<std::shared_ptr<relation>> _children;
 };
 
+/**
+ * @brief The fetch relation is used for limiting the number of rows returned.
+ *
+ * If the offset is specified, it will also return the row starting from the spcified
+ * offset.
+ */
+class fetch_relation : public relation {
+ public:
+  /**
+   * @brief Construct a new fetch relation object
+   *
+   * @param input_relation Input to the fetch relation
+   * @param offset The offset experssed in number of records
+   * @param count The number of records to return
+   */
+  fetch_relation(std::shared_ptr<relation> input_relation, int64_t offset, int64_t count);
+
+  /**
+   * @copydoc relation::type()
+   */
+  [[nodiscard]] relation_type type() const noexcept override { return relation_type::fetch; }
+
+  /**
+   * @copydoc relation::data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> data_types() const override { return _data_types; };
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
+
+  /**
+   * @brief Return the offset for the retrieval records
+   *
+   * @return The index of the starting row to be returned
+   */
+  [[nodiscard]] int64_t offset() const noexcept { return _offset; };
+
+  /**
+   * @brief Return the count for the retrieval records
+   *
+   * @return The number of rows to be returned
+   */
+  [[nodiscard]] int64_t count() const noexcept { return _count; };
+
+ private:
+  int64_t _offset;
+  int64_t _count;
+  std::vector<cudf::data_type> _data_types;
+};
+
+class sort_relation : public relation {
+ public:
+  sort_relation(std::shared_ptr<relation> input_relation,
+                std::vector<cudf::order> column_orders,
+                std::vector<cudf::null_order> null_precedences,
+                std::vector<std::unique_ptr<expression>> expressions);
+
+  [[nodiscard]] relation_type type() const noexcept override { return relation_type::sort; }
+
+  /**
+   * @copydoc relation::data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> data_types() const override { return _data_types; };
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
+
+  /**
+   * @brief Return the list of expressions.
+   *
+   * @note The returned relations do not share ownership. This object must be kept alive for the
+   * returned expressions to be valid.
+   *
+   * @return List of output expressions
+   */
+  [[nodiscard]] std::vector<expression*> expressions_unsafe() const noexcept
+  {
+    std::vector<expression*> expressions_to_return;
+    expressions_to_return.reserve(_expressions.size());
+
+    for (auto const& expr : _expressions) {
+      expressions_to_return.push_back(expr.get());
+    }
+
+    return expressions_to_return;
+  }
+
+  /**
+   * @brief Accessor for column orders. Indicates the direction of the sort for each column
+   */
+  [[nodiscard]] std::vector<cudf::order> column_orders() const noexcept { return _column_orders; }
+
+  /**
+   * @brief Accessor for null orders. Indicates whether to return NULLs first or last for each
+   * column
+   */
+  [[nodiscard]] std::vector<cudf::null_order> null_orders() const noexcept { return _null_orders; }
+
+ private:
+  std::vector<std::unique_ptr<expression>> _expressions;
+  std::vector<cudf::order> _column_orders;
+  std::vector<cudf::null_order> _null_orders;
+  std::vector<cudf::data_type> _data_types;
+};
+
 class join_relation : public relation {
  public:
   /**
@@ -143,11 +252,6 @@ class join_relation : public relation {
   [[nodiscard]] std::vector<cudf::data_type> data_types() const override;
 
   /**
-   * @copydoc relation::num_columns()
-   */
-  [[nodiscard]] cudf::size_type num_columns() const override;
-
-  /**
    * @copydoc relation::to_string()
    */
   std::string to_string() const override;
@@ -161,6 +265,8 @@ class join_relation : public relation {
 
   /**
    * @brief Return the join condition for this relation
+   *
+   * The condition defines when a left key matches a right key
    *
    * @return Join condition
    *
@@ -181,12 +287,10 @@ class join_relation : public relation {
 
  private:
   void _init_data_types() const;
-  std::unique_ptr<expression>
-    _condition;  //!< Join condition to define when a left tuple matches with a right tuple
-  std::vector<cudf::size_type> _projection_indices;  //!< Columns to retain after joined
+  std::unique_ptr<expression> _condition;
+  std::vector<cudf::size_type> _projection_indices;
   join_type_type _join_type;
-  mutable std::vector<cudf::data_type>
-    _data_types;  //!< Data types of columns in the output relation
+  mutable std::vector<cudf::data_type> _data_types;
 };
 
 class read_relation : public relation {
@@ -216,21 +320,23 @@ class read_relation : public relation {
   [[nodiscard]] std::string to_string() const override;
 
   /**
-   * @brief Getter for name of the table to read from
+   * @brief Return the name of the table to read from
    *
    * @return Name of table to read from
    */
   [[nodiscard]] std::string table_name() const { return _table_name; }
 
   /**
-   * @copydoc relation::num_columns()
+   * @brief Return the names of the columns to read
+   *
+   * @return List of columns to read
    */
-  [[nodiscard]] cudf::size_type num_columns() const override { return this->_data_types.size(); }
+  [[nodiscard]] std::vector<std::string> column_names() const { return _column_names; }
 
  private:
-  std::vector<std::string> _column_names;    //!< List of columns to read
-  std::string _table_name;                   //!< Name of the table to read data from
-  std::vector<cudf::data_type> _data_types;  //!< Data types of columns in the output relation
+  std::vector<std::string> _column_names;
+  std::string _table_name;
+  std::vector<cudf::data_type> _data_types;
 };
 
 class project_relation : public relation {
@@ -255,15 +361,6 @@ class project_relation : public relation {
    * @copydoc relation::to_string()
    */
   std::string to_string() const override;
-
-  /**
-   * @copydoc relation::num_columns()
-   */
-  [[nodiscard]] cudf::size_type num_columns() const override
-  {
-    if (!(this->_data_types)) { this->_init_data_types(); }
-    return this->_data_types.value().size();
-  }
 
   /**
    * @brief Return a list of raw pointers to the output expressions.
@@ -291,8 +388,7 @@ class project_relation : public relation {
     This is usually used in SELECT and its order of selection.
   */
   std::vector<std::unique_ptr<expression>> _output_expressions;
-  mutable std::optional<std::vector<cudf::data_type>>
-    _data_types;  //!< Data types of columns in the output relation
+  mutable std::optional<std::vector<cudf::data_type>> _data_types;
   // TODO: Pass projection information into JOIN. For now, we're going to return all columns.
   //       Projection will be handled in its own relation.
 };

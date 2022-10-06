@@ -110,6 +110,24 @@ class substrait_parser {
   // TODO: Add more expressions
 
   /**
+   * @brief Parse Substrait Fetch Relation into gqe::logical::fetch_relation
+   *
+   * @param fetch_relation Substrait fetch relation
+   * @return The parsed fetch relation
+   */
+  std::unique_ptr<gqe::logical::relation> parse_fetch_relation(
+    substrait::FetchRel const& fetch_relation) const;
+
+  /**
+   * @brief Parse Substrait Sort Relation into gqe::logical::sort_relation
+   *
+   * @param sort_relation Substrait sort relation
+   * @return The parsed sort relation
+   */
+  std::unique_ptr<gqe::logical::relation> parse_sort_relation(
+    substrait::SortRel const& sort_relation) const;
+
+  /**
    * @brief Parse Substrait Join Relation into gqe::logical::join_relation
    *
    * @param join_relation Substrait join relation

@@ -11,7 +11,6 @@
  */
 
 #include "common.hpp"
-
 #include <string>
 
 void topological_sort(gqe::logical::relation* root,

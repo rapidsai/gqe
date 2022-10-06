@@ -33,7 +33,7 @@ std::map<std::string, ddl_t> ddls = {
      cudf::data_type(cudf::type_id::STRING),
      cudf::data_type(cudf::type_id::INT64),
      cudf::data_type(cudf::type_id::INT64),
-     cudf::data_type(cudf::type_id::INT64),
+     cudf::data_type(cudf::type_id::DECIMAL64),
      cudf::data_type(cudf::type_id::STRING)},
     // TODO: Build catalog with file paths for executor
     {"dummy_path"}}

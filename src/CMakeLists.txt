@@ -34,6 +34,7 @@ add_library(
     executor/join.cpp
     executor/read.cpp
     executor/concatenate.cpp
+    executor/eval.cpp
     catalog.cpp
 )
 

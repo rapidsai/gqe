@@ -148,10 +148,22 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_relation(
     return parse_join_relation(relation.join());
   else if (relation.has_fetch())
     return parse_fetch_relation(relation.fetch());
+  else if (relation.has_filter())
+    return parse_filter_relation(relation.filter());
   else if (relation.has_sort())
     return parse_sort_relation(relation.sort());
   else
     throw std::runtime_error("Unsupported relation type");
+}
+
+std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_filter_relation(
+  substrait::FilterRel const& filter_relation) const
+{
+  auto input_relation = parse_relation(filter_relation.input());
+  auto condition      = parse_expression(filter_relation.condition());
+
+  return std::make_unique<gqe::logical::filter_relation>(std::move(input_relation),
+                                                         std::move(condition));
 }
 
 std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_fetch_relation(

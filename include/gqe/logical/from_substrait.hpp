@@ -120,6 +120,15 @@ class substrait_parser {
     substrait::SortRel const& sort_relation) const;
 
   /**
+   * @brief Parse Substrait Filter Relation into gqe::logical::filter_relation
+   *
+   * @param filter_relation Substrait filter relation
+   * @return The parsed filter relation
+   */
+  std::unique_ptr<gqe::logical::relation> parse_filter_relation(
+    substrait::FilterRel const& filter_relation) const;
+
+  /**
    * @brief Parse Substrait Join Relation into gqe::logical::join_relation
    *
    * @param join_relation Substrait join relation

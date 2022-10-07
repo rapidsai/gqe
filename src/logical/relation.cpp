@@ -19,6 +19,7 @@
 #include <regex>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace gqe {
@@ -214,11 +215,35 @@ std::string sort_relation::to_string() const
   return sort_relation_string;
 }
 
+filter_relation::filter_relation(std::shared_ptr<relation> input_relation,
+                                 std::unique_ptr<expression> condition)
+  : relation({std::move(input_relation)}), _condition(std::move(condition))
+{
+  assert(this->children_size() == 1);
+  // Output data types are the same as input data types
+  _data_types = this->children_unsafe()[0]->data_types();
+}
+
+std::string filter_relation::to_string() const
+{
+  std::string filter_relation_string = "{\"Filter\" : {\n";
+  // Sort expressions
+  filter_relation_string += "\t\"condition\" : \"" + _condition->to_string() + "\",\n";
+  // Data types
+  filter_relation_string += "\t\"data types\" : " + gqe::list_to_string(data_types()) + ",\n";
+  // Children
+  filter_relation_string += "\t\"children\" : " + gqe::list_to_string(children_unsafe()) + "\n";
+  filter_relation_string += "}}";
+  return filter_relation_string;
+}
+
 join_relation::join_relation(std::shared_ptr<relation> left,
                              std::shared_ptr<relation> right,
                              std::unique_ptr<expression> condition,
                              join_type_type join_type)
-  : relation({left, right}), _condition(std::move(condition)), _join_type(join_type)
+  : relation({std::move(left), std::move(right)}),
+    _condition(std::move(condition)),
+    _join_type(join_type)
 {
   _init_data_types();
   // Initialize _projection_indices

@@ -30,21 +30,6 @@
 #include <utility>
 #include <vector>
 
-void gqe::substrait_parser::register_input_table(
-  std::string table_name,
-  std::vector<std::string> const& column_names,
-  std::vector<cudf::data_type> const& column_types,
-  std::vector<std::string> const& file_paths)  // TODO: build table/filepath catalog
-{
-  if (column_names.size() != column_types.size())
-    throw std::runtime_error(R"("column_names" and "column_types" must have the same length)");
-  if (input_column_types.find(table_name) != input_column_types.end())
-    throw std::runtime_error("Table " + table_name + " is already registered");
-
-  for (std::size_t column_idx = 0; column_idx < column_names.size(); column_idx++)
-    input_column_types[table_name][column_names[column_idx]] = column_types[column_idx];
-}
-
 void gqe::substrait_parser::add_function_reference(uint32_t reference, std::string function_name)
 {
   auto search = function_reference_to_name.find(reference);
@@ -326,24 +311,12 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_read_relati
 
   std::vector<std::string> column_names;
   std::vector<cudf::data_type> column_types;
-  for (auto const& name : read_relation.base_schema().names()) {
+  for (auto const& column_name : read_relation.base_schema().names()) {
     // Store column name in `column_names`
-    column_names.push_back(name);
-
-    // Check that the associated table has been registered
-    auto table_iter = input_column_types.find(table_name);
-    if (table_iter == input_column_types.end())
-      throw std::runtime_error("Cannot find " + table_name + " in registered tables");
-    auto const& input_column_types_this_table = table_iter->second;
-
-    // Check that this column is in the matched table
-    auto column_type_iter = input_column_types_this_table.find(name);
-    if (column_type_iter == input_column_types_this_table.end())
-      throw std::runtime_error("Cannot find " + name + " column in registered tables");
-    auto const& column_type = column_type_iter->second;
+    column_names.push_back(column_name);
 
     // Store column type in `column_types`
-    column_types.push_back(column_type);
+    column_types.push_back(_catalog->column_type(table_name, column_name));
   }
 
   return std::make_unique<gqe::logical::read_relation>(

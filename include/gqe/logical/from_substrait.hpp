@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/catalog.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/logical/relation.hpp>
@@ -26,6 +27,13 @@ namespace gqe {
 
 class substrait_parser {
  public:
+  /**
+   * @brief Construct a new substrait parser.
+   *
+   * @param tables_catalog Catalog containing input table metadata.
+   */
+  substrait_parser(catalog* tables_catalog) : _catalog(tables_catalog) {}
+
   /**
    * @brief Parse substrait binary file into logical plan
    *
@@ -54,22 +62,6 @@ class substrait_parser {
    * @return The parsed relation
    */
   std::unique_ptr<gqe::logical::relation> parse_relation(substrait::Rel const& relation) const;
-
-  /**
-   * @brief Store information about table `table_name` and its columns and types in
-   * `input_column_types`
-   *
-   * @param table_name Name of the table to register
-   * @param column_names List of column names in table `table_name`
-   * @param column_types List of cudf data types corresponding to each column in `column_names`
-   * @param file_paths Path to file containing data to populate table `table_name`
-   *
-   * @note The column order must match when the plan is generated
-   */
-  void register_input_table(std::string table_name,
-                            std::vector<std::string> const& column_names,
-                            std::vector<cudf::data_type> const& column_types,
-                            std::vector<std::string> const& file_paths);
 
  private:
   /**
@@ -156,9 +148,7 @@ class substrait_parser {
   std::unique_ptr<gqe::logical::relation> parse_read_relation(
     substrait::ReadRel const& read_relation) const;
 
-  // table_name => [column_name => [column_type]]
-  std::unordered_map<std::string, std::unordered_map<std::string, cudf::data_type>>
-    input_column_types;
+  catalog* _catalog;
   std::unordered_map<uint32_t, std::string> function_reference_to_name;
 };
 }  // namespace gqe

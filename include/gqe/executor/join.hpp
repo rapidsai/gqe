@@ -41,6 +41,8 @@ class join_task : public task {
    * the example above, `ColumnReference 1` and `ColumnReference 0` would be evaluated on the left
    * table, whereas `ColumnReference 3` and `ColumnReference 5` are evaluated on the right table.
    *
+   * @param[in] task_id Globally unique identifier of the task.
+   * @param[in] stage_id Stage of the current task.
    * @param[in] left Left table to be joined.
    * @param[in] right Right table to be joined.
    * @param[in] join_type Type of the join.
@@ -48,8 +50,6 @@ class join_task : public task {
    * tuple.
    * @param[in] projection_indices Column indices to materialize after the join. The rest of columns
    * are discarded.
-   * @param[in] task_id Globally unique identifier of the task.
-   * @param[in] stage_id Stage of the current task.
    */
   join_task(int32_t task_id,
             int32_t stage_id,

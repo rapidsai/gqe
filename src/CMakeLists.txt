@@ -30,11 +30,12 @@ add_library(
     gqe STATIC
     logical/relation.cpp
     logical/from_substrait.cpp
-    executor/task.cpp
-    executor/join.cpp
-    executor/read.cpp
     executor/concatenate.cpp
     executor/eval.cpp
+    executor/join.cpp
+    executor/project.cpp
+    executor/read.cpp
+    executor/task.cpp
     catalog.cpp
 )
 

@@ -35,6 +35,7 @@ add_library(
     executor/join.cpp
     executor/project.cpp
     executor/read.cpp
+    executor/sort.cpp
     executor/task.cpp
     catalog.cpp
 )

@@ -20,6 +20,7 @@
 #include <substrait/algebra.pb.h>
 #include <substrait/plan.pb.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -72,6 +73,8 @@ class substrait_parser {
    */
   void add_function_reference(uint32_t reference, std::string function_name);
 
+  std::string get_function_name(uint32_t reference) const;
+
   /**
    * @brief Parse Substrait Literal expression message into `gqe::literal_expression`
    *
@@ -100,6 +103,27 @@ class substrait_parser {
   std::unique_ptr<gqe::expression> parse_selection_expression(
     substrait::Expression_FieldReference const& selection_expression) const;
   // TODO: Add more expressions
+
+  /**
+   * @brief Parse Substrait AggregateFunction message
+   *
+   * This function turns the Substrait AggregateFunction into a pair of cudf
+   * aggregation operator kind and the value expression to apply the function to
+   *
+   * @param aggregate_function Substrait aggregate function
+   * @return The parsed aggregate function
+   */
+  std::pair<cudf::aggregation::Kind, std::unique_ptr<gqe::expression>> parse_aggregate_function(
+    substrait::AggregateFunction const& aggregate_function) const;
+
+  /**
+   * @brief Parse Substrait Aggregate relation into gqe::logical::aggregate_relation
+   *
+   * @param aggregate_relation Substrait aggregate relation
+   * @return The parsed aggregate relation
+   */
+  std::unique_ptr<gqe::logical::relation> parse_aggregate_relation(
+    substrait::AggregateRel const& aggregate_relation) const;
 
   /**
    * @brief Parse Substrait Fetch Relation into gqe::logical::fetch_relation

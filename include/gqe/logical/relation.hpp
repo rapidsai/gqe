@@ -15,11 +15,14 @@
 #include <gqe/expression/expression.hpp>
 #include <gqe/types.hpp>
 
+#include <cudf/aggregation.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
+#include <iterator>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace gqe {
@@ -27,7 +30,7 @@ namespace logical {
 
 class relation {
  public:
-  enum class relation_type { fetch, sort, project, aggregation, join, read, filter };
+  enum class relation_type { fetch, sort, project, aggregate, join, read, filter };
 
   /**
    * @brief Construct a relation node.
@@ -169,6 +172,63 @@ class fetch_relation : public relation {
   std::vector<cudf::data_type> _data_types;
 };
 
+class aggregate_relation : public relation {
+ public:
+  aggregate_relation(
+    std::shared_ptr<relation> input_relation,
+    std::vector<std::unique_ptr<expression>> keys,
+    std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> measures);
+
+  /**
+   * @copydoc relation::type()
+   */
+  [[nodiscard]] relation_type type() const noexcept override { return relation_type::aggregate; }
+
+  /**
+   * @copydoc relation::data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> data_types() const override;
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
+
+  /**
+   * @brief Return the list of keys to group by
+   *
+   * @note The returned keys do not share ownership. This object must be kept alive for the
+   * returned keys to be valid.
+   *
+   * @return List of group by keys
+   */
+  [[nodiscard]] std::vector<expression*> keys_unsafe() const noexcept;
+
+  /**
+   * @brief Return the list of measures
+   *
+   * Each measure is a pair of cudf aggregation operation kind and expression.
+   * This indicates the type of aggregate operation to perform on each value.
+   * For example, the query:
+   *
+   * `select c0, sum(c1) from table_name grouby c0;`
+   *
+   * will result in a plan with
+   * `keys = {col_reference(0)}`
+   * `measures = {cudf::aggregation::SUM : col_reference(1)}`
+   *
+   * @return List of aggregate measures
+   */
+  [[nodiscard]] std::vector<std::pair<cudf::aggregation::Kind, expression*>> measures_unsafe()
+    const noexcept;
+
+ private:
+  void _init_data_types() const;
+  std::vector<std::unique_ptr<expression>> _keys;
+  std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> _measures;
+  mutable std::optional<std::vector<cudf::data_type>> _data_types;
+};
+
 class sort_relation : public relation {
  public:
   sort_relation(std::shared_ptr<relation> input_relation,
@@ -176,6 +236,9 @@ class sort_relation : public relation {
                 std::vector<cudf::null_order> null_precedences,
                 std::vector<std::unique_ptr<expression>> expressions);
 
+  /**
+   * @copydoc relation::type()
+   */
   [[nodiscard]] relation_type type() const noexcept override { return relation_type::sort; }
 
   /**
@@ -191,7 +254,7 @@ class sort_relation : public relation {
   /**
    * @brief Return the list of expressions.
    *
-   * @note The returned relations do not share ownership. This object must be kept alive for the
+   * @note The returned expressions do not share ownership. This object must be kept alive for the
    * returned expressions to be valid.
    *
    * @return List of output expressions
@@ -409,8 +472,8 @@ class project_relation : public relation {
    *
    * @return Vector of output expression raw pointers
    *
-   * @note The returned relations do not share ownership. This object must be kept alive for the
-   * returned relations to be valid.
+   * @note The returned expressions do not share ownership. This object must be kept alive for the
+   * returned expressions to be valid.
    */
   std::vector<expression*> output_expressions_unsafe() const
   {

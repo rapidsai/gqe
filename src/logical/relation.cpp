@@ -10,12 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-#include <cudf/types.hpp>
+#include <gqe/expression/expression.hpp>
 #include <gqe/logical/relation.hpp>
 
+#include <cudf/detail/aggregation/aggregation.hpp>
+#include <cudf/types.hpp>
+
+#include <algorithm>
 #include <memory>
 #include <numeric>
-#include <ostream>
 #include <regex>
 #include <stdexcept>
 #include <string>
@@ -106,6 +109,22 @@ std::ostream& operator<<(std::ostream& os, cudf::null_order prec)
   return os;
 }
 
+std::ostream& operator<<(std::ostream& os, cudf::aggregation::Kind k)
+{
+  switch (k) {
+    case cudf::aggregation::SUM: os << "SUM"; break;
+    default: os << "Unsupported aggregation kind: " + std::to_string(k);
+  }
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os,
+                         std::pair<cudf::aggregation::Kind, gqe::expression*> measure)
+{
+  os << measure.first << "(" << measure.second->to_string() << ")";
+  return os;
+}
+
 /**
  * @brief Return string representation of list of elements in input vector
  *
@@ -174,11 +193,79 @@ std::string fetch_relation::to_string() const
   // Count
   fetch_relation_string += "\t\"count\" : \"" + std::to_string(_count) + "\",\n";
   // Data types
-  fetch_relation_string += "\t\"data types\" : " + gqe::list_to_string(data_types()) + ",\n";
+  fetch_relation_string += "\t\"data types\" : " + list_to_string(data_types()) + ",\n";
   // Children
-  fetch_relation_string += "\t\"children\" : " + gqe::list_to_string(children_unsafe()) + "\n";
+  fetch_relation_string += "\t\"children\" : " + list_to_string(children_unsafe()) + "\n";
   fetch_relation_string += "}}";
   return fetch_relation_string;
+}
+
+aggregate_relation::aggregate_relation(
+  std::shared_ptr<relation> input_relation,
+  std::vector<std::unique_ptr<expression>> keys,
+  std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> measures)
+  : relation({std::move(input_relation)}), _keys(std::move(keys)), _measures(std::move(measures))
+{
+}
+
+void aggregate_relation::_init_data_types() const
+{
+  auto input_relation = children_unsafe()[0];
+  _data_types         = std::vector<cudf::data_type>();
+  for (auto const& key : _keys)
+    _data_types.value().push_back(key->data_type(input_relation->data_types()));
+
+  for (auto measure : measures_unsafe()) {
+    auto aggregation_kind = measure.first;
+    auto value            = measure.second;
+    cudf::data_type output_type =
+      cudf::detail::target_type(value->data_type(input_relation->data_types()), aggregation_kind);
+    _data_types.value().push_back(output_type);
+  }
+}
+
+std::vector<expression*> aggregate_relation::keys_unsafe() const noexcept
+{
+  std::vector<expression*> keys_to_return;
+  keys_to_return.reserve(_keys.size());
+  for (auto const& key : _keys)
+    keys_to_return.push_back(key.get());
+  return keys_to_return;
+}
+
+std::vector<std::pair<cudf::aggregation::Kind, expression*>> aggregate_relation::measures_unsafe()
+  const noexcept
+{
+  std::vector<std::pair<cudf::aggregation::Kind, expression*>> measures_to_return;
+  measures_to_return.reserve(_measures.size());
+  for (auto const& measure : _measures)
+    measures_to_return.emplace_back(measure.first, measure.second.get());
+
+  return measures_to_return;
+}
+
+[[nodiscard]] std::vector<cudf::data_type> aggregate_relation::data_types() const
+{
+  if (!this->_data_types.has_value()) { this->_init_data_types(); }
+  return this->_data_types.value();
+}
+
+[[nodiscard]] std::string aggregate_relation::to_string() const
+{
+  // DEBUG. TODO: remove iostream import
+  std::string agg_relation_string = "{\"Aggregate\" : {\n";
+  // Aggregate keys
+  agg_relation_string += "\t\"key expressions\" : " + list_to_string(keys_unsafe()) + ",\n";
+  // Aggregate measures
+  auto measures = measures_unsafe();
+  agg_relation_string +=
+    "\t\"measures\" : " + list_to_string(measures.begin(), measures.end()) + ",\n";
+  // Data types
+  agg_relation_string += "\t\"data types\" : " + list_to_string(data_types()) + ",\n";
+  // Children
+  agg_relation_string += "\t\"children\" : " + list_to_string(children_unsafe()) + "\n";
+  agg_relation_string += "}}";
+  return agg_relation_string;
 }
 
 sort_relation::sort_relation(std::shared_ptr<relation> input_relation,
@@ -208,9 +295,9 @@ std::string sort_relation::to_string() const
   sort_relation_string +=
     "\t\"null orders\" : " + list_to_string(_null_orders.begin(), _null_orders.end()) + ",\n";
   // Data types
-  sort_relation_string += "\t\"data types\" : " + gqe::list_to_string(data_types()) + ",\n";
+  sort_relation_string += "\t\"data types\" : " + list_to_string(data_types()) + ",\n";
   // Children
-  sort_relation_string += "\t\"children\" : " + gqe::list_to_string(children_unsafe()) + "\n";
+  sort_relation_string += "\t\"children\" : " + list_to_string(children_unsafe()) + "\n";
   sort_relation_string += "}}";
   return sort_relation_string;
 }
@@ -285,13 +372,13 @@ std::string join_relation::to_string() const
   // Condition
   join_relation_string += "\t\"condition\" : \"" + _condition->to_string() + "\",\n";
   // Data types
-  join_relation_string += "\t\"data types\" : " + gqe::list_to_string(data_types()) + ",\n";
+  join_relation_string += "\t\"data types\" : " + list_to_string(data_types()) + ",\n";
   // Projection indices
-  join_relation_string +=
-    "\t\"project indices\" : " +
-    gqe::list_to_string(_projection_indices.begin(), _projection_indices.end()) + ",\n";
+  join_relation_string += "\t\"project indices\" : " +
+                          list_to_string(_projection_indices.begin(), _projection_indices.end()) +
+                          ",\n";
   // Children
-  join_relation_string += "\t\"children\" : " + gqe::list_to_string(children_unsafe()) + "\n";
+  join_relation_string += "\t\"children\" : " + list_to_string(children_unsafe()) + "\n";
   join_relation_string += "}}";
   return join_relation_string;
 }
@@ -312,13 +399,12 @@ std::string read_relation::to_string() const
   // Table name
   read_relation_str += "\t\"table name\" : \"" + this->table_name() + "\",\n";
   // Data types
-  read_relation_str += "\t\"data types\" : " + gqe::list_to_string(data_types()) + ",\n";
+  read_relation_str += "\t\"data types\" : " + list_to_string(data_types()) + ",\n";
   // Column names
   read_relation_str +=
-    "\t\"column names\" : " + gqe::list_to_string(_column_names.begin(), _column_names.end()) +
-    ",\n";
+    "\t\"column names\" : " + list_to_string(_column_names.begin(), _column_names.end()) + ",\n";
   // Children
-  read_relation_str += "\t\"children\" : " + gqe::list_to_string(children_unsafe()) + "\n";
+  read_relation_str += "\t\"children\" : " + list_to_string(children_unsafe()) + "\n";
   read_relation_str += "}}";
   return read_relation_str;
 }
@@ -353,11 +439,11 @@ std::string project_relation::to_string() const
   std::string project_relation_str = "{\"Project\" : {\n";
   // Output expressions
   project_relation_str +=
-    "\t\"output expressions\" : " + gqe::list_to_string(output_expressions_unsafe()) + ",\n";
+    "\t\"output expressions\" : " + list_to_string(output_expressions_unsafe()) + ",\n";
   // Data types
-  project_relation_str += "\t\"data types\" : " + gqe::list_to_string(data_types()) + ",\n";
+  project_relation_str += "\t\"data types\" : " + list_to_string(data_types()) + ",\n";
   // Children
-  project_relation_str += "\t\"children\" : " + gqe::list_to_string(children_unsafe()) + "\n";
+  project_relation_str += "\t\"children\" : " + list_to_string(children_unsafe()) + "\n";
   project_relation_str += "}}";
   return project_relation_str;
 }

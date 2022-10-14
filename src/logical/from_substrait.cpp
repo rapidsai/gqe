@@ -17,8 +17,6 @@
 #include <gqe/logical/from_substrait.hpp>
 #include <gqe/logical/relation.hpp>
 
-#include <cudf/types.hpp>
-
 #include <substrait/algebra.pb.h>
 
 #include <cassert>
@@ -37,6 +35,15 @@ void gqe::substrait_parser::add_function_reference(uint32_t reference, std::stri
     throw std::runtime_error("Cannot add function reference: key already exists");
 
   function_reference_to_name[reference] = function_name;
+}
+
+std::string gqe::substrait_parser::get_function_name(uint32_t reference) const
+{
+  auto search = function_reference_to_name.find(reference);
+  if (search == function_reference_to_name.end())
+    throw std::runtime_error("Cannot get function name: key does not exist");
+
+  return search->second;
 }
 
 std::vector<std::shared_ptr<gqe::logical::relation>> gqe::substrait_parser::from_file(
@@ -152,6 +159,8 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_relation(
     return parse_filter_relation(relation.filter());
   else if (relation.has_sort())
     return parse_sort_relation(relation.sort());
+  else if (relation.has_aggregate())
+    return parse_aggregate_relation(relation.aggregate());
   else
     throw std::runtime_error("Unsupported relation type");
 }
@@ -164,6 +173,53 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_filter_rela
 
   return std::make_unique<gqe::logical::filter_relation>(std::move(input_relation),
                                                          std::move(condition));
+}
+
+std::pair<cudf::aggregation::Kind, std::unique_ptr<gqe::expression>>
+gqe::substrait_parser::parse_aggregate_function(
+  substrait::AggregateFunction const& aggregate_function) const
+{
+  auto function_name = get_function_name(aggregate_function.function_reference());
+
+  if (function_name == "sum" || function_name == "sum:opt_dec" ||
+      function_name == "sum:opt_i32") {  // TODO: Look into substrait function naming standards
+    assert(aggregate_function.arguments_size() == 1);
+    return std::make_pair(
+      cudf::aggregation::SUM,
+      parse_expression(std::move(aggregate_function.arguments().Get(0).value())));
+  } else {
+    throw std::runtime_error("SubstraitParser cannot parse aggregate function \"" + function_name +
+                             "\"");
+  }
+}
+
+std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_aggregate_relation(
+  substrait::AggregateRel const& aggregate_relation) const
+{
+  // Parse input relation
+  auto input_relation = parse_relation(aggregate_relation.input());
+
+  // Parse aggregation key(s)
+  std::vector<std::unique_ptr<expression>> keys;
+  if (aggregate_relation.groupings_size() > 1)
+    throw std::runtime_error("Does not support groupby with multiple keys");
+
+  auto grouping = aggregate_relation.groupings(0);
+  for (auto& key_expression : grouping.grouping_expressions()) {
+    keys.push_back(parse_expression(key_expression));
+  }
+
+  // Parse value expressions
+  // Translate measures to pairs of function name and value expression
+  std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> measures;
+  for (auto& measure : aggregate_relation.measures()) {
+    if (measure.has_filter())
+      throw std::runtime_error("Aggregate measure with filter not supported");
+    measures.push_back(parse_aggregate_function(measure.measure()));
+  }
+
+  return std::make_unique<gqe::logical::aggregate_relation>(
+    std::move(input_relation), std::move(keys), std::move(measures));
 }
 
 std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_fetch_relation(
@@ -244,15 +300,10 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_project_rel
 std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_scalar_function_expression(
   substrait::Expression_ScalarFunction const& scalar_function_expression) const
 {
-  auto const function_reference = scalar_function_expression.function_reference();
-  auto function_name_iter       = function_reference_to_name.find(function_reference);
-  if (function_name_iter == function_reference_to_name.end())
-    throw std::runtime_error("Cannot find the scalar function reference");
-
   if (scalar_function_expression.arguments_size() != 2)
     throw std::runtime_error("Non-binary functions are not yet supported");
 
-  auto const function_name = function_name_iter->second;
+  auto function_name = get_function_name(scalar_function_expression.function_reference());
 
   if (function_name == "equal" ||
       function_name == "equal:any_any") {  // TODO: Look into substrait function naming standards

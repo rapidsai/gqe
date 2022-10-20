@@ -37,10 +37,10 @@ void filter_task::execute()
 
   std::vector<expression const*> condition_expr{_condition.get()};
 
-  auto values               = dependent_tasks[0]->result().value();
-  auto [mask, column_cache] = evaluate_expressions(values, condition_expr);
+  auto input_table          = dependent_tasks[0]->result().value();
+  auto [mask, column_cache] = evaluate_expressions(input_table, condition_expr);
 
-  update_result_cache(cudf::apply_boolean_mask(values, mask[0]));
+  update_result_cache(cudf::apply_boolean_mask(input_table, mask[0]));
 }
 
 }  // namespace gqe

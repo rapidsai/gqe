@@ -37,6 +37,7 @@ add_library(
     executor/read.cpp
     executor/sort.cpp
     executor/filter.cpp
+    executor/fetch.cpp
     executor/task.cpp
     executor/task_graph.cpp
     catalog.cpp

@@ -32,14 +32,15 @@ add_library(
     logical/from_substrait.cpp
     executor/concatenate.cpp
     executor/eval.cpp
+    executor/filter.cpp
+    executor/fetch.cpp
     executor/join.cpp
     executor/project.cpp
     executor/read.cpp
     executor/sort.cpp
-    executor/filter.cpp
-    executor/fetch.cpp
     executor/task.cpp
     executor/task_graph.cpp
+    optimizer/physical_transformation.cpp
     catalog.cpp
 )
 

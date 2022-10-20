@@ -50,6 +50,11 @@ class binary_op_expression : public expression {
    */
   [[nodiscard]] cudf::binary_operator binary_operator() const noexcept { return _binary_operator; }
 
+  /**
+   * @copydoc gqe::expression::accept()
+   */
+  void accept(expression_visitor& visitor) const override { visitor.visit(this); }
+
  private:
   cudf::binary_operator _binary_operator;
 };

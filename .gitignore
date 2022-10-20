@@ -3,3 +3,5 @@
 .vscode/
 /include/substrait/
 /proto/
+.devcontainer
+compile_commands.json

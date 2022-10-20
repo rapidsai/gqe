@@ -20,6 +20,57 @@
 
 namespace gqe {
 
+class column_reference_expression;
+template <typename T>
+class literal_expression;
+class binary_op_expression;
+
+/**
+ * @brief Base interface for an expression visitor.
+ *
+ * A concrete visitor needs to override these methods to customize the behavior.
+ */
+struct expression_visitor {
+  virtual void visit(column_reference_expression const* expression)
+  {
+    throw std::logic_error("Visiting column_reference_expression is not implemented");
+  }
+
+  // The following functions resolve the instantiation problem of the
+  // `literal_expression<T>` template for now by explicitly instantiating for
+  // numeric types we target in the substrait consumer.
+  template <typename T>
+  void visit(literal_expression<T> const* expression)
+  {
+    throw std::logic_error("Visiting a generic literal_expression<T> is not implemented");
+  }
+
+  virtual void visit(literal_expression<int32_t> const* expression)
+  {
+    throw std::logic_error("Visiting literal_expression<int32_t> is not implemented");
+  }
+
+  virtual void visit(literal_expression<int64_t> const* expression)
+  {
+    throw std::logic_error("Visiting literal_expression<int64_t> is not implemented");
+  }
+
+  virtual void visit(literal_expression<float> const* expression)
+  {
+    throw std::logic_error("Visiting literal_expression<float> is not implemented");
+  }
+
+  virtual void visit(literal_expression<double> const* expression)
+  {
+    throw std::logic_error("Visiting literal_expression<double> is not implemented");
+  }
+
+  virtual void visit(binary_op_expression const* expression)
+  {
+    throw std::logic_error("Visiting binary_op_expression is not implemented");
+  }
+};
+
 /**
  * @brief Abstract base class of all expression nodes.
  *
@@ -121,6 +172,14 @@ class expression {
 
     return children_to_return;
   }
+
+  /**
+   * @brief Accept a visitor.
+   *
+   * Implement the visitor pattern (https://en.wikipedia.org/wiki/Visitor_pattern) through double
+   * dispatch.
+   */
+  virtual void accept(expression_visitor& visitor) const = 0;
 
   /**
    * @brief Return the string representation of the expression.

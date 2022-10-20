@@ -70,6 +70,11 @@ class column_reference_expression : public expression {
     return std::make_unique<column_reference_expression>(*this);
   }
 
+  /**
+   * @copydoc gqe::expression::accept()
+   */
+  void accept(expression_visitor& visitor) const override { visitor.visit(this); }
+
  private:
   cudf::size_type _column_idx;
 };

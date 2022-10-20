@@ -95,6 +95,11 @@ class literal_expression : public gqe::expression {
     return std::make_unique<literal_expression>(*this);
   }
 
+  /**
+   * @copydoc gqe::expression::accept()
+   */
+  void accept(expression_visitor& visitor) const override { visitor.visit(this); }
+
  private:
   /**
    * @brief Return the corresponding cuDF type from a C++ type

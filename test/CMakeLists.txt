@@ -66,6 +66,13 @@ target_link_libraries(fetch_task_test PUBLIC GTest::gtest_main GTest::gmock)
 target_link_libraries(fetch_task_test PUBLIC cudf::cudftestutil)
 add_test(NAME fetch_task COMMAND fetch_task_test)
 
+add_executable(aggregate_task_test executor/aggregate_task_test.cpp)
+target_include_directories(aggregate_task_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(aggregate_task_test PUBLIC gqe)
+target_link_libraries(aggregate_task_test PUBLIC GTest::gtest_main GTest::gmock)
+target_link_libraries(aggregate_task_test PUBLIC cudf::cudftestutil)
+add_test(NAME aggregate_task COMMAND aggregate_task_test)
+
 add_executable(logical_to_execution integration/logical_to_execution.cpp)
 target_include_directories(logical_to_execution PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(logical_to_execution PUBLIC gqe)

@@ -30,6 +30,7 @@ add_library(
     gqe STATIC
     logical/relation.cpp
     logical/from_substrait.cpp
+    executor/aggregate.cpp
     executor/concatenate.cpp
     executor/eval.cpp
     executor/filter.cpp

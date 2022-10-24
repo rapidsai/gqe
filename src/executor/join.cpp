@@ -250,17 +250,12 @@ void join_task::execute()
   }
 
   // Convert the result indices into libcudf columns
-  // FIXME: Use the new column constructor from device_uvector&& once we migrate to libcudf 22.10
-  // Ref: https://github.com/rapidsai/cudf/pull/11356.
-  auto const result_nrows  = left_indices->size();
-  auto left_indices_column = std::make_unique<cudf::column>(
-    cudf::data_type(cudf::type_to_id<cudf::size_type>()), result_nrows, left_indices->release());
+  auto left_indices_column = std::make_unique<cudf::column>(std::move(*left_indices));
 
   std::unique_ptr<cudf::column> right_indices_column;
   if (right_indices) {
-    assert(right_indices->size() == result_nrows);
-    right_indices_column = std::make_unique<cudf::column>(
-      cudf::data_type(cudf::type_to_id<cudf::size_type>()), result_nrows, right_indices->release());
+    right_indices_column = std::make_unique<cudf::column>(std::move(*right_indices));
+    assert(left_indices_column->size() == right_indices_column->size());
   } else {
     // If the program reaches here, the join does not need to materialize the right table
     // (e.g., left semi join).

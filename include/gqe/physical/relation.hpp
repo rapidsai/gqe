@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <gqe/utility.hpp>
+
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -72,13 +74,7 @@ class relation {
    */
   [[nodiscard]] std::vector<relation*> children_unsafe() const noexcept
   {
-    std::vector<relation*> children_to_return;
-    children_to_return.reserve(_children.size());
-
-    for (auto const& child : _children)
-      children_to_return.push_back(child.get());
-
-    return children_to_return;
+    return utility::to_raw_ptrs(_children);
   }
 
   /**

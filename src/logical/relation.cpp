@@ -226,11 +226,7 @@ void aggregate_relation::_init_data_types() const
 
 std::vector<expression*> aggregate_relation::keys_unsafe() const noexcept
 {
-  std::vector<expression*> keys_to_return;
-  keys_to_return.reserve(_keys.size());
-  for (auto const& key : _keys)
-    keys_to_return.push_back(key.get());
-  return keys_to_return;
+  return utility::to_raw_ptrs(_keys);
 }
 
 std::vector<std::pair<cudf::aggregation::Kind, expression*>> aggregate_relation::measures_unsafe()
@@ -238,8 +234,8 @@ std::vector<std::pair<cudf::aggregation::Kind, expression*>> aggregate_relation:
 {
   std::vector<std::pair<cudf::aggregation::Kind, expression*>> measures_to_return;
   measures_to_return.reserve(_measures.size());
-  for (auto const& measure : _measures)
-    measures_to_return.emplace_back(measure.first, measure.second.get());
+  for (auto const& [kind, expr] : _measures)
+    measures_to_return.emplace_back(kind, expr.get());
 
   return measures_to_return;
 }

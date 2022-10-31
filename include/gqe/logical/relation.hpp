@@ -14,6 +14,7 @@
 
 #include <gqe/expression/expression.hpp>
 #include <gqe/types.hpp>
+#include <gqe/utility.hpp>
 
 #include <cudf/aggregation.hpp>
 #include <cudf/types.hpp>
@@ -100,14 +101,7 @@ class relation {
    */
   [[nodiscard]] std::vector<relation*> children_unsafe() const noexcept
   {
-    std::vector<relation*> children_to_return;
-    children_to_return.reserve(_children.size());
-
-    for (auto const& child : _children) {
-      children_to_return.push_back(child.get());
-    }
-
-    return children_to_return;
+    return utility::to_raw_ptrs(_children);
   }
 
   /**
@@ -261,14 +255,7 @@ class sort_relation : public relation {
    */
   [[nodiscard]] std::vector<expression*> expressions_unsafe() const noexcept
   {
-    std::vector<expression*> expressions_to_return;
-    expressions_to_return.reserve(_expressions.size());
-
-    for (auto const& expr : _expressions) {
-      expressions_to_return.push_back(expr.get());
-    }
-
-    return expressions_to_return;
+    return utility::to_raw_ptrs(_expressions);
   }
 
   /**
@@ -477,13 +464,7 @@ class project_relation : public relation {
    */
   std::vector<expression*> output_expressions_unsafe() const
   {
-    std::vector<expression*> expressions_to_return;
-    expressions_to_return.reserve(_output_expressions.size());
-
-    for (auto const& expr : _output_expressions) {
-      expressions_to_return.push_back(expr.get());
-    }
-    return expressions_to_return;
+    return utility::to_raw_ptrs(_output_expressions);
   }
 
  private:

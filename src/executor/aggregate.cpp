@@ -12,6 +12,7 @@
 
 #include <gqe/executor/aggregate.hpp>
 #include <gqe/executor/eval.hpp>
+#include <gqe/utility.hpp>
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/aggregation/aggregation.hpp>
@@ -138,11 +139,8 @@ void aggregate_task::execute()
                      return cudf::groupby::aggregation_request({value_column, std::move(aggs)});
                    });
 
-    std::vector<expression const*> key_exprs;
-    key_exprs.reserve(_keys.size());
-    for (auto const& expr : _keys)
-      key_exprs.push_back(expr.get());
-    auto [key_columns, key_columns_cache] = evaluate_expressions(input_table, key_exprs);
+    auto [key_columns, key_columns_cache] =
+      evaluate_expressions(input_table, utility::to_const_raw_ptrs(_keys));
 
     // In SQL standard, two NULL values are not equal, but for the purpose of grouping, two or more
     // values with NULL should be grouped together.

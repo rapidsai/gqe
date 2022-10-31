@@ -14,6 +14,7 @@
 
 #include <gqe/expression/expression.hpp>
 #include <gqe/physical/relation.hpp>
+#include <gqe/utility.hpp>
 
 #include <memory>
 #include <vector>
@@ -54,13 +55,7 @@ class project_relation : public relation {
    */
   [[nodiscard]] std::vector<expression*> output_expressions_unsafe() const
   {
-    std::vector<expression*> exprs;
-    exprs.reserve(_output_expressions.size());
-
-    for (auto const& expr : _output_expressions)
-      exprs.push_back(expr.get());
-
-    return exprs;
+    return utility::to_raw_ptrs(_output_expressions);
   }
 
  private:

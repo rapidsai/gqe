@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <gqe/utility.hpp>
+
 #include <cudf/types.hpp>
 
 #include <memory>
@@ -164,13 +166,7 @@ class expression {
    */
   [[nodiscard]] std::vector<expression*> children() const noexcept
   {
-    std::vector<expression*> children_to_return;
-    children_to_return.reserve(_children.size());
-
-    for (auto const& child : _children)
-      children_to_return.push_back(child.get());
-
-    return children_to_return;
+    return utility::to_raw_ptrs(_children);
   }
 
   /**

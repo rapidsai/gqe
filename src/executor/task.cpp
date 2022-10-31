@@ -11,6 +11,7 @@
  */
 
 #include <gqe/executor/task.hpp>
+#include <gqe/utility.hpp>
 
 #include <stdexcept>
 
@@ -31,13 +32,7 @@ void task::update_result_cache(std::unique_ptr<cudf::table> new_result)
 
 std::vector<task*> task::dependencies() const noexcept
 {
-  std::vector<task*> dependencies_to_return;
-  dependencies_to_return.reserve(_dependencies.size());
-
-  for (auto const& dependency : _dependencies)
-    dependencies_to_return.push_back(dependency.get());
-
-  return dependencies_to_return;
+  return utility::to_raw_ptrs(_dependencies);
 }
 
 void task::prepare_dependencies()

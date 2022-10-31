@@ -12,6 +12,7 @@
 
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/project.hpp>
+#include <gqe/utility.hpp>
 
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
@@ -33,12 +34,8 @@ void project_task::execute()
   assert(dependent_tasks.size() == 1);
   auto input_table = *dependent_tasks[0]->result();
 
-  std::vector<expression const*> exprs;
-  exprs.reserve(_output_expressions.size());
-  for (auto const& expr : _output_expressions)
-    exprs.push_back(expr.get());
-
-  auto [eval_columns, column_cache] = evaluate_expressions(input_table, exprs);
+  auto [eval_columns, column_cache] =
+    evaluate_expressions(input_table, utility::to_const_raw_ptrs(_output_expressions));
   cudf::table_view eval_table(eval_columns);
 
   // FIXME: For the current implementation, the result table is copied from `eval_table`, which

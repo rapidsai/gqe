@@ -33,7 +33,7 @@ class sort_task : public task {
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] input Input table to reorder.
-   * @param[in] keys Expressions to determine the ordering.
+   * @param[in] keys Expressions evaluated on `input` to determine the ordering.
    * @param[in] column_orders Desired order for each column in `keys`. The size of this argument
    * must be the same as the size of `keys`.
    * @param[in] null_precedences Whether a null element is smaller or larger than other elements.

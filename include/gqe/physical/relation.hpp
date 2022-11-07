@@ -25,6 +25,10 @@ namespace physical {
 class read_relation;
 class broadcast_join_relation;
 class project_relation;
+class concatenate_sort_relation;
+class filter_relation;
+class concatenate_aggregate_relation;
+class fetch_relation;
 
 /**
  * @brief Base interface for a physical relation visitor.
@@ -43,6 +47,22 @@ struct relation_visitor {
   virtual void visit(project_relation* relation)
   {
     throw std::logic_error("Visiting project_relation is not implemented");
+  }
+  virtual void visit(concatenate_sort_relation* relation)
+  {
+    throw std::logic_error("Visiting concatenate_sort_relation is not implemented");
+  }
+  virtual void visit(filter_relation* relation)
+  {
+    throw std::logic_error("Visiting filter_relation is not implemented");
+  }
+  virtual void visit(concatenate_aggregate_relation* relation)
+  {
+    throw std::logic_error("Visiting concatenate_aggregate_relation is not implemented");
+  }
+  virtual void visit(fetch_relation* relation)
+  {
+    throw std::logic_error("Visiting fetch_relation is not implemented");
   }
 };
 

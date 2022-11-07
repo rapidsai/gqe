@@ -1,8 +1,8 @@
 name: gqe
 channels:
   - rapidsai
-  - nvidia
   - conda-forge
+  - nvidia
 dependencies:
   - cudf=22.10
   - python=3.9

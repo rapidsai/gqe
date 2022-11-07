@@ -70,6 +70,13 @@ class task_graph_builder {
   std::unique_ptr<task_graph> build(physical::relation* root_relation);
 
  private:
+  // Helper function for generate tasks of a physical relation.
+  std::vector<std::shared_ptr<task>> generate_tasks(physical::relation* relation);
+
+  // Helper function for concatenate the input tasks
+  std::shared_ptr<task> concatenate(std::vector<std::shared_ptr<task>> input_tasks,
+                                    bool is_pipeline_breaker = true);
+
   // A physical relation visitor used for generating a task graph for the physical relation and its
   // descendants.
   //
@@ -81,6 +88,10 @@ class task_graph_builder {
     void visit(physical::read_relation* relation) override;
     void visit(physical::broadcast_join_relation* relation) override;
     void visit(physical::project_relation* relation) override;
+    void visit(physical::concatenate_sort_relation* relation) override;
+    void visit(physical::filter_relation* relation) override;
+    void visit(physical::concatenate_aggregate_relation* relation) override;
+    void visit(physical::fetch_relation* relation) override;
 
     // Check the task cache in `_builder`. If the relation is found in the cache, the retrieved
     // tasks are copied to `_generated_tasks`, and the function returns true. Otherwise, the

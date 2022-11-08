@@ -327,11 +327,14 @@ class join_relation : public relation {
    * @param right The right input relation
    * @param condition The expression to apply to input keys
    * @param join_type Type of join
+   * @param projection_indices Column indices to materialize after the join. The rest of columns
+   * are discarded.
    */
   join_relation(std::shared_ptr<relation> left,
                 std::shared_ptr<relation> right,
                 std::unique_ptr<expression> condition,
-                join_type_type join_type);
+                join_type_type join_type,
+                std::vector<cudf::size_type> projection_indices);
 
   /**
    * @copydoc relation::type()
@@ -380,8 +383,8 @@ class join_relation : public relation {
  private:
   void _init_data_types() const;
   std::unique_ptr<expression> _condition;
-  std::vector<cudf::size_type> _projection_indices;
   join_type_type _join_type;
+  std::vector<cudf::size_type> _projection_indices;
   mutable std::vector<cudf::data_type> _data_types;
 };
 

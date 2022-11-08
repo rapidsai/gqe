@@ -24,6 +24,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <numeric>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -322,6 +323,26 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_scalar_function_ex
   }
 }
 
+namespace {
+
+// Helper function for calculating the number of columns in the join result
+cudf::size_type num_columns_join_result(cudf::size_type num_columns_left,
+                                        cudf::size_type num_columns_right,
+                                        gqe::join_type_type join_type)
+{
+  if (join_type == gqe::join_type_type::inner || join_type == gqe::join_type_type::full ||
+      join_type == gqe::join_type_type::left || join_type == gqe::join_type_type::single) {
+    return num_columns_left + num_columns_right;
+  } else if (join_type == gqe::join_type_type::left_semi ||
+             join_type == gqe::join_type_type::left_anti) {
+    return num_columns_left;
+  } else {
+    throw std::runtime_error("substrait_parser: Unsupported join type");
+  }
+}
+
+}  // namespace
+
 std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_join_relation(
   substrait::JoinRel const& join_relation) const
 {
@@ -352,8 +373,18 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_join_relati
   }
 
   // Construct and return join relation
-  return std::make_unique<gqe::logical::join_relation>(
-    std::move(left_relation), std::move(right_relation), std::move(condition), join_type);
+  // TODO: Configure projection indices from parent projection relation. For now,
+  //       we'll return all columns and handle projection in a separate relation.
+  auto const num_output_columns =
+    num_columns_join_result(left_relation->num_columns(), right_relation->num_columns(), join_type);
+  std::vector<cudf::size_type> projection_indices(num_output_columns);
+  std::iota(projection_indices.begin(), projection_indices.end(), 0);
+
+  return std::make_unique<gqe::logical::join_relation>(std::move(left_relation),
+                                                       std::move(right_relation),
+                                                       std::move(condition),
+                                                       join_type,
+                                                       std::move(projection_indices));
 }
 
 std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_read_relation(

@@ -18,7 +18,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <numeric>
 #include <regex>
 #include <stdexcept>
 #include <string>
@@ -323,17 +322,14 @@ std::string filter_relation::to_string() const
 join_relation::join_relation(std::shared_ptr<relation> left,
                              std::shared_ptr<relation> right,
                              std::unique_ptr<expression> condition,
-                             join_type_type join_type)
+                             join_type_type join_type,
+                             std::vector<cudf::size_type> projection_indices)
   : relation({std::move(left), std::move(right)}),
     _condition(std::move(condition)),
-    _join_type(join_type)
+    _join_type(join_type),
+    _projection_indices(std::move(projection_indices))
 {
   _init_data_types();
-  // Initialize _projection_indices
-  // TODO: Configure projection indices from parent projection relation. For now,
-  //       we'll return all columns and handle projection in a separate relation.
-  this->_projection_indices.resize(this->_data_types.size());
-  std::iota(_projection_indices.begin(), _projection_indices.end(), 0);
 }
 
 void join_relation::_init_data_types() const
@@ -344,18 +340,24 @@ void join_relation::_init_data_types() const
   auto children = children_unsafe();
   auto left     = children[0];
   auto right    = children[1];
+
   // Initialize output column _data_types
+  std::vector<cudf::data_type> full_data_types;  // Data types of all columns before the projection
   if (_join_type == join_type_type::inner || _join_type == join_type_type::full ||
       _join_type == join_type_type::left || _join_type == join_type_type::single) {
     for (auto const& column_type : left->data_types())
-      _data_types.push_back(column_type);
+      full_data_types.push_back(column_type);
     for (auto const& column_type : right->data_types())
-      _data_types.push_back(column_type);
+      full_data_types.push_back(column_type);
   } else if (_join_type == join_type_type::left_semi || _join_type == join_type_type::left_anti) {
-    _data_types = left->data_types();
+    full_data_types = left->data_types();
   } else {
     throw std::runtime_error("JoinRelation: Unsupported join type");
   }
+
+  _data_types.reserve(_projection_indices.size());
+  for (auto const& column_idx : _projection_indices)
+    _data_types.push_back(full_data_types[column_idx]);
 }
 
 std::vector<cudf::data_type> join_relation::data_types() const { return _data_types; }

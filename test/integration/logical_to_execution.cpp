@@ -101,8 +101,12 @@ TEST(LogicalToExecution, HardcodePlanAndData)
   auto join_condition =
     std::make_unique<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(0),
                                             std::make_shared<gqe::column_reference_expression>(2));
-  auto join_relation = std::make_shared<gqe::logical::join_relation>(
-    read_relation_0, read_relation_1, std::move(join_condition), gqe::join_type_type::inner);
+  auto join_relation =
+    std::make_shared<gqe::logical::join_relation>(read_relation_0,
+                                                  read_relation_1,
+                                                  std::move(join_condition),
+                                                  gqe::join_type_type::inner,
+                                                  std::vector<cudf::size_type>({0, 1, 3}));
 
   gqe::physical_plan_builder plan_builder;
   auto physical_plan = plan_builder.build(join_relation.get());
@@ -116,14 +120,12 @@ TEST(LogicalToExecution, HardcodePlanAndData)
   // Verify the execution result
   cudf::test::strings_column_wrapper ref_col_0({"apple", "apple", "duck", "orange", "orange"});
   cudf::test::fixed_width_column_wrapper<int64_t> ref_col_1({0, 0, 2, 1, 3});
-  cudf::test::strings_column_wrapper ref_col_2({"apple", "apple", "duck", "orange", "orange"});
-  cudf::test::fixed_width_column_wrapper<int32_t> ref_col_3({1, 3, 0, 2, 2});
+  cudf::test::fixed_width_column_wrapper<int32_t> ref_col_2({1, 3, 0, 2, 2});
 
   std::vector<std::unique_ptr<cudf::column>> ref_columns;
   ref_columns.push_back(ref_col_0.release());
   ref_columns.push_back(ref_col_1.release());
   ref_columns.push_back(ref_col_2.release());
-  ref_columns.push_back(ref_col_3.release());
 
   auto ref_table = std::make_unique<cudf::table>(std::move(ref_columns));
 

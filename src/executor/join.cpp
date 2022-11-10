@@ -196,7 +196,6 @@ std::unique_ptr<cudf::table> materialize(cudf::table_view const& left,
       result_columns.push_back(std::move(gathered_column[0]));
     } else {
       // This column belongs to the right table
-      assert(!right_indices.is_empty());
       auto const current_column = right.select({column_idx - left_ncolumns});
       auto gathered_column = cudf::gather(current_column, right_indices, right_policy)->release();
       assert(gathered_column.size() == 1);

@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <numeric>
 #include <regex>
 #include <stdexcept>
 #include <string>
@@ -177,7 +178,7 @@ namespace logical {
 fetch_relation::fetch_relation(std::shared_ptr<relation> input_relation,
                                int64_t offset,
                                int64_t count)
-  : relation({std::move(input_relation)}), _offset(offset), _count(count)
+  : relation({std::move(input_relation)}, {}), _offset(offset), _count(count)
 {
   assert(this->children_size() == 1);
   // Output data types are the same as input data types
@@ -201,9 +202,12 @@ std::string fetch_relation::to_string() const
 
 aggregate_relation::aggregate_relation(
   std::shared_ptr<relation> input_relation,
+  std::vector<std::shared_ptr<relation>> subquery_relations,
   std::vector<std::unique_ptr<expression>> keys,
   std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> measures)
-  : relation({std::move(input_relation)}), _keys(std::move(keys)), _measures(std::move(measures))
+  : relation({std::move(input_relation)}, std::move(subquery_relations)),
+    _keys(std::move(keys)),
+    _measures(std::move(measures))
 {
 }
 
@@ -264,10 +268,11 @@ std::vector<std::pair<cudf::aggregation::Kind, expression*>> aggregate_relation:
 }
 
 sort_relation::sort_relation(std::shared_ptr<relation> input_relation,
+                             std::vector<std::shared_ptr<relation>> subquery_relations,
                              std::vector<cudf::order> column_orders,
                              std::vector<cudf::null_order> null_precedences,
                              std::vector<std::unique_ptr<expression>> expressions)
-  : relation({std::move(input_relation)}),
+  : relation({std::move(input_relation)}, std::move(subquery_relations)),
     _expressions(std::move(expressions)),
     _column_orders(std::move(column_orders)),
     _null_orders(std::move(null_precedences))
@@ -298,8 +303,10 @@ std::string sort_relation::to_string() const
 }
 
 filter_relation::filter_relation(std::shared_ptr<relation> input_relation,
+                                 std::vector<std::shared_ptr<relation>> subquery_relations,
                                  std::unique_ptr<expression> condition)
-  : relation({std::move(input_relation)}), _condition(std::move(condition))
+  : relation({std::move(input_relation)}, std::move(subquery_relations)),
+    _condition(std::move(condition))
 {
   assert(this->children_size() == 1);
   // Output data types are the same as input data types
@@ -321,10 +328,11 @@ std::string filter_relation::to_string() const
 
 join_relation::join_relation(std::shared_ptr<relation> left,
                              std::shared_ptr<relation> right,
+                             std::vector<std::shared_ptr<relation>> subquery_relations,
                              std::unique_ptr<expression> condition,
                              join_type_type join_type,
                              std::vector<cudf::size_type> projection_indices)
-  : relation({std::move(left), std::move(right)}),
+  : relation({std::move(left), std::move(right)}, std::move(subquery_relations)),
     _condition(std::move(condition)),
     _join_type(join_type),
     _projection_indices(std::move(projection_indices))
@@ -381,13 +389,16 @@ std::string join_relation::to_string() const
   return join_relation_string;
 }
 
-read_relation::read_relation(std::vector<std::string> column_names,
+read_relation::read_relation(std::vector<std::shared_ptr<relation>> subquery_relations,
+                             std::vector<std::string> column_names,
                              std::vector<cudf::data_type> column_types,
-                             std::string table_name)
-  : relation({}),
+                             std::string table_name,
+                             std::unique_ptr<expression> partial_filter)
+  : relation({}, std::move(subquery_relations)),
     _column_names(std::move(column_names)),
     _table_name(std::move(table_name)),
-    _data_types(std::move(column_types))
+    _data_types(std::move(column_types)),
+    _partial_filter(std::move(partial_filter))
 {
 }
 
@@ -401,6 +412,10 @@ std::string read_relation::to_string() const
   // Column names
   read_relation_str +=
     "\t\"column names\" : " + list_to_string(_column_names.begin(), _column_names.end()) + ",\n";
+  // Data types
+  std::string partial_filter_str =
+    partial_filter_unsafe() ? partial_filter_unsafe()->to_string() : "NULL";
+  read_relation_str += "\t\"partial filter\" : \"" + partial_filter_str + "\",\n";
   // Children
   read_relation_str += "\t\"children\" : " + list_to_string(children_unsafe()) + "\n";
   read_relation_str += "}}";
@@ -408,8 +423,10 @@ std::string read_relation::to_string() const
 }
 
 project_relation::project_relation(std::shared_ptr<relation> child,
+                                   std::vector<std::shared_ptr<relation>> subquery_relations,
                                    std::vector<std::unique_ptr<expression>> output_expressions)
-  : relation({child}), _output_expressions(std::move(output_expressions))
+  : relation({std::move(child)}, std::move(subquery_relations)),
+    _output_expressions(std::move(output_expressions))
 {
 }
 

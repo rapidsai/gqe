@@ -17,6 +17,7 @@
 #include <gqe/logical/from_substrait.hpp>
 #include <gqe/logical/relation.hpp>
 
+#include <optional>
 #include <substrait/algebra.pb.h>
 
 #include <cassert>
@@ -80,14 +81,17 @@ std::vector<std::shared_ptr<gqe::logical::relation>> gqe::substrait_parser::from
 }
 
 std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_expression(
-  substrait::Expression const& expression) const
+  substrait::Expression const& expression,
+  std::vector<std::shared_ptr<gqe::logical::relation>>& subqueries) const
 {
   if (expression.has_selection())
     return parse_selection_expression(expression.selection());
   else if (expression.has_scalar_function())
-    return parse_scalar_function_expression(expression.scalar_function());
+    return parse_scalar_function_expression(expression.scalar_function(), subqueries);
   else if (expression.has_literal())
     return parse_literal_expression(expression.literal());
+  else if (expression.has_subquery())
+    return parse_subquery_expression(expression.subquery(), subqueries);
   else
     throw std::runtime_error("SubstraitParser cannot parse expression with type " +
                              std::to_string(expression.rex_type_case()));
@@ -145,6 +149,43 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_selection_expressi
   return std::make_unique<gqe::column_reference_expression>(struct_field.field());
 }
 
+std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_scalar_function_expression(
+  substrait::Expression_ScalarFunction const& scalar_function_expression,
+  std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
+{
+  if (scalar_function_expression.arguments_size() != 2)
+    throw std::runtime_error("Non-binary functions are not yet supported");
+
+  auto function_name = get_function_name(scalar_function_expression.function_reference());
+
+  if (function_name == "equal" ||
+      function_name == "equal:any_any") {  // TODO: Look into substrait function naming standards
+    assert(scalar_function_expression.arguments_size() == 2);
+    auto lhs =
+      parse_expression(scalar_function_expression.arguments().Get(0).value(), subquery_relations);
+    auto rhs =
+      parse_expression(scalar_function_expression.arguments().Get(1).value(), subquery_relations);
+    return std::make_unique<gqe::equal_expression>(std::move(lhs), std::move(rhs));
+  } else if (function_name == "and" || function_name == "and:bool") {
+    assert(scalar_function_expression.arguments_size() == 2);
+    auto lhs =
+      parse_expression(scalar_function_expression.arguments().Get(0).value(), subquery_relations);
+    auto rhs =
+      parse_expression(scalar_function_expression.arguments().Get(1).value(), subquery_relations);
+    return std::make_unique<gqe::logical_and_expression>(std::move(lhs), std::move(rhs));
+  } else {
+    throw std::runtime_error("SubstraitParser cannot parse scalar function \"" + function_name +
+                             "\"");
+  }
+}
+
+std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_subquery_expression(
+  substrait::Expression_Subquery const& subquery_expression,
+  std::vector<std::shared_ptr<gqe::logical::relation>>& subqueries) const
+{
+  throw std::logic_error("Subquery expression parser has not been implemented");
+}
+
 std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_relation(
   substrait::Rel const& relation) const
 {
@@ -170,24 +211,26 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_filter_rela
   substrait::FilterRel const& filter_relation) const
 {
   auto input_relation = parse_relation(filter_relation.input());
-  auto condition      = parse_expression(filter_relation.condition());
+  std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
+  auto condition = parse_expression(filter_relation.condition(), subquery_relations);
 
-  return std::make_unique<gqe::logical::filter_relation>(std::move(input_relation),
-                                                         std::move(condition));
+  return std::make_unique<gqe::logical::filter_relation>(
+    std::move(input_relation), std::move(subquery_relations), std::move(condition));
 }
 
 std::pair<cudf::aggregation::Kind, std::unique_ptr<gqe::expression>>
 gqe::substrait_parser::parse_aggregate_function(
-  substrait::AggregateFunction const& aggregate_function) const
+  substrait::AggregateFunction const& aggregate_function,
+  std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
 {
   auto function_name = get_function_name(aggregate_function.function_reference());
 
   if (function_name == "sum" || function_name == "sum:opt_dec" ||
       function_name == "sum:opt_i32") {  // TODO: Look into substrait function naming standards
     assert(aggregate_function.arguments_size() == 1);
-    return std::make_pair(
-      cudf::aggregation::SUM,
-      parse_expression(std::move(aggregate_function.arguments().Get(0).value())));
+    return std::make_pair(cudf::aggregation::SUM,
+                          parse_expression(std::move(aggregate_function.arguments().Get(0).value()),
+                                           subquery_relations));
   } else {
     throw std::runtime_error("SubstraitParser cannot parse aggregate function \"" + function_name +
                              "\"");
@@ -201,13 +244,14 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_aggregate_r
   auto input_relation = parse_relation(aggregate_relation.input());
 
   // Parse aggregation key(s)
+  std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
   std::vector<std::unique_ptr<expression>> keys;
   if (aggregate_relation.groupings_size() > 1)
     throw std::runtime_error("Does not support groupby with multiple keys");
 
   auto grouping = aggregate_relation.groupings(0);
   for (auto& key_expression : grouping.grouping_expressions()) {
-    keys.push_back(parse_expression(key_expression));
+    keys.push_back(parse_expression(key_expression, subquery_relations));
   }
 
   // Parse value expressions
@@ -216,11 +260,11 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_aggregate_r
   for (auto& measure : aggregate_relation.measures()) {
     if (measure.has_filter())
       throw std::runtime_error("Aggregate measure with filter not supported");
-    measures.push_back(parse_aggregate_function(measure.measure()));
+    measures.push_back(parse_aggregate_function(measure.measure(), subquery_relations));
   }
 
   return std::make_unique<gqe::logical::aggregate_relation>(
-    std::move(input_relation), std::move(keys), std::move(measures));
+    std::move(input_relation), std::move(subquery_relations), std::move(keys), std::move(measures));
 }
 
 std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_fetch_relation(
@@ -240,6 +284,7 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_sort_relati
   std::vector<cudf::order> column_orders;
   std::vector<cudf::null_order> null_precedences;
   std::vector<std::unique_ptr<expression>> expressions;
+  std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
 
   const size_t num_sorts = sort_relation.sorts_size();
   column_orders.reserve(num_sorts);
@@ -250,7 +295,7 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_sort_relati
     if (!sort_order.has_direction())
       throw std::runtime_error("Does not support sort with comparison function reference");
 
-    expressions.push_back(parse_expression(sort_order.expr()));
+    expressions.push_back(parse_expression(sort_order.expr(), subquery_relations));
 
     switch (sort_order.direction()) {
       case substrait::SortField_SortDirection::
@@ -277,6 +322,7 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_sort_relati
     }
   }
   return std::make_unique<gqe::logical::sort_relation>(std::move(input_relation),
+                                                       std::move(subquery_relations),
                                                        std::move(column_orders),
                                                        std::move(null_precedences),
                                                        std::move(expressions));
@@ -290,37 +336,13 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_project_rel
   auto input_relation = parse_relation(project_relation.input());
 
   std::vector<std::unique_ptr<gqe::expression>> output_expressions;
+  std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
   for (auto& expression : project_relation.expressions()) {
-    output_expressions.push_back(parse_expression(expression));
+    output_expressions.push_back(parse_expression(expression, subquery_relations));
   }
 
-  return std::make_unique<gqe::logical::project_relation>(std::move(input_relation),
-                                                          std::move(output_expressions));
-}
-
-std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_scalar_function_expression(
-  substrait::Expression_ScalarFunction const& scalar_function_expression) const
-{
-  if (scalar_function_expression.arguments_size() != 2)
-    throw std::runtime_error("Non-binary functions are not yet supported");
-
-  auto function_name = get_function_name(scalar_function_expression.function_reference());
-
-  if (function_name == "equal" ||
-      function_name == "equal:any_any") {  // TODO: Look into substrait function naming standards
-    assert(scalar_function_expression.arguments_size() == 2);
-    auto lhs = parse_expression(scalar_function_expression.arguments().Get(0).value());
-    auto rhs = parse_expression(scalar_function_expression.arguments().Get(1).value());
-    return std::make_unique<gqe::equal_expression>(std::move(lhs), std::move(rhs));
-  } else if (function_name == "and" || function_name == "and:bool") {
-    assert(scalar_function_expression.arguments_size() == 2);
-    auto lhs = parse_expression(scalar_function_expression.arguments().Get(0).value());
-    auto rhs = parse_expression(scalar_function_expression.arguments().Get(1).value());
-    return std::make_unique<gqe::logical_and_expression>(std::move(lhs), std::move(rhs));
-  } else {
-    throw std::runtime_error("SubstraitParser cannot parse scalar function \"" + function_name +
-                             "\"");
-  }
+  return std::make_unique<gqe::logical::project_relation>(
+    std::move(input_relation), std::move(subquery_relations), std::move(output_expressions));
 }
 
 namespace {
@@ -351,7 +373,8 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_join_relati
   auto right_relation = parse_relation(join_relation.right());
 
   // Parse join condition
-  auto condition = parse_expression(join_relation.expression());
+  std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
+  auto condition = parse_expression(join_relation.expression(), subquery_relations);
 
   // Parse the join relation for the join type
   join_type_type join_type;
@@ -382,6 +405,7 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_join_relati
 
   return std::make_unique<gqe::logical::join_relation>(std::move(left_relation),
                                                        std::move(right_relation),
+                                                       std::move(subquery_relations),
                                                        std::move(condition),
                                                        join_type,
                                                        std::move(projection_indices));
@@ -399,6 +423,11 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_read_relati
   if (read_relation.has_projection())
     throw std::runtime_error("Projection is not supported for read relation");
 
+  std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
+  std::unique_ptr<expression> partial_filter = nullptr;
+  // TODO: parse `best_effort_filter` when released by Substrait
+  // (PR: https://github.com/substrait-io/substrait/pull/271)
+
   auto named_table = read_relation.named_table();
   assert(named_table.names_size() == 1);
   const std::string table_name = named_table.names(0);
@@ -413,6 +442,9 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_read_relati
     column_types.push_back(_catalog->column_type(table_name, column_name));
   }
 
-  return std::make_unique<gqe::logical::read_relation>(
-    std::move(column_names), std::move(column_types), std::move(table_name));
+  return std::make_unique<gqe::logical::read_relation>(std::move(subquery_relations),
+                                                       std::move(column_names),
+                                                       std::move(column_types),
+                                                       std::move(table_name),
+                                                       std::move(partial_filter));
 }

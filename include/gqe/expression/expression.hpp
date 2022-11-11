@@ -22,10 +22,11 @@
 
 namespace gqe {
 
+class binary_op_expression;
 class column_reference_expression;
 template <typename T>
 class literal_expression;
-class binary_op_expression;
+class subquery_expression;
 
 /**
  * @brief Base interface for an expression visitor.
@@ -71,6 +72,11 @@ struct expression_visitor {
   {
     throw std::logic_error("Visiting binary_op_expression is not implemented");
   }
+
+  virtual void visit(subquery_expression const* expression)
+  {
+    throw std::logic_error("Visiting subquery_expression is not implemented");
+  }
 };
 
 /**
@@ -110,6 +116,8 @@ class expression {
     unary_op,
     // A cuDF binary operator
     binary_op,
+    // Subquery
+    subquery
   };
 
   /**
@@ -180,7 +188,7 @@ class expression {
   /**
    * @brief Return the string representation of the expression.
    */
-  [[nodiscard]] virtual std::string to_string() const noexcept = 0;
+  [[nodiscard]] virtual std::string to_string() const noexcept { return "base gqe::expression"; };
 
   /**
    * @brief Return a deep copy of the current object.

@@ -47,7 +47,11 @@ std::shared_ptr<gqe::logical::read_relation> read_table(std::string table_name,
     column_types.push_back(tpcds_catalog->column_type(table_name, column_name));
 
   return std::make_shared<gqe::logical::read_relation>(
-    std::move(column_names), std::move(column_types), std::move(table_name));
+                                          std::vector<std::shared_ptr<gqe::logical::relation>>(), // subquery_relations
+                                          std::move(column_names),
+                                          std::move(column_types),
+                                          std::move(table_name),
+                                          nullptr); // partial_filter
 }
 
 int main(int argc, char* argv[])
@@ -92,6 +96,7 @@ int main(int argc, char* argv[])
     read_table("date_dim", {"d_date_sk", "d_year", "d_moy"}, &tpcds_catalog);
   date_dim_table = std::make_shared<gqe::logical::filter_relation>(
     std::move(date_dim_table),
+    std::vector<std::shared_ptr<gqe::logical::relation>>(), // subquery_relations
     std::make_unique<gqe::equal_expression>(
       std::make_shared<gqe::column_reference_expression>(2),
       std::make_shared<gqe::literal_expression<int64_t>>(11)));
@@ -100,6 +105,7 @@ int main(int argc, char* argv[])
     read_table("item", {"i_item_sk", "i_brand_id", "i_brand", "i_manufact_id"}, &tpcds_catalog);
   item_table = std::make_shared<gqe::logical::filter_relation>(
     std::move(item_table),
+    std::vector<std::shared_ptr<gqe::logical::relation>>(), // subquery_relations
     std::make_unique<gqe::equal_expression>(
       std::make_shared<gqe::column_reference_expression>(3),
       std::make_shared<gqe::literal_expression<int64_t>>(128)));
@@ -112,6 +118,7 @@ int main(int argc, char* argv[])
   store_sales_table = std::make_shared<gqe::logical::join_relation>(
     std::move(store_sales_table),
     std::move(date_dim_table),
+    std::vector<std::shared_ptr<gqe::logical::relation>>(), // subquery_relations
     std::make_unique<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(1),
                                             std::make_shared<gqe::column_reference_expression>(3)),
     gqe::join_type_type::inner,
@@ -122,6 +129,7 @@ int main(int argc, char* argv[])
   store_sales_table = std::make_shared<gqe::logical::join_relation>(
     std::move(store_sales_table),
     std::move(item_table),
+    std::vector<std::shared_ptr<gqe::logical::relation>>(), // subquery_relations
     std::make_unique<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(0),
                                             std::make_shared<gqe::column_reference_expression>(3)),
     gqe::join_type_type::inner,
@@ -140,7 +148,10 @@ int main(int argc, char* argv[])
     std::make_pair(cudf::aggregation::SUM, std::make_unique<gqe::column_reference_expression>(0)));
 
   store_sales_table = std::make_shared<gqe::logical::aggregate_relation>(
-    std::move(store_sales_table), std::move(groupby_keys), std::move(groupby_values));
+    std::move(store_sales_table),
+    std::vector<std::shared_ptr<gqe::logical::relation>>(), // subquery_relations
+    std::move(groupby_keys),
+    std::move(groupby_values));
 
   // Sort on d_year, SUM(ss_ext_sales_price) desc, brand_id
   // After this operation, store_sales_table contains columns
@@ -152,6 +163,7 @@ int main(int argc, char* argv[])
 
   store_sales_table = std::make_shared<gqe::logical::sort_relation>(
     std::move(store_sales_table),
+    std::vector<std::shared_ptr<gqe::logical::relation>>(), // subquery_relations
     std::vector<cudf::order>(
       {cudf::order::ASCENDING, cudf::order::DESCENDING, cudf::order::ASCENDING}),
     std::vector<cudf::null_order>(

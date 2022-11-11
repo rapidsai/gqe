@@ -52,9 +52,12 @@ class substrait_parser {
    * is set.
    *
    * @param expression Substrait expression
+   * @param subquery_relations Vector reference to store subquery relations
    * @return The parsed expression
    */
-  std::unique_ptr<gqe::expression> parse_expression(substrait::Expression const& expression) const;
+  std::unique_ptr<gqe::expression> parse_expression(
+    substrait::Expression const& expression,
+    std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const;
 
   /**
    * @brief Parse substrait Relation message into gqe::logical::relation
@@ -88,10 +91,12 @@ class substrait_parser {
    * @brief Parse Substrait ScalarFunction expression message into `gqe::scalar_function_expression`
    *
    * @param selection_expression Substrait scalar function expression
+   * @param subquery_relations Vector reference to store subquery relations
    * @return The parsed ScalarFunction expression
    */
   std::unique_ptr<gqe::expression> parse_scalar_function_expression(
-    substrait::Expression_ScalarFunction const& selection_expression) const;
+    substrait::Expression_ScalarFunction const& selection_expression,
+    std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const;
 
   /**
    * @brief Parse Substrait FieldReference expression message into
@@ -102,6 +107,18 @@ class substrait_parser {
    */
   std::unique_ptr<gqe::expression> parse_selection_expression(
     substrait::Expression_FieldReference const& selection_expression) const;
+
+  /**
+   * @brief Parse Substrait Subquery expression message into `gqe::subquery_expression`
+   *
+   * @param subquery_expression Substrait subquery expression
+   * @param subquery_relations Vector reference to store subquery relations
+   * @return The parsed Subquery expression
+   */
+  std::unique_ptr<gqe::expression> parse_subquery_expression(
+    substrait::Expression_Subquery const& subquery_expression,
+    std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const;
+
   // TODO: Add more expressions
 
   /**
@@ -111,10 +128,12 @@ class substrait_parser {
    * aggregation operator kind and the value expression to apply the function to
    *
    * @param aggregate_function Substrait aggregate function
+   * @param subquery_relations Vector reference to store subquery relations
    * @return The parsed aggregate function
    */
   std::pair<cudf::aggregation::Kind, std::unique_ptr<gqe::expression>> parse_aggregate_function(
-    substrait::AggregateFunction const& aggregate_function) const;
+    substrait::AggregateFunction const& aggregate_function,
+    std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const;
 
   /**
    * @brief Parse Substrait Aggregate relation into gqe::logical::aggregate_relation

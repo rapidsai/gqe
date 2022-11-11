@@ -13,6 +13,7 @@
 #pragma once
 
 #include <gqe/expression/expression.hpp>
+#include <gqe/expression/subquery.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility.hpp>
 
@@ -21,6 +22,8 @@
 #include <cudf/utilities/type_dispatcher.hpp>
 
 #include <iterator>
+#include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -38,7 +41,11 @@ class relation {
    *
    * @param[in] children Child nodes of the new relation node.
    */
-  relation(std::vector<std::shared_ptr<relation>> children) : _children(std::move(children)) {}
+  relation(std::vector<std::shared_ptr<relation>> children,
+           std::vector<std::shared_ptr<relation>> subqueries)
+    : _children(std::move(children)), _subqueries(std::move(subqueries))
+  {
+  }
 
   virtual ~relation()       = default;
   relation(const relation&) = delete;
@@ -109,9 +116,27 @@ class relation {
    */
   [[nodiscard]] std::size_t children_size() const noexcept { return _children.size(); }
 
+  /**
+   * @brief Return the subquery relation nodes as a list of raw pointers.
+   *
+   * @note The returned relations do not share ownership. This object must be kept alive for the
+   * returned relations to be valid.
+   */
+  [[nodiscard]] std::vector<relation*> subqueries_unsafe() const noexcept
+  {
+    return utility::to_raw_ptrs(_subqueries);
+  }
+
+  /**
+   * @brief Return the number of subqueries that reference this relation
+   */
+  [[nodiscard]] std::size_t subqueries_size() const noexcept { return _subqueries.size(); }
+
  private:
   // Child nodes of the current relation
   std::vector<std::shared_ptr<relation>> _children;
+  // Input relations to child subquery expressions
+  std::vector<std::shared_ptr<relation>> _subqueries;
 };
 
 /**
@@ -170,6 +195,7 @@ class aggregate_relation : public relation {
  public:
   aggregate_relation(
     std::shared_ptr<relation> input_relation,
+    std::vector<std::shared_ptr<relation>> subquery_relations,
     std::vector<std::unique_ptr<expression>> keys,
     std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> measures);
 
@@ -226,6 +252,7 @@ class aggregate_relation : public relation {
 class sort_relation : public relation {
  public:
   sort_relation(std::shared_ptr<relation> input_relation,
+                std::vector<std::shared_ptr<relation>> subquery_relations,
                 std::vector<cudf::order> column_orders,
                 std::vector<cudf::null_order> null_precedences,
                 std::vector<std::unique_ptr<expression>> expressions);
@@ -284,7 +311,9 @@ class filter_relation : public relation {
    * @param input_relation Input relation to apply filter on
    * @param condition Filter expression to apply to the input
    */
-  filter_relation(std::shared_ptr<relation> input_relation, std::unique_ptr<expression> condition);
+  filter_relation(std::shared_ptr<relation> input_relation,
+                  std::vector<std::shared_ptr<relation>> subquery_relations,
+                  std::unique_ptr<expression> condition);
 
   /**
    * @copydoc relation::type()
@@ -332,6 +361,7 @@ class join_relation : public relation {
    */
   join_relation(std::shared_ptr<relation> left,
                 std::shared_ptr<relation> right,
+                std::vector<std::shared_ptr<relation>> subquery_relations,
                 std::unique_ptr<expression> condition,
                 join_type_type join_type,
                 std::vector<cudf::size_type> projection_indices);
@@ -393,9 +423,11 @@ class read_relation : public relation {
   /**
    * @brief Construct a read relation.
    */
-  read_relation(std::vector<std::string> column_names,
+  read_relation(std::vector<std::shared_ptr<relation>> subquery_relations,
+                std::vector<std::string> column_names,
                 std::vector<cudf::data_type> column_types,
-                std::string table_name);
+                std::string table_name,
+                std::unique_ptr<expression> partial_filter);
 
   /**
    * @copydoc relation::type()
@@ -428,10 +460,21 @@ class read_relation : public relation {
    */
   [[nodiscard]] std::vector<std::string> column_names() const { return _column_names; }
 
+  /**
+   * @brief Return a raw pointer to partial filter
+   *
+   * @note This function does not share ownership. The caller is responsible for keeping
+   * the returned pointer alive.
+   *
+   * @return Filter hint for read relation
+   */
+  [[nodiscard]] expression* partial_filter_unsafe() const { return _partial_filter.get(); }
+
  private:
   std::vector<std::string> _column_names;
   std::string _table_name;
   std::vector<cudf::data_type> _data_types;
+  std::unique_ptr<expression> _partial_filter;
 };
 
 class project_relation : public relation {
@@ -439,7 +482,8 @@ class project_relation : public relation {
   /**
    * @brief Constructs a projection relation.
    */
-  project_relation(std::shared_ptr<relation> children,
+  project_relation(std::shared_ptr<relation> input_relation,
+                   std::vector<std::shared_ptr<relation>> subquery_relations,
                    std::vector<std::unique_ptr<expression>> output_expressions);
 
   /**

@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <cstddef>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
@@ -71,10 +72,12 @@ std::vector<std::shared_ptr<gqe::logical::relation>> gqe::substrait_parser::from
   std::vector<std::shared_ptr<gqe::logical::relation>> relation_trees;
 
   for (auto relation : query_plan.relations()) {
-    if (!relation.has_root())
-      throw std::runtime_error("Non-root top-level relation is not yet supported");
-
-    relation_trees.push_back(parse_relation(relation.root().input()));
+    if (!relation.has_root()) {
+      if (!relation.has_rel()) throw std::runtime_error("Top level PlanRel has no root or rel");
+      relation_trees.push_back(parse_relation(relation.rel()));
+    } else {
+      relation_trees.push_back(parse_relation(relation.root().input()));
+    }
   }
 
   return relation_trees;
@@ -136,7 +139,7 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_selection_expressi
   substrait::Expression_FieldReference const& selection_expression) const
 {
   if (!selection_expression.has_direct_reference())
-    throw std::runtime_error("Only kDirectReference is supported for selection expressions");
+    throw std::runtime_error("Only direct reference is supported for selection expressions");
 
   if (!selection_expression.direct_reference().has_struct_field())
     throw std::runtime_error("Only struct field is supported for selection expressions");
@@ -417,11 +420,24 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_read_relati
   if (read_relation.read_type_case() != substrait::ReadRel::ReadTypeCase::kNamedTable)
     throw std::runtime_error("Only named table is supported for read relation");
 
-  if (read_relation.has_filter())
-    throw std::runtime_error("Filter is not supported for read relation");
+  std::vector<size_t> projection_indices;
 
-  if (read_relation.has_projection())
-    throw std::runtime_error("Projection is not supported for read relation");
+  if (read_relation.has_filter())
+    throw std::runtime_error("Read relation does not support hard filter");
+
+  if (read_relation.has_projection()) {
+    if (!read_relation.projection().has_select())
+      throw std::runtime_error("Read relation projection requires select field");
+    auto select = read_relation.projection().select();
+    for (substrait::Expression_MaskExpression_StructItem struct_item : select.struct_items()) {
+      if (struct_item.has_child())
+        throw std::runtime_error("Mask expression struct item with child is not supported");
+      projection_indices.push_back(struct_item.field());
+    }
+  } else {
+    projection_indices.resize(read_relation.base_schema().names().size());
+    std::iota(projection_indices.begin(), projection_indices.end(), 0);
+  }
 
   std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
   std::unique_ptr<expression> partial_filter = nullptr;
@@ -434,11 +450,10 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_read_relati
 
   std::vector<std::string> column_names;
   std::vector<cudf::data_type> column_types;
-  for (auto const& column_name : read_relation.base_schema().names()) {
-    // Store column name in `column_names`
-    column_names.push_back(column_name);
 
-    // Store column type in `column_types`
+  for (auto col_idx : projection_indices) {
+    auto column_name = read_relation.base_schema().names()[col_idx];
+    column_names.push_back(column_name);
     column_types.push_back(_catalog->column_type(table_name, column_name));
   }
 

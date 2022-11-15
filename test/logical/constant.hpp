@@ -69,5 +69,42 @@ std::map<std::string, ddl_t> ddls = {
       },
       {"dummy_path"}
     }
+  },
+    // Partial TPC-DS DDLs
+  {
+    "date_dim",
+    {
+      {"d_date_sk", "d_year", "d_moy"},
+      {
+        cudf::data_type(cudf::type_id::INT64),
+        cudf::data_type(cudf::type_id::INT64),
+        cudf::data_type(cudf::type_id::INT64)
+      },
+      {"dummy_path"}
+    }
+  },
+  {
+    "store_sales",
+    {
+      {"ss_sold_date_sk", "ss_item_sk", "ss_ext_sales_price"},
+      {
+        cudf::data_type(cudf::type_id::INT64),
+        cudf::data_type(cudf::type_id::INT64),
+        cudf::data_type(cudf::type_id::DECIMAL64)
+      },
+      {"dummy_path"}
+    }
+  },
+  {
+    "item",
+    {
+      {"i_item_sk", "i_brand_id", "i_brand", "i_manufact_id"},
+      {
+        cudf::data_type(cudf::type_id::INT64),
+        cudf::data_type(cudf::type_id::INT64),
+        cudf::data_type(cudf::type_id::STRING),
+        cudf::data_type(cudf::type_id::INT64)
+      }
+    }
   }
 };

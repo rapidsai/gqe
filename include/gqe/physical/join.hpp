@@ -35,6 +35,8 @@ class join_relation_base : public relation {
    *
    * @param[in] left Left table to join.
    * @param[in] right Right table to join.
+   * @param[in] subquery_relations Subquery relations that are referenced within the `condition`
+   * expression.
    * @param[in] join_type Type of the join.
    * @param[in] condition A boolean expression to define when a left tuple matches with a right
    * tuple.
@@ -43,10 +45,11 @@ class join_relation_base : public relation {
    */
   join_relation_base(std::shared_ptr<relation> left,
                      std::shared_ptr<relation> right,
+                     std::vector<std::shared_ptr<relation>> subquery_relations,
                      join_type_type join_type,
                      std::unique_ptr<expression> condition,
                      std::vector<cudf::size_type> projection_indices)
-    : relation({std::move(left), std::move(right)}),
+    : relation({std::move(left), std::move(right)}, std::move(subquery_relations)),
       _join_type(join_type),
       _condition(std::move(condition)),
       _projection_indices(std::move(projection_indices))

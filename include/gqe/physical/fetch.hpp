@@ -32,7 +32,7 @@ class fetch_relation : public relation {
    * @param[in] count Number of rows to retrieve starting from `offset`.
    */
   fetch_relation(std::shared_ptr<relation> input, int64_t offset, int64_t count)
-    : relation({std::move(input)}), _offset(offset), _count(count)
+    : relation({std::move(input)}, {}), _offset(offset), _count(count)
   {
   }
 

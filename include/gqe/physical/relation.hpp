@@ -79,8 +79,14 @@ class relation {
    * @brief Construct a new physical relation.
    *
    * @param[in] children Child nodes of the new relation.
+   * @param[in] subqueries Subquery relations that are referenced within the expressions
+   * associated with this relation.
    */
-  relation(std::vector<std::shared_ptr<relation>> children) : _children(std::move(children)) {}
+  relation(std::vector<std::shared_ptr<relation>> children,
+           std::vector<std::shared_ptr<relation>> subqueries)
+    : _children(std::move(children)), _subqueries(std::move(subqueries))
+  {
+  }
 
   virtual ~relation()       = default;
   relation(const relation&) = delete;
@@ -107,6 +113,7 @@ class relation {
 
  private:
   std::vector<std::shared_ptr<relation>> _children;
+  std::vector<std::shared_ptr<relation>> _subqueries;
 };
 
 }  // namespace physical

@@ -29,13 +29,19 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
   if (cache_iter != _cache.end()) return std::shared_ptr<physical::relation>(cache_iter->second);
 
   // Recursively transform the children logical relations into physical relations
-  auto const children_logical = logical_relation->children_unsafe();
+  auto const children_logical   = logical_relation->children_unsafe();
+  auto const subqueries_logical = logical_relation->subqueries_unsafe();
 
   std::vector<std::shared_ptr<physical::relation>> children_physical;
+  std::vector<std::shared_ptr<physical::relation>> subqueries_physical;
   children_physical.reserve(children_logical.size());
+  subqueries_physical.reserve(subqueries_logical.size());
 
   for (auto const child_logical : children_logical)
     children_physical.push_back(build(child_logical));
+
+  for (auto const subquery_logical : subqueries_logical)
+    subqueries_physical.push_back(build(subquery_logical));
 
   // Transform the current logical relation depending on the relation type
   std::shared_ptr<physical::relation> out_physical_relation;
@@ -44,8 +50,13 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
     case logical::relation::relation_type::read: {
       auto const logical_read_relation =
         dynamic_cast<logical::read_relation const*>(logical_relation);
+      auto const partial_filter_ptr = logical_read_relation->partial_filter_unsafe();
+
       out_physical_relation = std::make_shared<physical::read_relation>(
-        logical_read_relation->table_name(), logical_read_relation->column_names());
+        std::move(subqueries_physical),
+        logical_read_relation->column_names(),
+        logical_read_relation->table_name(),
+        partial_filter_ptr ? partial_filter_ptr->clone() : nullptr);
       break;
     }
     case logical::relation::relation_type::join: {
@@ -55,6 +66,7 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
       out_physical_relation = std::make_shared<physical::broadcast_join_relation>(
         std::move(children_physical[0]),
         std::move(children_physical[1]),
+        std::move(subqueries_physical),
         logical_join_relation->join_type(),
         logical_join_relation->condition()->clone(),
         logical_join_relation->projection_indices());
@@ -70,7 +82,7 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
         exprs.push_back(expr->clone());
 
       out_physical_relation = std::make_shared<physical::project_relation>(
-        std::move(children_physical[0]), std::move(exprs));
+        std::move(children_physical[0]), std::move(subqueries_physical), std::move(exprs));
       break;
     }
     case logical::relation::relation_type::fetch: {
@@ -89,8 +101,10 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
       auto const logical_filter_relation =
         dynamic_cast<logical::filter_relation const*>(logical_relation);
 
-      out_physical_relation = std::make_shared<physical::filter_relation>(
-        std::move(children_physical[0]), logical_filter_relation->condition()->clone());
+      out_physical_relation =
+        std::make_shared<physical::filter_relation>(std::move(children_physical[0]),
+                                                    std::move(subqueries_physical),
+                                                    logical_filter_relation->condition()->clone());
       break;
     }
     case logical::relation::relation_type::sort: {
@@ -106,6 +120,7 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
 
       out_physical_relation = std::make_shared<physical::concatenate_sort_relation>(
         std::move(children_physical[0]),
+        std::move(subqueries_physical),
         std::move(keys),
         logical_sort_relation->column_orders(),
         logical_sort_relation->null_orders());
@@ -128,8 +143,11 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
       for (auto const& [kind, expr] : in_values)
         values.emplace_back(kind, expr->clone());
 
-      out_physical_relation = std::make_shared<physical::concatenate_aggregate_relation>(
-        std::move(children_physical[0]), std::move(keys), std::move(values));
+      out_physical_relation =
+        std::make_shared<physical::concatenate_aggregate_relation>(std::move(children_physical[0]),
+                                                                   std::move(subqueries_physical),
+                                                                   std::move(keys),
+                                                                   std::move(values));
       break;
     }
     default:

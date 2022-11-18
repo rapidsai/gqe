@@ -29,11 +29,16 @@ class filter_relation : public relation {
    * @brief Construct a physical filter relation.
    *
    * @param[in] input Input table to be filtered.
+   * @param[in] subquery_relations Subquery relations that are referenced within the `condition`
+   * expression.
    * @param[in] condition A boolean expression evaluated on `input` to represent the filter
    * condition.
    */
-  filter_relation(std::shared_ptr<relation> input, std::unique_ptr<expression> condition)
-    : relation({std::move(input)}), _condition(std::move(condition))
+
+  filter_relation(std::shared_ptr<relation> input,
+                  std::vector<std::shared_ptr<relation>> subquery_relations,
+                  std::unique_ptr<expression> condition)
+    : relation({std::move(input)}, std::move(subquery_relations)), _condition(std::move(condition))
   {
   }
 

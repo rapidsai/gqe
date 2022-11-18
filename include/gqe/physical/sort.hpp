@@ -36,6 +36,8 @@ class sort_relation_base : public relation {
    * the rows of `keys`.
    *
    * @param[in] input Input table to be sorted.
+   * @param[in] subquery_relations Subquery relations that are referenced within the `keys`
+   * expressions.
    * @param[in] keys Expressions evaluated on `input` to determine the ordering.
    * @param[in] column_orders Desired order for each column in `keys`. The size of this argument
    * must be the same as the size of `keys`.
@@ -43,10 +45,11 @@ class sort_relation_base : public relation {
    * The size of this argument must be the same as the size of `keys`.
    */
   sort_relation_base(std::shared_ptr<relation> input,
+                     std::vector<std::shared_ptr<relation>> subquery_relations,
                      std::vector<std::unique_ptr<expression>> keys,
                      std::vector<cudf::order> column_orders,
                      std::vector<cudf::null_order> null_precedences)
-    : relation({std::move(input)}),
+    : relation({std::move(input)}, std::move(subquery_relations)),
       _keys(std::move(keys)),
       _column_orders(std::move(column_orders)),
       _null_precedences(std::move(null_precedences))

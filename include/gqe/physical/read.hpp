@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/expression/expression.hpp>
 #include <gqe/physical/relation.hpp>
 
 #include <string>
@@ -28,12 +29,22 @@ class read_relation : public relation {
  public:
   /**
    * @brief Construct a new physical read relation.
-   *
-   * @param[in] table_name Name of the table to be loaded.
+   * @param[in] subquery_relations Subquery relations that are referenced within the
+   * `partial_filter` expression.
    * @param[in] column_names Names of the columns to be loaded.
+   * @param[in] table_name Name of the table to be loaded.
+   * @param[in] partial_filter Expression determining which rows of the input data are to be loaded.
+   * Note that this is an optimization hint and the read relation makes no guarantee that this
+   * filter will be applied.
    */
-  read_relation(std::string table_name, std::vector<std::string> column_names)
-    : relation({}), _table_name(std::move(table_name)), _column_names(std::move(column_names))
+  read_relation(std::vector<std::shared_ptr<relation>> subquery_relations,
+                std::vector<std::string> column_names,
+                std::string table_name,
+                std::unique_ptr<expression> partial_filter)
+    : relation({}, std::move(subquery_relations)),
+      _column_names(std::move(column_names)),
+      _table_name(std::move(table_name)),
+      _partial_filter(std::move(partial_filter))
   {
   }
 
@@ -52,9 +63,12 @@ class read_relation : public relation {
    */
   [[nodiscard]] std::vector<std::string> column_names() const noexcept { return _column_names; }
 
+  expression* partial_filter_unsafe() { return _partial_filter.get(); }
+
  private:
-  std::string _table_name;
   std::vector<std::string> _column_names;
+  std::string _table_name;
+  std::unique_ptr<expression> _partial_filter;
 };
 
 }  // namespace physical

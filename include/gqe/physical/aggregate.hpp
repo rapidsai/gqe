@@ -34,6 +34,8 @@ class aggregate_relation_base : public relation {
    * @brief Construct a physical aggregate relation.
    *
    * @param[in] input Input table to aggregate on.
+   * @param[in] subquery_relations Subquery relations that are referenced within the `keys`
+   * and/or `values` expressions.
    * @param[in] keys Expressions evaluated on `input` to represent groups. Rows with the same keys
    * will be grouped together. Note that this argument can be an empty vector. In that case, all
    * rows belong to the same group (reductions).
@@ -42,9 +44,12 @@ class aggregate_relation_base : public relation {
    */
   aggregate_relation_base(
     std::shared_ptr<relation> input,
+    std::vector<std::shared_ptr<relation>> subquery_relations,
     std::vector<std::unique_ptr<expression>> keys,
     std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values)
-    : relation({std::move(input)}), _keys(std::move(keys)), _values(std::move(values))
+    : relation({std::move(input)}, std::move(subquery_relations)),
+      _keys(std::move(keys)),
+      _values(std::move(values))
   {
   }
 

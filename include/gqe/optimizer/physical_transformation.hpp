@@ -12,7 +12,14 @@
 
 #pragma once
 
+#include <gqe/logical/aggregate.hpp>
+#include <gqe/logical/fetch.hpp>
+#include <gqe/logical/filter.hpp>
+#include <gqe/logical/join.hpp>
+#include <gqe/logical/project.hpp>
+#include <gqe/logical/read.hpp>
 #include <gqe/logical/relation.hpp>
+#include <gqe/logical/sort.hpp>
 #include <gqe/physical/relation.hpp>
 
 #include <memory>

@@ -20,8 +20,6 @@
 #include <substrait/algebra.pb.h>
 #include <substrait/plan.pb.h>
 
-#include <memory>
-#include <string>
 #include <vector>
 
 namespace gqe {

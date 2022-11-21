@@ -15,8 +15,14 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/literal.hpp>
+#include <gqe/logical/aggregate.hpp>
+#include <gqe/logical/fetch.hpp>
+#include <gqe/logical/filter.hpp>
 #include <gqe/logical/from_substrait.hpp>
-#include <gqe/logical/relation.hpp>
+#include <gqe/logical/join.hpp>
+#include <gqe/logical/project.hpp>
+#include <gqe/logical/read.hpp>
+#include <gqe/logical/sort.hpp>
 
 #include <optional>
 #include <substrait/algebra.pb.h>

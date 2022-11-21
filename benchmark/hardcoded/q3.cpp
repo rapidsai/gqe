@@ -17,7 +17,6 @@
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/literal.hpp>
-#include <gqe/logical/relation.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>

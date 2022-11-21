@@ -39,6 +39,11 @@ class subquery_expression : public expression {
   [[nodiscard]] expression_type type() const noexcept final { return expression_type::subquery; }
 
   /**
+   * @brief Return the type of the subquery
+   */
+  [[nodiscard]] virtual subquery_type_type subquery_type() const noexcept = 0;
+
+  /**
    * @copydoc gqe::expression::accept()
    */
   void accept(expression_visitor& visitor) const override { visitor.visit(this); }
@@ -73,6 +78,14 @@ class in_predicate_expression : public subquery_expression {
                           cudf::size_type haystack_relation_index)
     : subquery_expression(std::move(needles), haystack_relation_index)
   {
+  }
+
+  /**
+   * @copydoc gqe::subquery_expression::subtype()
+   */
+  [[nodiscard]] subquery_type_type subquery_type() const noexcept override
+  {
+    return subquery_type_type::in_predicate;
   }
 
   /**

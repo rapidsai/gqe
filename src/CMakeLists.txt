@@ -28,7 +28,13 @@ target_link_libraries(substrait PRIVATE protobuf::libprotobuf)
 
 add_library(
     gqe STATIC
-    logical/relation.cpp
+    logical/aggregate.cpp
+    logical/fetch.cpp
+    logical/filter.cpp
+    logical/join.cpp
+    logical/project.cpp
+    logical/read.cpp
+    logical/sort.cpp
     logical/from_substrait.cpp
     executor/aggregate.cpp
     executor/concatenate.cpp

@@ -24,7 +24,7 @@ std::vector<gqe::logical::relation*> ordered_relation_list(gqe::logical::relatio
 
 /**
  * @brief Given a logical plan rooted at relation `root`, print in json format
- * 
+ *
  * @param root The root relation of the plan to print
  */
 void print_plan(gqe::logical::relation* root);

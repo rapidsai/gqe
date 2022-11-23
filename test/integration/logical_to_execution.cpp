@@ -91,31 +91,31 @@ TEST(LogicalToExecution, HardcodePlanAndData)
 
   // Hand-code the logical plan
   auto read_relation_0 = std::make_shared<gqe::logical::read_relation>(
-    std::vector<std::shared_ptr<gqe::logical::relation>>(), // subquery_relations
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
     std::vector<std::string>({"table_0_col_0", "table_0_col_1"}),
     std::vector<cudf::data_type>(
       {cudf::data_type(cudf::type_id::STRING), cudf::data_type(cudf::type_id::INT64)}),
     "table_0",
-    nullptr); // partial_filter
-     
+    nullptr);  // partial_filter
+
   auto read_relation_1 = std::make_shared<gqe::logical::read_relation>(
-    std::vector<std::shared_ptr<gqe::logical::relation>>(), // subquery_relations
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
     std::vector<std::string>({"table_1_col_0", "table_1_col_1"}),
     std::vector<cudf::data_type>(
       {cudf::data_type(cudf::type_id::STRING), cudf::data_type(cudf::type_id::INT32)}),
     "table_1",
-    nullptr); // partial_filter
-    
+    nullptr);  // partial_filter
+
   auto join_condition =
     std::make_unique<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(0),
                                             std::make_shared<gqe::column_reference_expression>(2));
-  auto join_relation =
-    std::make_shared<gqe::logical::join_relation>(read_relation_0,
-                                                  read_relation_1,
-                                                  std::vector<std::shared_ptr<gqe::logical::relation>>(), // subquery_relations
-                                                  std::move(join_condition),
-                                                  gqe::join_type_type::inner,
-                                                  std::vector<cudf::size_type>({0, 1, 3}));
+  auto join_relation = std::make_shared<gqe::logical::join_relation>(
+    read_relation_0,
+    read_relation_1,
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
+    std::move(join_condition),
+    gqe::join_type_type::inner,
+    std::vector<cudf::size_type>({0, 1, 3}));
 
   gqe::physical_plan_builder plan_builder;
   auto physical_plan = plan_builder.build(join_relation.get());

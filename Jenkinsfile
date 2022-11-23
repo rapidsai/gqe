@@ -82,7 +82,7 @@ spec:
           stage("clang-format") {
             sh '''#!/bin/bash
               source /conda/bin/activate gqe
-              find ./include ./src -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file --dry-run -Werror
+              find ./include ./src ./benchmark ./test -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file --dry-run -Werror
             '''
           }
           stage("clang-tidy") {

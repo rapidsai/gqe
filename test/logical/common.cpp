@@ -26,7 +26,7 @@ void topological_sort(gqe::logical::relation* root,
     if (it == visited.end()) {
       // Has not been visited
       topological_sort(child_rel, visited, stack);
-    }  
+    }
   }
   stack.push(root);
 }
@@ -50,7 +50,7 @@ std::vector<gqe::logical::relation*> ordered_relation_list(gqe::logical::relatio
 }
 
 std::string build_plan_string(gqe::logical::relation* root,
-                      std::unordered_set<gqe::logical::relation*>& visited)
+                              std::unordered_set<gqe::logical::relation*>& visited)
 {
   // Mark current relation as visited
   visited.insert(root);
@@ -66,7 +66,7 @@ std::string build_plan_string(gqe::logical::relation* root,
       plan_str += build_plan_string(child_rel, visited) + ", ";
     }
   }
-  
+
   return "{" + plan_str + "}";
 }
 

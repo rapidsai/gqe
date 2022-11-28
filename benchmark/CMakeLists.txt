@@ -8,6 +8,10 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+add_executable(tpcds tpcds.cpp)
+target_include_directories(tpcds PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(tpcds PUBLIC gqe)
+
 add_executable(q3 hardcoded/q3.cpp)
 target_include_directories(q3 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(q3 PUBLIC gqe)

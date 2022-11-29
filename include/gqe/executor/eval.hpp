@@ -93,9 +93,15 @@ class expression_evaluator : public expression_visitor {
 
   static inline const std::unordered_map<cudf::binary_operator, cudf::ast::ast_operator>
     _operator_map = {
+      {cudf::binary_operator::LOGICAL_AND, cudf::ast::ast_operator::LOGICAL_AND},
+      {cudf::binary_operator::LOGICAL_OR, cudf::ast::ast_operator::LOGICAL_OR},
       {cudf::binary_operator::EQUAL, cudf::ast::ast_operator::EQUAL},
-      {cudf::binary_operator::LOGICAL_AND,
-       cudf::ast::ast_operator::LOGICAL_AND}  // TODO add more operators
+      {cudf::binary_operator::NOT_EQUAL, cudf::ast::ast_operator::NOT_EQUAL},
+      {cudf::binary_operator::LESS, cudf::ast::ast_operator::LESS},
+      {cudf::binary_operator::GREATER, cudf::ast::ast_operator::GREATER},
+      {cudf::binary_operator::LESS_EQUAL, cudf::ast::ast_operator::LESS_EQUAL},
+      {cudf::binary_operator::GREATER_EQUAL,
+       cudf::ast::ast_operator::GREATER_EQUAL}  // TODO add more operators
     };  ///> Emum mapper between cudf::binary_op and cudf::ast::ast_operator.
 };
 

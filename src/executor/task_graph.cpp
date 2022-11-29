@@ -141,7 +141,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
                                                            concatenated_right_task,
                                                            relation_join_type,
                                                            relation->condition()->clone(),
-                                                           relation->projection_indices()));
+                                                           relation->projection_indices(),
+                                                           relation->compare_nulls()));
     _builder->_current_task_id++;
   }
 

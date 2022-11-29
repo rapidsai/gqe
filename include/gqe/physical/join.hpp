@@ -42,17 +42,20 @@ class join_relation_base : public relation {
    * tuple.
    * @param[in] projection_indices Column indices to materialize after the join. The rest of columns
    * are discarded.
+   * @param[in] compare_nulls Whether NULL keys should match or not.
    */
   join_relation_base(std::shared_ptr<relation> left,
                      std::shared_ptr<relation> right,
                      std::vector<std::shared_ptr<relation>> subquery_relations,
                      join_type_type join_type,
                      std::unique_ptr<expression> condition,
-                     std::vector<cudf::size_type> projection_indices)
+                     std::vector<cudf::size_type> projection_indices,
+                     cudf::null_equality compare_nulls)
     : relation({std::move(left), std::move(right)}, std::move(subquery_relations)),
       _join_type(join_type),
       _condition(std::move(condition)),
-      _projection_indices(std::move(projection_indices))
+      _projection_indices(std::move(projection_indices)),
+      _compare_nulls(compare_nulls)
   {
   }
 
@@ -77,10 +80,16 @@ class join_relation_base : public relation {
     return _projection_indices;
   }
 
+  /**
+   * @brief Return whether NULL keys should match or not.
+   */
+  [[nodiscard]] cudf::null_equality compare_nulls() const noexcept { return _compare_nulls; }
+
  private:
   join_type_type _join_type;
   std::unique_ptr<expression> _condition;
   std::vector<cudf::size_type> _projection_indices;
+  cudf::null_equality _compare_nulls;
 };
 
 /**

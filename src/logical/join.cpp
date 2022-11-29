@@ -21,11 +21,13 @@ join_relation::join_relation(std::shared_ptr<relation> left,
                              std::vector<std::shared_ptr<relation>> subquery_relations,
                              std::unique_ptr<expression> condition,
                              join_type_type join_type,
-                             std::vector<cudf::size_type> projection_indices)
+                             std::vector<cudf::size_type> projection_indices,
+                             cudf::null_equality compare_nulls)
   : relation({std::move(left), std::move(right)}, std::move(subquery_relations)),
     _condition(std::move(condition)),
     _join_type(join_type),
-    _projection_indices(std::move(projection_indices))
+    _projection_indices(std::move(projection_indices)),
+    _compare_nulls(compare_nulls)
 {
   _init_data_types();
 }

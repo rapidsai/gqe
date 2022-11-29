@@ -50,6 +50,7 @@ class join_task : public task {
    * tuple.
    * @param[in] projection_indices Column indices to materialize after the join. The rest of columns
    * are discarded.
+   * @param[in] compare_nulls Whether NULL keys should match or not.
    */
   join_task(int32_t task_id,
             int32_t stage_id,
@@ -57,7 +58,8 @@ class join_task : public task {
             std::shared_ptr<task> right,
             join_type_type join_type,
             std::unique_ptr<expression> condition,
-            std::vector<cudf::size_type> projection_indices);
+            std::vector<cudf::size_type> projection_indices,
+            cudf::null_equality compare_nulls);
 
   /**
    * @copydoc gqe::task::execute()
@@ -68,6 +70,7 @@ class join_task : public task {
   join_type_type _join_type;
   std::unique_ptr<expression> _condition;
   std::vector<cudf::size_type> _projection_indices;
+  cudf::null_equality _compare_nulls;
 };
 
 }  // namespace gqe

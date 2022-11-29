@@ -34,11 +34,13 @@ join_task::join_task(int32_t task_id,
                      std::shared_ptr<task> right,
                      join_type_type join_type,
                      std::unique_ptr<expression> condition,
-                     std::vector<cudf::size_type> projection_indices)
+                     std::vector<cudf::size_type> projection_indices,
+                     cudf::null_equality compare_nulls)
   : task(task_id, stage_id, {std::move(left), std::move(right)}),
     _join_type(join_type),
     _condition(std::move(condition)),
-    _projection_indices(std::move(projection_indices))
+    _projection_indices(std::move(projection_indices)),
+    _compare_nulls(compare_nulls)
 {
 }
 
@@ -229,21 +231,21 @@ void join_task::execute()
   switch (_join_type) {
     case join_type_type::inner:
       std::tie(left_indices, right_indices) =
-        cudf::inner_join(left_keys, right_keys, cudf::null_equality::UNEQUAL);
+        cudf::inner_join(left_keys, right_keys, _compare_nulls);
       break;
     case join_type_type::left:
       std::tie(left_indices, right_indices) =
-        cudf::left_join(left_keys, right_keys, cudf::null_equality::UNEQUAL);
+        cudf::left_join(left_keys, right_keys, _compare_nulls);
       break;
     case join_type_type::left_semi:
-      left_indices = cudf::left_semi_join(left_keys, right_keys, cudf::null_equality::UNEQUAL);
+      left_indices = cudf::left_semi_join(left_keys, right_keys, _compare_nulls);
       break;
     case join_type_type::left_anti:
-      left_indices = cudf::left_anti_join(left_keys, right_keys, cudf::null_equality::UNEQUAL);
+      left_indices = cudf::left_anti_join(left_keys, right_keys, _compare_nulls);
       break;
     case join_type_type::full:
       std::tie(left_indices, right_indices) =
-        cudf::full_join(left_keys, right_keys, cudf::null_equality::UNEQUAL);
+        cudf::full_join(left_keys, right_keys, _compare_nulls);
       break;
     default: throw std::logic_error("Unknown join type");
   }

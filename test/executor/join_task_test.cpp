@@ -71,7 +71,8 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
                                                  right_task,
                                                  join_type,
                                                  std::move(join_condition),
-                                                 std::move(projection_indices));
+                                                 std::move(projection_indices),
+                                                 cudf::null_equality::UNEQUAL);
   }
 
   std::unique_ptr<gqe::join_task> join_task;

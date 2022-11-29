@@ -69,7 +69,8 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
         std::move(subqueries_physical),
         logical_join_relation->join_type(),
         logical_join_relation->condition()->clone(),
-        logical_join_relation->projection_indices());
+        logical_join_relation->projection_indices(),
+        logical_join_relation->compare_nulls());
       break;
     }
     case logical::relation::relation_type::project: {

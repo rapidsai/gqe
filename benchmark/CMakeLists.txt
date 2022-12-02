@@ -15,3 +15,7 @@ target_link_libraries(tpcds PUBLIC gqe)
 add_executable(q3 hardcoded/q3.cpp)
 target_include_directories(q3 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(q3 PUBLIC gqe)
+
+add_executable(q38 hardcoded/q38.cpp)
+target_include_directories(q38 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(q38 PUBLIC gqe)

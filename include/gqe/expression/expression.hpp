@@ -68,6 +68,11 @@ struct expression_visitor {
     throw std::logic_error("Visiting literal_expression<double> is not implemented");
   }
 
+  virtual void visit(literal_expression<std::string> const* expression)
+  {
+    throw std::logic_error("Visiting literal_expression<string> is not implemented");
+  }
+
   virtual void visit(binary_op_expression const* expression)
   {
     throw std::logic_error("Visiting binary_op_expression is not implemented");
@@ -198,6 +203,8 @@ class expression {
  private:
   // Child nodes of the current expression
   std::vector<std::shared_ptr<expression>> _children;
+
+  friend class expression_evaluator;
 };
 
 }  // namespace gqe

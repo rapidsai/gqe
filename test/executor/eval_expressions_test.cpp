@@ -19,6 +19,7 @@
 #include <cudf_test/table_utilities.hpp>
 
 #include <memory>
+#include <string>
 #include <vector>
 
 template <typename T>
@@ -41,7 +42,7 @@ TEST(EvalExpressionsTest, ColumnReference)
   cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
 }
 
-TEST(EvalExpressionsTest, ColumnColumnEquality)
+TEST(EvalExpressionsTest, IntegerColumnIntegerColumnEquality)
 {
   auto c_0   = column_wrapper<int32_t>{3, 20, 1, 50};
   auto c_1   = column_wrapper<int32_t>{3, 7, 1, 0};
@@ -59,7 +60,7 @@ TEST(EvalExpressionsTest, ColumnColumnEquality)
   cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
 }
 
-TEST(EvalExpressionsTest, StrColumnStrColumnEquality)
+TEST(EvalExpressionsTest, StringColumnStringColumnEquality)
 {
   auto c_0   = cudf::test::strings_column_wrapper{"asdf", "qwer"};
   auto c_1   = cudf::test::strings_column_wrapper{"yxcv", "qwer"};
@@ -77,16 +78,34 @@ TEST(EvalExpressionsTest, StrColumnStrColumnEquality)
   cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
 }
 
-TEST(EvalExpressionsTest, ColumnLiteralEquality)
+TEST(EvalExpressionsTest, IntegerColumnIntegerLiteralEquality)
 {
   auto c_0   = column_wrapper<int32_t>{42, 20, 42, 50};
   auto c_1   = column_wrapper<int32_t>{3, 7, 1, 0};
   auto table = cudf::table_view{{c_0, c_1}};
 
   auto col_ref_0 = std::make_shared<gqe::column_reference_expression>(0);
-  auto lit42     = std::make_shared<gqe::literal_expression<int32_t>>(42);
+  auto lit       = std::make_shared<gqe::literal_expression<int32_t>>(42);
 
-  auto eq                                         = gqe::equal_expression(col_ref_0, lit42);
+  auto eq                                         = gqe::equal_expression(col_ref_0, lit);
+  std::vector<gqe::expression const*> expressions = {&eq};
+
+  auto expected                          = column_wrapper<bool>{true, false, true, false};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+}
+
+TEST(EvalExpressionsTest, StringColumnStringLiteralEquality)
+{
+  auto c_0   = cudf::test::strings_column_wrapper{"A", "B", "A", "C"};
+  auto c_1   = column_wrapper<int32_t>{3, 7, 1, 0};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto col_ref_0 = std::make_shared<gqe::column_reference_expression>(0);
+  auto lit       = std::make_shared<gqe::literal_expression<std::string>>("A");
+
+  auto eq                                         = gqe::equal_expression(col_ref_0, lit);
   std::vector<gqe::expression const*> expressions = {&eq};
 
   auto expected                          = column_wrapper<bool>{true, false, true, false};

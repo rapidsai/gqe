@@ -113,3 +113,25 @@ TEST(EvalExpressionsTest, StringColumnStringLiteralEquality)
 
   cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
 }
+
+TEST(EvalExpressionsTest, HeterogeneousEvaluationStrategy)
+{
+  auto c_0   = cudf::test::strings_column_wrapper{"A", "B", "A", "C"};
+  auto c_1   = column_wrapper<int32_t>{3, 7, 1, 0};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto col_ref_0 = std::make_shared<gqe::column_reference_expression>(0);
+  auto col_ref_1 = std::make_shared<gqe::column_reference_expression>(1);
+  auto lit0      = std::make_shared<gqe::literal_expression<std::string>>("A");
+  auto lit1      = std::make_shared<gqe::literal_expression<int32_t>>(1);
+
+  auto eq0  = std::make_shared<gqe::equal_expression>(col_ref_0, lit0);
+  auto eq1  = std::make_shared<gqe::equal_expression>(col_ref_1, lit1);
+  auto root = gqe::logical_and_expression(eq0, eq1);
+  std::vector<gqe::expression const*> expressions = {&root};
+
+  auto expected                          = column_wrapper<bool>{false, false, true, false};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+}

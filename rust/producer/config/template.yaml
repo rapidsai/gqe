@@ -1,0 +1,8 @@
+sql: |
+  <multi- or single-line sql query to produce Substrait plan for>
+output: <path to save Substrait output binary file>
+tables:
+  <table_name0>:
+    file: <path to table0 data file>
+  <table_name1>:
+    directory: <directory to table1 data file(s)>

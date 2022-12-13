@@ -5,3 +5,6 @@
 /proto/
 .devcontainer
 compile_commands.json
+/rust/producer/target/
+/rust/producer/output/
+/rust/producer/Cargo.lock

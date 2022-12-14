@@ -253,6 +253,7 @@ cudf::aggregation::Kind get_second_aggregation_kind(cudf::aggregation::Kind firs
     case cudf::aggregation::SUM: return cudf::aggregation::SUM;
     case cudf::aggregation::COUNT_VALID: return cudf::aggregation::SUM;
     case cudf::aggregation::COUNT_ALL: return cudf::aggregation::SUM;
+    case cudf::aggregation::MEAN: return cudf::aggregation::MEAN;
     default:
       throw std::logic_error("Unknown aggregation type in get_second_aggregation_kind: " +
                              std::to_string(first_aggregation_kind));
@@ -302,6 +303,9 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     switch (kind) {
       case cudf::aggregation::SUM:
         first_aggregation_values.emplace_back(cudf::aggregation::SUM, expr->clone());
+        break;
+      case cudf::aggregation::MEAN:
+        first_aggregation_values.emplace_back(cudf::aggregation::MEAN, expr->clone());
         break;
       default:
         throw std::logic_error("Unknown aggregation type in task_graph_builder: " +
@@ -361,6 +365,11 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     switch (value.first) {
       case cudf::aggregation::SUM:
         // SUM does not need post-processing
+        output_expressions.push_back(std::make_unique<column_reference_expression>(in_idx));
+        in_idx++;
+        break;
+      case cudf::aggregation::MEAN:
+        // MEAN does not need post-processing
         output_expressions.push_back(std::make_unique<column_reference_expression>(in_idx));
         in_idx++;
         break;

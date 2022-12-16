@@ -14,6 +14,7 @@
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
+#include <gqe/expression/if_then_else.hpp>
 #include <gqe/expression/literal.hpp>
 #include <gqe/logical/aggregate.hpp>
 #include <gqe/logical/fetch.hpp>
@@ -25,6 +26,7 @@
 #include <gqe/logical/sort.hpp>
 
 #include <optional>
+#include <string>
 #include <substrait/algebra.pb.h>
 
 #include <cassert>
@@ -101,9 +103,29 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_expression(
     return parse_literal_expression(expression.literal());
   else if (expression.has_subquery())
     return parse_subquery_expression(expression.subquery(), subqueries);
+  else if (expression.has_if_then())
+    return parse_if_then_expression(expression.if_then(), subqueries);
   else
     throw std::runtime_error("SubstraitParser cannot parse expression with type " +
                              std::to_string(expression.rex_type_case()));
+}
+
+std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_if_then_expression(
+  substrait::Expression_IfThen const& if_then_expression,
+  std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
+{
+  if (if_then_expression.ifs_size() != 1)
+    throw std::runtime_error(
+      "Attempting to parse IfThen expression of size " +
+      std::to_string(if_then_expression.ifs_size()) +
+      ". SubstraitParser only support IfThen expression with `ifs` size of 1.");
+
+  auto if_expr   = parse_expression(if_then_expression.ifs().at(0).if_(), subquery_relations);
+  auto then_expr = parse_expression(if_then_expression.ifs().at(0).then(), subquery_relations);
+  auto else_expr = parse_expression(if_then_expression.else_(), subquery_relations);
+
+  return std::make_unique<gqe::if_then_else_expression>(
+    std::move(if_expr), std::move(then_expr), std::move(else_expr));
 }
 
 std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression(
@@ -162,29 +184,31 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_scalar_function_ex
   substrait::Expression_ScalarFunction const& scalar_function_expression,
   std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
 {
-  if (scalar_function_expression.arguments_size() != 2)
-    throw std::runtime_error("Non-binary functions are not yet supported");
-
   auto function_name = get_function_name(scalar_function_expression.function_reference());
 
-  if (function_name == "equal" ||
-      function_name == "equal:any_any") {  // TODO: Look into substrait function naming standards
-    assert(scalar_function_expression.arguments_size() == 2);
+  if (scalar_function_expression.arguments_size() == 2) {  // Binary function
     auto lhs =
       parse_expression(scalar_function_expression.arguments().Get(0).value(), subquery_relations);
     auto rhs =
       parse_expression(scalar_function_expression.arguments().Get(1).value(), subquery_relations);
-    return std::make_unique<gqe::equal_expression>(std::move(lhs), std::move(rhs));
-  } else if (function_name == "and" || function_name == "and:bool") {
-    assert(scalar_function_expression.arguments_size() == 2);
-    auto lhs =
-      parse_expression(scalar_function_expression.arguments().Get(0).value(), subquery_relations);
-    auto rhs =
-      parse_expression(scalar_function_expression.arguments().Get(1).value(), subquery_relations);
-    return std::make_unique<gqe::logical_and_expression>(std::move(lhs), std::move(rhs));
+
+    if (function_name == "equal" || function_name == "equal:any_any")
+      return std::make_unique<gqe::equal_expression>(std::move(lhs), std::move(rhs));
+    else if (function_name == "and" || function_name == "and:bool")
+      return std::make_unique<gqe::logical_and_expression>(std::move(lhs), std::move(rhs));
+    else if (function_name == "gt" || function_name == "gt:any_any")
+      return std::make_unique<gqe::greater_expression>(std::move(lhs), std::move(rhs));
+    else if (function_name == "lt" || function_name == "lt:any_any")
+      return std::make_unique<gqe::less_expression>(std::move(lhs), std::move(rhs));
+    else if (function_name == "gte" || function_name == "gte:any_any")
+      return std::make_unique<gqe::greater_equal_expression>(std::move(lhs), std::move(rhs));
+    else if (function_name == "lte" || function_name == "lte:any_any")
+      return std::make_unique<gqe::less_equal_expression>(std::move(lhs), std::move(rhs));
+    else
+      throw std::runtime_error("SubstraitParser cannot parse scalar function \"" + function_name +
+                               "\"");
   } else {
-    throw std::runtime_error("SubstraitParser cannot parse scalar function \"" + function_name +
-                             "\"");
+    throw std::runtime_error("Non-binary functions are not yet supported");
   }
 }
 

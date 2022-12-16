@@ -35,6 +35,12 @@ void catalog::register_table(std::string table_name,
   table_info._file_paths  = file_paths;
   table_info._file_format = file_format;
 
+  table_statistics stats;
+  // FIXME: Parse the table metadata for a more accurate estimation
+  constexpr int64_t default_num_rows_per_file = 10000;
+  stats.num_rows         = default_num_rows_per_file * table_info._file_paths.size();
+  table_info._statistics = stats;
+
   _tables_info[table_name] = std::move(table_info);
 }
 
@@ -73,6 +79,16 @@ file_format_type catalog::file_format(std::string const& table_name) const
     throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
 
   return table_info_iter->second._file_format;
+}
+
+table_statistics catalog::statistics(std::string const& table_name) const
+{
+  auto const table_info_iter = _tables_info.find(table_name);
+
+  if (table_info_iter == _tables_info.end())
+    throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
+
+  return table_info_iter->second._statistics;
 }
 
 }  // namespace gqe

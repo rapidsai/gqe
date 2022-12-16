@@ -69,12 +69,20 @@ class catalog {
    */
   file_format_type file_format(std::string const& table_name) const;
 
+  /**
+   * @brief Return the estimated statistics of a table.
+   *
+   * @throw std::logic_error if the table is not found in the catalog.
+   */
+  table_statistics statistics(std::string const& table_name) const;
+
  private:
   struct table_info_type {
     std::unordered_map<std::string, cudf::data_type>
       _column_name_to_type;  ///< map from column names to their data types
     std::vector<std::string> _file_paths;
     file_format_type _file_format;
+    table_statistics _statistics;
   };
 
   std::unordered_map<std::string, table_info_type>

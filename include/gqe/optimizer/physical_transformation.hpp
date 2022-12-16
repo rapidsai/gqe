@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/catalog.hpp>
 #include <gqe/logical/aggregate.hpp>
 #include <gqe/logical/fetch.hpp>
 #include <gqe/logical/filter.hpp>
@@ -20,6 +21,7 @@
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/relation.hpp>
 #include <gqe/logical/sort.hpp>
+#include <gqe/optimizer/estimator.hpp>
 #include <gqe/physical/relation.hpp>
 
 #include <memory>
@@ -33,6 +35,13 @@ namespace gqe {
 class physical_plan_builder {
  public:
   /**
+   * @brief Construct a physical plan builder.
+   *
+   * @param[in] cat Catalog containing table metadata.
+   */
+  physical_plan_builder(catalog const* cat) : _estimator(cat) {}
+
+  /**
    * @brief Generate a physical plan from a logical plan.
    *
    * @param[in] logical_plan Root relation of the logical plan.
@@ -45,6 +54,7 @@ class physical_plan_builder {
   // A cache for keeping track of the previously-generated physical relations. Without the cache,
   // the builder can only generate a tree instead of a DAG.
   std::unordered_map<logical::relation const*, std::weak_ptr<physical::relation>> _cache;
+  estimator _estimator;
 };
 
 }  // namespace gqe

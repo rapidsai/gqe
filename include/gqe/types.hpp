@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace gqe {
 
 /**
@@ -23,5 +25,12 @@ enum class join_type_type { inner, left, left_semi, left_anti, full, single };
  * @brief List of input file formats.
  */
 enum class file_format_type { parquet };
+
+/**
+ * @brief Statistics of a table.
+ */
+struct table_statistics {
+  int64_t num_rows;
+};
 
 }  // namespace gqe

@@ -117,7 +117,7 @@ TEST(LogicalToExecution, HardcodePlanAndData)
     gqe::join_type_type::inner,
     std::vector<cudf::size_type>({0, 1, 3}));
 
-  gqe::physical_plan_builder plan_builder;
+  gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(join_relation.get());
 
   // Generate the task graph and execute on a single GPU

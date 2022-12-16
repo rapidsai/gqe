@@ -63,6 +63,24 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
       assert(children_physical.size() == 2);
       auto const logical_join_relation =
         dynamic_cast<logical::join_relation const*>(logical_relation);
+
+      // Currently GQE supports the following join types: inner, left, left_semi, left_anti, full,
+      // single. There are three categories among these join types.
+      // Cannot use broadcast join: full, single
+      // Can only broadcast the right table: left, left_semi, left_anti
+      // Free to broadcast either left or right table: inner
+      //
+      // So, we default the broadcast policy to broadcast_policy::right and only consider
+      // broadcast_policy::left if it's an inner join.
+      physical::broadcast_policy policy = physical::broadcast_policy::right;
+
+      // If the join type is inner join, we broadcast the smaller table.
+      if (logical_join_relation->join_type() == join_type_type::inner) {
+        auto const left_num_rows  = _estimator(children_logical[0]).num_rows;
+        auto const right_num_rows = _estimator(children_logical[1]).num_rows;
+        if (left_num_rows < right_num_rows) policy = physical::broadcast_policy::left;
+      }
+
       out_physical_relation = std::make_shared<physical::broadcast_join_relation>(
         std::move(children_physical[0]),
         std::move(children_physical[1]),
@@ -70,7 +88,8 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
         logical_join_relation->join_type(),
         logical_join_relation->condition()->clone(),
         logical_join_relation->projection_indices(),
-        logical_join_relation->compare_nulls());
+        logical_join_relation->compare_nulls(),
+        policy);
       break;
     }
     case logical::relation::relation_type::project: {

@@ -93,16 +93,62 @@ class join_relation_base : public relation {
 };
 
 /**
- * @brief Join the input tables by broadcasting the right table.
+ * @brief Indicates whether to broadcast the right relation or the left relation.
  */
-class broadcast_join_relation : public join_relation_base {
-  using join_relation_base::join_relation_base;
+enum class broadcast_policy : bool {
+  right,  ///< Broadcast the right relation.
+  left    ///< Broadcast the left relation. Only supported for an inner join.
+};
 
+class broadcast_join_relation : public join_relation_base {
  public:
+  /**
+   * @brief Construct a physical broadcast join relation.
+   *
+   * @param[in] left Left table to join.
+   * @param[in] right Right table to join.
+   * @param[in] subquery_relations Subquery relations that are referenced within the `condition`
+   * expression.
+   * @param[in] join_type Type of the join.
+   * @param[in] condition A boolean expression to define when a left tuple matches with a right
+   * tuple.
+   * @param[in] projection_indices Column indices to materialize after the join. The rest of columns
+   * are discarded.
+   * @param[in] compare_nulls Whether NULL keys should match or not.
+   * @param[in] policy Whether to broadcast the right relation or the left relation.
+   */
+  broadcast_join_relation(std::shared_ptr<relation> left,
+                          std::shared_ptr<relation> right,
+                          std::vector<std::shared_ptr<relation>> subquery_relations,
+                          join_type_type join_type,
+                          std::unique_ptr<expression> condition,
+                          std::vector<cudf::size_type> projection_indices,
+                          cudf::null_equality compare_nulls,
+                          broadcast_policy policy)
+    : join_relation_base(std::move(left),
+                         std::move(right),
+                         std::move(subquery_relations),
+                         join_type,
+                         std::move(condition),
+                         std::move(projection_indices),
+                         compare_nulls),
+      _policy(policy)
+  {
+  }
+
+  /**
+   * @brief Return a policy indicating whether the join should broadcast the right relation or the
+   * left one.
+   */
+  [[nodiscard]] broadcast_policy policy() const noexcept { return _policy; }
+
   /**
    * @copydoc gqe::physical::relation::accept(relation_visitor&)
    */
   void accept(relation_visitor& visitor) override { visitor.visit(this); }
+
+ private:
+  broadcast_policy _policy;
 };
 
 }  // namespace physical

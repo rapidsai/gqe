@@ -117,33 +117,64 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   if (relation_join_type == join_type_type::full || relation_join_type == join_type_type::single)
     throw std::logic_error("Broadcast join does not support full join or single join");
 
-  // Generate the right children tasks
   auto const children = relation->children_unsafe();
-  auto right_tasks    = _builder->generate_tasks(children[1]);
 
-  // Insert a pipeline breaker since the right tasks need to be broadcasted
-  _builder->insert_pipeline_breaker(utility::to_raw_ptrs(right_tasks));
+  if (relation->policy() == physical::broadcast_policy::right) {
+    // Generate the right children tasks
+    auto right_tasks = _builder->generate_tasks(children[1]);
 
-  // Generate the left children tasks
-  auto left_tasks = _builder->generate_tasks(children[0]);
+    // Insert a pipeline breaker since the right tasks need to be broadcasted
+    _builder->insert_pipeline_breaker(utility::to_raw_ptrs(right_tasks));
 
-  // Concatenate the right child tasks
-  // Note that we don't insert a pipeline breaker here so that the join tasks have the same
-  // stage as the concatenate task. This way, the concatenate task implements the broadcasting
-  // instead of being executed on a single GPU.
-  auto concatenated_right_task = _builder->concatenate(std::move(right_tasks), false);
+    // Generate the left children tasks
+    auto left_tasks = _builder->generate_tasks(children[0]);
 
-  // Generate the join tasks
-  for (auto& left_task : left_tasks) {
-    _generated_tasks.push_back(std::make_shared<join_task>(_builder->_current_task_id,
-                                                           _builder->_current_stage_id,
-                                                           std::move(left_task),
-                                                           concatenated_right_task,
-                                                           relation_join_type,
-                                                           relation->condition()->clone(),
-                                                           relation->projection_indices(),
-                                                           relation->compare_nulls()));
-    _builder->_current_task_id++;
+    // Concatenate the right child tasks
+    // Note that we don't insert a pipeline breaker here so that the join tasks have the same
+    // stage as the concatenate task. This way, the concatenate task implements the broadcasting
+    // instead of being executed on a single GPU.
+    auto concatenated_right_task = _builder->concatenate(std::move(right_tasks), false);
+
+    // Generate the join tasks
+    for (auto& left_task : left_tasks) {
+      _generated_tasks.push_back(std::make_shared<join_task>(_builder->_current_task_id,
+                                                             _builder->_current_stage_id,
+                                                             std::move(left_task),
+                                                             concatenated_right_task,
+                                                             relation_join_type,
+                                                             relation->condition()->clone(),
+                                                             relation->projection_indices(),
+                                                             relation->compare_nulls()));
+      _builder->_current_task_id++;
+    }
+  } else {
+    if (relation_join_type != join_type_type::inner)
+      throw std::logic_error("Broadcast join can broadcast the left table only for inner join");
+
+    // Generate the left children tasks
+    auto left_tasks = _builder->generate_tasks(children[0]);
+
+    // Insert a pipeline breaker since the left tasks need to be broadcasted
+    _builder->insert_pipeline_breaker(utility::to_raw_ptrs(left_tasks));
+
+    // Generate the right children tasks
+    auto right_tasks = _builder->generate_tasks(children[1]);
+
+    // Concatenate the left child tasks
+    auto concatenated_left_task = _builder->concatenate(std::move(left_tasks), false);
+
+    // Generate the join tasks
+    for (auto& right_task : right_tasks) {
+      _generated_tasks.push_back(std::make_shared<join_task>(_builder->_current_task_id,
+                                                             _builder->_current_stage_id,
+                                                             concatenated_left_task,
+                                                             std::move(right_task),
+                                                             relation_join_type,
+                                                             relation->condition()->clone(),
+                                                             relation->projection_indices(),
+                                                             relation->compare_nulls()));
+      _builder->_current_task_id++;
+    }
   }
 
   update_cache(relation);

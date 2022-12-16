@@ -77,7 +77,7 @@ int main(int argc, char* argv[])
   auto logical_plan = parser.from_file(substrait_plan_file);
   assert(logical_plan.size() == 1);
 
-  gqe::physical_plan_builder plan_builder;
+  gqe::physical_plan_builder plan_builder(&tpcds_catalog);
   auto physical_plan = plan_builder.build(logical_plan[0].get());
 
   gqe::task_graph_builder graph_builder(&tpcds_catalog);

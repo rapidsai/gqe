@@ -41,7 +41,7 @@ class project_relation : public relation {
   project_relation(std::shared_ptr<relation> input,
                    std::vector<std::shared_ptr<relation>> subquery_relations,
                    std::vector<std::unique_ptr<expression>> output_expressions)
-    : relation({std::move(input)}, subquery_relations),
+    : relation({std::move(input)}, std::move(subquery_relations)),
       _output_expressions(std::move(output_expressions))
   {
   }

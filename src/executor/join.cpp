@@ -36,7 +36,7 @@ join_task::join_task(int32_t task_id,
                      std::unique_ptr<expression> condition,
                      std::vector<cudf::size_type> projection_indices,
                      cudf::null_equality compare_nulls)
-  : task(task_id, stage_id, {std::move(left), std::move(right)}),
+  : task(task_id, stage_id, {std::move(left), std::move(right)}, {}),
     _join_type(join_type),
     _condition(std::move(condition)),
     _projection_indices(std::move(projection_indices)),

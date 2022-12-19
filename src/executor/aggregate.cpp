@@ -91,7 +91,9 @@ aggregate_task::aggregate_task(
   std::shared_ptr<task> input,
   std::vector<std::unique_ptr<expression>> keys,
   std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values)
-  : task(task_id, stage_id, {std::move(input)}), _keys(std::move(keys)), _values(std::move(values))
+  : task(task_id, stage_id, {std::move(input)}, {}),
+    _keys(std::move(keys)),
+    _values(std::move(values))
 {
 }
 

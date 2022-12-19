@@ -17,8 +17,14 @@
 
 namespace gqe {
 
-task::task(int32_t task_id, int32_t stage_id, std::vector<std::shared_ptr<task>> dependencies)
-  : _task_id(task_id), _stage_id(stage_id), _dependencies(std::move(dependencies))
+task::task(int32_t task_id,
+           int32_t stage_id,
+           std::vector<std::shared_ptr<task>> dependencies,
+           std::vector<std::shared_ptr<task>> subqueries)
+  : _task_id(task_id),
+    _stage_id(stage_id),
+    _dependencies(std::move(dependencies)),
+    _subqueries(std::move(subqueries))
 {
 }
 
@@ -35,9 +41,11 @@ std::vector<task*> task::dependencies() const noexcept
   return utility::to_raw_ptrs(_dependencies);
 }
 
-void task::prepare_dependencies()
+std::vector<task*> task::subqueries() const noexcept { return utility::to_raw_ptrs(_subqueries); }
+
+void task::prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent_tasks)
 {
-  for (auto const& dependent_task : _dependencies) {
+  for (auto const& dependent_task : dependent_tasks) {
     if (!dependent_task->_result.has_value()) {
       if (dependent_task->stage_id() == this->stage_id()) {
         // If the dependent task belongs to the same stage, it has not been executed by any other
@@ -53,5 +61,9 @@ void task::prepare_dependencies()
     }
   }
 }
+
+void task::prepare_dependencies() { prepare_dependent_tasks(_dependencies); }
+
+void task::prepare_subqueries() { prepare_dependent_tasks(_subqueries); }
 
 }  // namespace gqe

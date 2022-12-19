@@ -25,7 +25,7 @@ fetch_task::fetch_task(int32_t task_id,
                        std::shared_ptr<task> input,
                        cudf::size_type offset,
                        cudf::size_type count)
-  : task(task_id, stage_id, {std::move(input)}), _offset(offset), _count(count)
+  : task(task_id, stage_id, {std::move(input)}, {}), _offset(offset), _count(count)
 {
 }
 

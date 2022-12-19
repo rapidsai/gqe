@@ -27,12 +27,17 @@ class task {
   /**
    * @brief Construct a new task.
    *
-   * @param[in] dependencies Dependent tasks of the new task. These tasks are the children nodes in
-   * the task graph.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
+   * @param[in] dependencies Dependent tasks of the new task. These tasks are the children nodes in
+   * the task graph.
+   * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
+   * relation index `i` in a subquery expression refers to `subquery_tasks[i]`.
    */
-  task(int32_t task_id, int32_t stage_id, std::vector<std::shared_ptr<task>> dependencies);
+  task(int32_t task_id,
+       int32_t stage_id,
+       std::vector<std::shared_ptr<task>> dependencies,
+       std::vector<std::shared_ptr<task>> subquery_tasks);
 
   virtual ~task()   = default;
   task(const task&) = delete;
@@ -90,9 +95,25 @@ class task {
   [[nodiscard]] std::vector<task*> dependencies() const noexcept;
 
   /**
+   * @brief Return the subquery tasks
+   *
+   * The subquery tasks are those indexed by any subquery expression(s) that are part of the current
+   * task.
+   *
+   * @note The returned tasks do not share ownership. This object must be kept alive for the
+   * returned tasks to be valid.
+   */
+  [[nodiscard]] std::vector<task*> subqueries() const noexcept;
+
+  /**
    * @brief Make the results of all dependencies available to the local GPU.
    */
   void prepare_dependencies();
+
+  /**
+   * @brief Make the results of all subqueries available to the local GPU.
+   */
+  void prepare_subqueries();
 
   /**
    * @brief Remove all dependencies from this task.
@@ -102,10 +123,15 @@ class task {
    */
   void remove_dependencies() noexcept { _dependencies.clear(); }
 
+  void remove_subqueries() noexcept { _subqueries.clear(); }
+
  private:
+  void prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent_tasks);
+
   int32_t _task_id;
   int32_t _stage_id;
   std::vector<std::shared_ptr<task>> _dependencies;
+  std::vector<std::shared_ptr<task>> _subqueries;
   std::optional<cudf::table_view> _result;
   // This field could hold the result after execution, or the migrated table from a remote GPU. Note
   // that it is possible that this field is empty but `_result` contains the valid view, when

@@ -41,9 +41,12 @@ void print_usage()
             << "./q38 <path-to-dataset>" << std::endl;
 }
 
-std::shared_ptr<gqe::logical::read_relation> read_table(std::string table_name,
-                                                        std::vector<std::string> column_names,
-                                                        gqe::catalog const* tpcds_catalog)
+std::shared_ptr<gqe::logical::read_relation> read_table(
+  std::string table_name,
+  std::vector<std::string> column_names,
+  gqe::catalog const* tpcds_catalog,
+  std::shared_ptr<gqe::logical::project_relation> partial_filter_haystack = nullptr,
+  std::unique_ptr<gqe::expression> partial_filter                         = nullptr)
 {
   std::vector<cudf::data_type> column_types;
   column_types.reserve(column_names.size());
@@ -51,11 +54,12 @@ std::shared_ptr<gqe::logical::read_relation> read_table(std::string table_name,
     column_types.push_back(tpcds_catalog->column_type(table_name, column_name));
 
   return std::make_shared<gqe::logical::read_relation>(
-    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery relations
+    partial_filter ? std::vector<std::shared_ptr<gqe::logical::relation>>{partial_filter_haystack}
+                   : std::vector<std::shared_ptr<gqe::logical::relation>>(),
     std::move(column_names),
     std::move(column_types),
     std::move(table_name),
-    nullptr);
+    std::move(partial_filter));
 }
 
 // This helper function implements the following part of the SQL query for one of the store_sales,
@@ -77,12 +81,33 @@ std::shared_ptr<gqe::logical::relation> process_sales_table(
 {
   assert(column_names.size() == 2);
 
+  // predicate pushdown via partial filter
+  std::vector<std::unique_ptr<gqe::expression>> col_0_exprs;
+  col_0_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(0));
+
+  auto const partial_filter_haystack = std::make_shared<gqe::logical::project_relation>(
+    date_dim_table,
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery relations
+    std::move(col_0_exprs));
+
+  auto partial_filter = std::make_unique<gqe::in_predicate_expression>(
+    std::vector<std::shared_ptr<gqe::expression>>{
+      std::make_shared<gqe::column_reference_expression>(0)},  // ss_sold_date_sk
+    0);
+
   // The exact column name varies based on different sales table. We use "store_sales" table here as
   // an example.
   // After this operation, sales_table contains columns
   // ["ss_sold_date_sk", "ss_customer_sk"]
   std::shared_ptr<gqe::logical::relation> sales_table =
-    read_table(table_name, column_names, tpcds_catalog);
+    read_table(table_name,
+               column_names,
+               tpcds_catalog,
+               std::move(partial_filter_haystack),
+               std::move(partial_filter));
+
+  // std::shared_ptr<gqe::logical::relation> sales_table =
+  //  read_table(table_name, column_names, tpcds_catalog);
 
   // After this operation, sales_table contains columns
   // ["ss_customer_sk", "d_date"]

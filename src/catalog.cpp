@@ -19,7 +19,8 @@ namespace gqe {
 void catalog::register_table(std::string table_name,
                              std::vector<std::pair<std::string, cudf::data_type>> const& columns,
                              std::vector<std::string> const& file_paths,
-                             file_format_type file_format)
+                             file_format_type file_format,
+                             size_t max_num_partitions)
 {
   if (_tables_info.find(table_name) != _tables_info.end())
     throw std::logic_error("table \"" + table_name + "\" is already registered");
@@ -32,8 +33,9 @@ void catalog::register_table(std::string table_name,
       throw std::logic_error("column name already exists when registering table");
     table_info._column_name_to_type[column_name] = column_type;
   }
-  table_info._file_paths  = file_paths;
-  table_info._file_format = file_format;
+  table_info._file_paths     = file_paths;
+  table_info._file_format    = file_format;
+  table_info._num_partitions = std::min(file_paths.size(), max_num_partitions);
 
   table_statistics stats;
   // FIXME: Parse the table metadata for a more accurate estimation
@@ -89,6 +91,16 @@ table_statistics catalog::statistics(std::string const& table_name) const
     throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
 
   return table_info_iter->second._statistics;
+}
+
+size_t catalog::num_partitions(std::string const& table_name) const
+{
+  auto const table_info_iter = _tables_info.find(table_name);
+
+  if (table_info_iter == _tables_info.end())
+    throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
+
+  return table_info_iter->second._num_partitions;
 }
 
 }  // namespace gqe

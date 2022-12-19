@@ -36,7 +36,7 @@ class concatenate_task : public task {
    * @param[in] inputs Input tables to be concatenated.
    */
   concatenate_task(int32_t task_id, int32_t stage_id, std::vector<std::shared_ptr<task>> inputs)
-    : task(task_id, stage_id, std::move(inputs))
+    : task(task_id, stage_id, std::move(inputs), {})
   {
   }
 

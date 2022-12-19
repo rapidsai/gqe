@@ -103,6 +103,11 @@ class relation {
     return utility::to_raw_ptrs(_children);
   }
 
+  [[nodiscard]] std::vector<relation*> subqueries_unsafe() const noexcept
+  {
+    return utility::to_raw_ptrs(_subqueries);
+  }
+
   /**
    * @brief Accept a visitor.
    *

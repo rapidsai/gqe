@@ -13,6 +13,7 @@
 #pragma once
 
 #include <gqe/expression/expression.hpp>
+#include <gqe/expression/subquery.hpp>
 #include <gqe/physical/relation.hpp>
 
 #include <string>

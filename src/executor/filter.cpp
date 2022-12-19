@@ -23,8 +23,10 @@ namespace gqe {
 filter_task::filter_task(int32_t task_id,
                          int32_t stage_id,
                          std::shared_ptr<task> input,
-                         std::unique_ptr<expression> condition)
-  : task(task_id, stage_id, {std::move(input)}), _condition(std::move(condition))
+                         std::unique_ptr<expression> condition,
+                         std::vector<std::shared_ptr<task>> subquery_tasks)
+  : task(task_id, stage_id, {std::move(input)}, std::move(subquery_tasks)),
+    _condition(std::move(condition))
 {
 }
 
@@ -32,6 +34,8 @@ void filter_task::execute()
 {
   prepare_dependencies();
   auto dependent_tasks = dependencies();
+
+  // TODO: Evaluate possible subquery
 
   assert(dependent_tasks.size() == 1);
 

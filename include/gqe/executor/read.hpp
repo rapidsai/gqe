@@ -14,6 +14,7 @@
 
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
+#include <gqe/expression/subquery.hpp>
 #include <gqe/types.hpp>
 
 #include <cudf/types.hpp>
@@ -33,7 +34,7 @@ class read_task : public task {
    *
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
-   * @param[in] file_location Location of the file.
+   * @param[in] file_paths Paths of the files to be read.
    * @param[in] file_format Format of the file.
    * @param[in] column_names Columns to be loaded.
    * @param[in] data_types Expected data types of each column. If the data type of a loaded column
@@ -44,14 +45,17 @@ class read_task : public task {
    * predicate is guaranteed to be included in the loaded table, but a row that does not satisfy the
    * predicate may or may not be excluded. If such exclusion needs to be guaranteed, an extra filter
    * task is needed. If this argument is nullptr, no rows will be filtered out.
+   * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
+   * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
    */
   read_task(int32_t task_id,
             int32_t stage_id,
-            std::string file_location,
+            std::vector<std::string> file_paths,
             file_format_type file_format,
             std::vector<std::string> column_names,
-            std::vector<cudf::data_type> data_types    = {},
-            std::unique_ptr<gqe::expression> predicate = nullptr);
+            std::vector<cudf::data_type> data_types           = {},
+            std::unique_ptr<gqe::expression> partial_filter   = nullptr,
+            std::vector<std::shared_ptr<task>> subquery_tasks = {});
 
   /**
    * @copydoc gqe::task::execute()
@@ -59,11 +63,14 @@ class read_task : public task {
   void execute() override;
 
  private:
-  std::string _file_location;
+  [[nodiscard]] std::unique_ptr<cudf::table> table_from_parquet(
+    std::vector<std::string> const& file_paths) const;
+
+  std::vector<std::string> _file_paths;
   file_format_type _file_format;
   std::vector<std::string> _column_names;
   std::vector<cudf::data_type> _data_types;
-  std::unique_ptr<gqe::expression> _predicate;
+  std::unique_ptr<gqe::expression> _partial_filter;
 };
 
 }  // namespace gqe

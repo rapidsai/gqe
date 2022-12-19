@@ -35,11 +35,14 @@ class filter_task : public task {
    * @param[in] input Input table to be filtered.
    * @param[in] condition A boolean expression evaluated on `input` to represent the filter
    * condition.
+   * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
+   * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
    */
   filter_task(int32_t task_id,
               int32_t stage_id,
               std::shared_ptr<task> input,
-              std::unique_ptr<expression> condition);
+              std::unique_ptr<expression> condition,
+              std::vector<std::shared_ptr<task>> subquery_tasks = {});
 
   /**
    * @copydoc gqe::task::execute()

@@ -85,24 +85,48 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::read_relat
 {
   if (is_cached(relation)) return;
 
-  auto const table_name   = relation->table_name();
-  auto const column_names = relation->column_names();
+  auto const table_name     = relation->table_name();
+  auto const column_names   = relation->column_names();
+  auto const partial_filter = relation->partial_filter_unsafe();
+  std::shared_ptr<task> concatenated_subquery_task;
+
+  if (partial_filter && (partial_filter->type() == expression::expression_type::subquery)) {
+    // If it's a subquery, we know it's an in-predicate
+    auto const subquery = dynamic_cast<in_predicate_expression* const>(partial_filter);
+    // Make sure dynamic_cast was successful
+    assert(subquery != nullptr);
+    auto const subquery_relations = relation->subqueries_unsafe();
+
+    auto const subquery_tasks =
+      _builder->generate_tasks(subquery_relations[subquery->relation_index()]);
+    concatenated_subquery_task = _builder->concatenate(subquery_tasks);
+  }
 
   std::vector<cudf::data_type> data_types;
   data_types.reserve(column_names.size());
   for (auto const& column_name : column_names)
     data_types.push_back(_builder->_catalog->column_type(table_name, column_name));
 
-  auto const file_paths = _builder->_catalog->file_paths(table_name);
-  for (auto const& file_path : file_paths) {
+  auto const file_paths          = _builder->_catalog->file_paths(table_name);
+  auto const num_partitions      = _builder->_catalog->num_partitions(table_name);
+  int64_t max_num_files_per_part = (file_paths.size() + num_partitions - 1) / num_partitions;
+  auto file_it                   = file_paths.begin();
+
+  // Evenly distribute files among the partitions
+  for (size_t partition_idx = 0; partition_idx < num_partitions; ++partition_idx) {
+    size_t num_files_part = std::min(int64_t{file_paths.end() - file_it}, max_num_files_per_part);
+    std::vector<std::string> file_paths_task{file_it, file_it + num_files_part};
     _generated_tasks.push_back(
       std::make_shared<read_task>(_builder->_current_task_id,
                                   _builder->_current_stage_id,
-                                  file_path,
+                                  std::move(file_paths_task),
                                   _builder->_catalog->file_format(table_name),
                                   column_names,
-                                  data_types));
+                                  data_types,
+                                  partial_filter ? partial_filter->clone() : nullptr,
+                                  std::vector<std::shared_ptr<task>>{concatenated_subquery_task}));
     _builder->_current_task_id++;
+    file_it += num_files_part;
   }
 
   update_cache(relation);
@@ -239,13 +263,28 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::filter_rel
   assert(children.size() == 1);
   auto input_tasks = _builder->generate_tasks(children[0]);
 
+  auto const condition = relation->condition_unsafe();
+
+  std::shared_ptr<task> concatenated_subquery_task = nullptr;
+  if (condition->type() == expression::expression_type::subquery) {
+    // If it's a subquery, we know it's an in-predicate
+    auto const subquery           = dynamic_cast<subquery_expression* const>(condition);
+    auto const subquery_relations = relation->subqueries_unsafe();
+
+    // FIXME: Make sure the filter tasks and their children are within the same stage.
+    auto const subquery_tasks =
+      _builder->generate_tasks(subquery_relations[subquery->relation_index()]);
+    concatenated_subquery_task = _builder->concatenate(subquery_tasks);
+  }
+
   // Generate the filter tasks
   for (auto& input_task : input_tasks) {
-    _generated_tasks.push_back(
-      std::make_shared<filter_task>(_builder->_current_task_id,
-                                    _builder->_current_stage_id,
-                                    std::move(input_task),
-                                    relation->condition_unsafe()->clone()));
+    _generated_tasks.push_back(std::make_shared<filter_task>(
+      _builder->_current_task_id,
+      _builder->_current_stage_id,
+      std::move(input_task),
+      relation->condition_unsafe()->clone(),
+      std::vector<std::shared_ptr<task>>{concatenated_subquery_task}));
     _builder->_current_task_id++;
   }
 

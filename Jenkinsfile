@@ -30,12 +30,11 @@ def checkout_code() {
 }
 
 def install_dependencies_with_conda() {
-  stage("Install miniconda") {
+  stage("Install mambaforge") {
     sh '''#!/bin/bash
       apt-get update -y && apt-get install -y --no-install-recommends wget git ca-certificates build-essential
-      wget -q https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-$(uname -m).sh -O /miniconda.sh
-      sh /miniconda.sh -b -p /conda
-      /conda/bin/conda install -q -c conda-forge -y mamba -n base
+      wget -q https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-$(uname -m).sh -O /mambaforge.sh
+      sh /mambaforge.sh -b -p /conda
     '''
   }
   stage("Install dependencies using conda") {

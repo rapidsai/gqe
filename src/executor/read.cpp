@@ -49,11 +49,18 @@ read_task::read_task(int32_t task_id,
 {
 }
 
-struct row_filter_functor {
+struct file_filter_functor {
+  /**
+   * @brief Filter out irrelevant files.
+   *
+   * @param[out] file_filter Boolean vector indicating whether each file should be included.
+   * @param[in] needles (file_idx, value) pairs to be tested.
+   * @param[in] acceptable_value_col Files should be included if the value is in this list.
+   */
   template <typename T>
-  std::vector<bool> operator()(std::size_t num_paths,
-                               std::vector<std::pair<size_t, size_t>> const& needles,
-                               cudf::column_view const& acceptable_value_col)
+  void operator()(std::vector<bool>& file_filter,
+                  std::vector<std::pair<size_t, size_t>> const& needles,
+                  cudf::column_view const& acceptable_value_col)
   {
     if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
       std::vector<T> haystack(acceptable_value_col.size());
@@ -67,20 +74,10 @@ struct row_filter_functor {
       std::unordered_set<size_t> haystack_set(
         haystack.begin(), haystack.end(), 2 * haystack.size());
 
-      // This indicates the parquet files to be loaded
-      // Note that if there are no needles (the input tables are not partitioned), `row_filter`
-      // contains all `true` so no files are filtered out.
-      std::vector<bool> row_filter(num_paths, true);
-
       // Filter out files that are needles and are not present in the haystack
       for (auto const& needle : needles) {
-        row_filter[needle.first] = haystack_set.find(needle.second) != haystack_set.end();
+        file_filter[needle.first] = haystack_set.find(needle.second) != haystack_set.end();
       }
-
-      return row_filter;
-    } else {
-      // Don't know how to handle non integral types, so we filter in everything
-      return std::vector<bool>(num_paths, true);
     }
   }
 };
@@ -130,7 +127,9 @@ void read_task::execute()
     throw std::logic_error("Read task can only load Parquet files");
 
   auto const partial_filter = _partial_filter.get();
-  std::vector<bool> row_filter(_file_paths.size(), true);
+
+  // Indicates whether each file should be loaded
+  std::vector<bool> file_filter(_file_paths.size(), true);
 
   if (partial_filter != nullptr) {
     // FIXME: Only support in_predicate_expression
@@ -165,18 +164,25 @@ void read_task::execute()
     // Get the available values for the column we've partitioned along
     std::vector<std::pair<size_t, size_t>> needles;
     needles.reserve(_file_paths.size());
-    std::regex valid_filename("(" + column_name + "=)([0-9]+)");
+    std::regex valid_filename("(" + column_name + "=)([A-Za-z0-9_]+)");
 
-    for (std::size_t i = 0; i < _file_paths.size(); ++i) {
-      std::filesystem::path file_path{_file_paths[i]};
+    for (std::size_t file_idx = 0; file_idx < _file_paths.size(); ++file_idx) {
+      std::filesystem::path file_path{_file_paths[file_idx]};
       std::string filename(file_path.filename());
 
       std::smatch matches;
-      std::regex_search(_file_paths[i], matches, valid_filename);
+      std::regex_search(_file_paths[file_idx], matches, valid_filename);
       // make sure both subexpressions (column name and value) are matched
       if (matches.size() == 3) {
-        needles.push_back(
-          std::make_pair<std::size_t, std::size_t>(std::size_t{i}, stoull(matches[2])));
+        try {
+          std::size_t value = stoull(matches[2]);
+          needles.emplace_back(file_idx, value);
+        } catch (const std::invalid_argument&) {
+          if (matches[2] == "__HIVE_DEFAULT_PARTITION__") {
+            // Filter out NULLs
+            file_filter[file_idx] = false;
+          }
+        }
       }
     }
 
@@ -186,18 +192,20 @@ void read_task::execute()
       subquery_tasks[partial_filter_subquery->relation_index()]->result().value(), {0});
     auto const acceptable_value_col = acceptable_value_table->view().column(0);
 
-    // FIXME: This row filter is really a file filter. It can only filter on a file-by-file basis.
-    row_filter = cudf::type_dispatcher(acceptable_value_col.type(),
-                                       row_filter_functor{},
-                                       _file_paths.size(),
-                                       needles,
-                                       acceptable_value_col);
+    // FIXME: Currently only filter on a file-by-file basis.
+    // Note that if there are no needles (the input tables are not partitioned), `file_filter`
+    // contains all `true` so no files are filtered out.
+    cudf::type_dispatcher(acceptable_value_col.type(),
+                          file_filter_functor{},
+                          file_filter,
+                          needles,
+                          acceptable_value_col);
   }
 
   std::vector<std::string> filtered_file_paths;
   filtered_file_paths.reserve(_file_paths.size());
   for (size_t file_idx = 0; file_idx < _file_paths.size(); file_idx++) {
-    if (row_filter[file_idx]) filtered_file_paths.push_back(_file_paths[file_idx]);
+    if (file_filter[file_idx]) filtered_file_paths.push_back(_file_paths[file_idx]);
   }
 
   update_result_cache(table_from_parquet(filtered_file_paths));

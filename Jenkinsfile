@@ -87,7 +87,7 @@ spec:
           stage("clang-tidy") {
             sh'''#!/bin/bash
               source /conda/bin/activate gqe
-              mkdir build && cd build && cmake -DProtobuf_USE_STATIC_LIBS=ON .. && cd ..
+              mkdir build && cd build && cmake .. && cd ..
               find ./include ./src -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-tidy -p build --warnings-as-errors=*
             '''
           }
@@ -141,7 +141,7 @@ spec:
               hostname
               nvidia-smi
               source /conda/bin/activate gqe
-              mkdir build && cd build && cmake -DProtobuf_USE_STATIC_LIBS=ON .. && make -j8 && ctest --output-on-failure
+              mkdir build && cd build && cmake .. && make -j8 && ctest --output-on-failure
             '''
           }
           updateGitlabCommitStatus name: "CUDA 11.5 conda", state: "success"

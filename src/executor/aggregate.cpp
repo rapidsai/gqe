@@ -131,8 +131,9 @@ void aggregate_task::execute()
                      } else if (kind == cudf::aggregation::COUNT_ALL) {
                        result = cudf::make_fixed_width_scalar<cudf::size_type>(value_column.size());
                      } else {
-                       result = cudf::reduce(value_column,
-                                             get_reduce_aggregation(kind),
+                       auto reduce_op = get_reduce_aggregation(kind);
+                       result         = cudf::reduce(value_column,
+                                             *reduce_op,
                                              cudf::detail::target_type(value_column.type(), kind));
                      }
                      return cudf::make_column_from_scalar(*result, 1);

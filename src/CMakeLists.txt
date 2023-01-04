@@ -25,6 +25,9 @@ file(GLOB substrait_sources ${CMAKE_CURRENT_SOURCE_DIR}/../include/substrait/*.c
 add_library(substrait ${substrait_sources})
 target_include_directories(substrait PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(substrait PRIVATE protobuf::libprotobuf)
+# Setting `-DNDEBUG` to match the ABI of libprotobuf.so
+# See this issue for details: https://github.com/protocolbuffers/protobuf/issues/9947
+target_compile_options(substrait PRIVATE -DNDEBUG)
 
 add_library(
     gqe STATIC

@@ -4,16 +4,14 @@ channels:
   - conda-forge
   - nvidia
 dependencies:
-  - cudf=22.10
+  - cudf=22.12
   - python=3.9
   - cudatoolkit=11.5
   - cmake
   - c-compiler
   - cxx-compiler
-  - clang=11.1.0
   - clang-tools=11.1.0
   - ptxcompiler
-  - libprotobuf-static=3.20.1
   - gcc_linux-64=9.*
   - sysroot_linux-64==2.17
   - nvcc_linux-64=11.5

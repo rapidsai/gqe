@@ -52,8 +52,8 @@ class if_then_else_expression : public expression {
   [[nodiscard]] cudf::data_type data_type(
     std::vector<cudf::data_type> const& input_types) const final
   {
-    auto const then_type = children()[1]->data_type(input_types);
-    auto const else_type = children()[2]->data_type(input_types);
+    auto const then_type                  = children()[1]->data_type(input_types);
+    [[maybe_unused]] auto const else_type = children()[2]->data_type(input_types);
     assert(then_type == else_type);
     return then_type;
   }

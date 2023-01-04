@@ -85,4 +85,4 @@ struct cuda_error : public std::runtime_error {
                             ": " + cudaGetErrorName(error) + " " + cudaGetErrorString(error)};    \
     }                                                                                             \
   } while (0);
-#define GQE_CUDA_TRY_1(_call) GQE_CUDA_TRY_2(_call, gqe::utility::cuda_error)  // namespace gqe
+#define GQE_CUDA_TRY_1(_call) GQE_CUDA_TRY_2(_call, gqe::utility::cuda_error)

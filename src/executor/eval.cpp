@@ -14,6 +14,7 @@
 
 #include <cudf/binaryop.hpp>
 #include <cudf/transform.hpp>
+#include <cudf/unary.hpp>
 
 #include <algorithm>
 #include <stdexcept>
@@ -109,7 +110,15 @@ expression_evaluator::evaluate() const
     }
   }
 
-  return std::make_pair(intermediate_results.back().get()->view(),
+  // cuDF's AST module might evaluate expression to a different type than GQE expression's data
+  // type. For example, the AST module might evaluate an expression to int32_t, while GQE promotes
+  // the result to int64_t. In such case, we cast the result to GQE expression's data type.
+  auto const expected_type = _root_expression->data_type(column_types(_table));
+  if (intermediate_results.back()->type() != expected_type) {
+    intermediate_results.push_back(cudf::cast(intermediate_results.back()->view(), expected_type));
+  }
+
+  return std::make_pair(intermediate_results.back()->view(),
                         std::move(intermediate_results.back()));
 }
 
@@ -178,7 +187,10 @@ void expression_evaluator::visit(binary_op_expression const* expression)
   // lhs fallback and rhs fallback -> emit gqe expr
   if (lhs_needs_fallback || rhs_needs_fallback ||
       // `cudf::ast` cannot handle non-fixed width output columns
-      !cudf::is_fixed_width(expression->data_type(column_types(_table)))) {
+      !cudf::is_fixed_width(expression->data_type(column_types(_table))) ||
+      // `cudf::ast` cannot handle expressions with different types
+      expression->_children[0]->data_type(column_types(_table)) !=
+        expression->_children[1]->data_type(column_types(_table))) {
     if (!lhs_needs_fallback) {
       auto lhs_child =
         std::get<cudf::ast::expression*>(to_raw_expr_ptr(_converted_expressions[lhs_child_index]));

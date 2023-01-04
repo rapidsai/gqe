@@ -17,6 +17,7 @@
 #include <cudf/types.hpp>
 
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 

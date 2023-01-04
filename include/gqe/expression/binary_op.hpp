@@ -59,6 +59,140 @@ class binary_op_expression : public expression {
   cudf::binary_operator _binary_operator;
 };
 
+// operator +
+class add_expression : public binary_op_expression {
+ public:
+  add_expression(std::shared_ptr<expression> lhs, std::shared_ptr<expression> rhs)
+    : binary_op_expression(cudf::binary_operator::ADD, std::move(lhs), std::move(rhs))
+  {
+  }
+
+  /**
+   * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
+   */
+  [[nodiscard]] cudf::data_type data_type(
+    std::vector<cudf::data_type> const& column_types) const final;
+
+  /**
+   * @copydoc gqe::expression::to_string()
+   */
+  [[nodiscard]] std::string to_string() const noexcept final
+  {
+    auto child_exprs = children();
+    assert(child_exprs.size() == 2);
+    return child_exprs[0]->to_string() + " + " + child_exprs[1]->to_string();
+  }
+
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<add_expression>(*this);
+  }
+};
+
+// operator -
+class subtract_expression : public binary_op_expression {
+ public:
+  subtract_expression(std::shared_ptr<expression> lhs, std::shared_ptr<expression> rhs)
+    : binary_op_expression(cudf::binary_operator::SUB, std::move(lhs), std::move(rhs))
+  {
+  }
+
+  /**
+   * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
+   */
+  [[nodiscard]] cudf::data_type data_type(
+    std::vector<cudf::data_type> const& column_types) const final;
+
+  /**
+   * @copydoc gqe::expression::to_string()
+   */
+  [[nodiscard]] std::string to_string() const noexcept final
+  {
+    auto child_exprs = children();
+    assert(child_exprs.size() == 2);
+    return child_exprs[0]->to_string() + " - " + child_exprs[1]->to_string();
+  }
+
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<subtract_expression>(*this);
+  }
+};
+
+// operator *
+class multiply_expression : public binary_op_expression {
+ public:
+  multiply_expression(std::shared_ptr<expression> lhs, std::shared_ptr<expression> rhs)
+    : binary_op_expression(cudf::binary_operator::MUL, std::move(lhs), std::move(rhs))
+  {
+  }
+
+  /**
+   * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
+   */
+  [[nodiscard]] cudf::data_type data_type(
+    std::vector<cudf::data_type> const& column_types) const final;
+
+  /**
+   * @copydoc gqe::expression::to_string()
+   */
+  [[nodiscard]] std::string to_string() const noexcept final
+  {
+    auto child_exprs = children();
+    assert(child_exprs.size() == 2);
+    return child_exprs[0]->to_string() + " * " + child_exprs[1]->to_string();
+  }
+
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<multiply_expression>(*this);
+  }
+};
+
+// operator /
+class divide_expression : public binary_op_expression {
+ public:
+  divide_expression(std::shared_ptr<expression> lhs, std::shared_ptr<expression> rhs)
+    : binary_op_expression(cudf::binary_operator::TRUE_DIV, std::move(lhs), std::move(rhs))
+  {
+  }
+
+  /**
+   * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
+   */
+  [[nodiscard]] cudf::data_type data_type(std::vector<cudf::data_type> const&) const final
+  {
+    return cudf::data_type(cudf::type_id::FLOAT64);
+  }
+
+  /**
+   * @copydoc gqe::expression::to_string()
+   */
+  [[nodiscard]] std::string to_string() const noexcept final
+  {
+    auto child_exprs = children();
+    assert(child_exprs.size() == 2);
+    return child_exprs[0]->to_string() + " / " + child_exprs[1]->to_string();
+  }
+
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<divide_expression>(*this);
+  }
+};
+
 // operator &&
 class logical_and_expression : public binary_op_expression {
  public:

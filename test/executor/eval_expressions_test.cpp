@@ -60,6 +60,24 @@ TEST(EvalExpressionsTest, IntegerColumnIntegerColumnEquality)
   cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
 }
 
+TEST(EvalExpressionsTest, IntegerColumnIntegerColumnEqualityMixedTypes)
+{
+  auto c_0   = column_wrapper<int32_t>{3, 20, 1, 50};
+  auto c_1   = column_wrapper<int64_t>{3, 7, 1, 0};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto col_ref_0 = std::make_shared<gqe::column_reference_expression>(0);
+  auto col_ref_1 = std::make_shared<gqe::column_reference_expression>(1);
+
+  auto eq_0_1                                     = gqe::equal_expression(col_ref_0, col_ref_1);
+  std::vector<gqe::expression const*> expressions = {&eq_0_1};
+
+  auto expected                          = column_wrapper<bool>{true, false, true, false};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+}
+
 TEST(EvalExpressionsTest, StringColumnStringColumnEquality)
 {
   auto c_0   = cudf::test::strings_column_wrapper{"asdf", "qwer"};
@@ -86,6 +104,24 @@ TEST(EvalExpressionsTest, IntegerColumnIntegerLiteralEquality)
 
   auto col_ref_0 = std::make_shared<gqe::column_reference_expression>(0);
   auto lit       = std::make_shared<gqe::literal_expression<int32_t>>(42);
+
+  auto eq                                         = gqe::equal_expression(col_ref_0, lit);
+  std::vector<gqe::expression const*> expressions = {&eq};
+
+  auto expected                          = column_wrapper<bool>{true, false, true, false};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+}
+
+TEST(EvalExpressionsTest, IntegerColumnIntegerLiteralEqualityMixedTypes)
+{
+  auto c_0   = column_wrapper<int32_t>{42, 20, 42, 50};
+  auto c_1   = column_wrapper<int32_t>{3, 7, 1, 0};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto col_ref_0 = std::make_shared<gqe::column_reference_expression>(0);
+  auto lit       = std::make_shared<gqe::literal_expression<int64_t>>(42);
 
   auto eq                                         = gqe::equal_expression(col_ref_0, lit);
   std::vector<gqe::expression const*> expressions = {&eq};
@@ -131,6 +167,104 @@ TEST(EvalExpressionsTest, HeterogeneousEvaluationStrategy)
   std::vector<gqe::expression const*> expressions = {&root};
 
   auto expected                          = column_wrapper<bool>{false, false, true, false};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+}
+
+TEST(EvalExpressionsTest, IntegerAddition)
+{
+  auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
+  auto c_1   = column_wrapper<int64_t>{5, 4, 3, 3};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto add_expr = gqe::add_expression(std::make_shared<gqe::column_reference_expression>(0),
+                                      std::make_shared<gqe::column_reference_expression>(1));
+  std::vector<gqe::expression const*> expressions = {&add_expr};
+
+  auto expected                          = column_wrapper<int64_t>{7, 9, 6, 9};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+}
+
+TEST(EvalExpressionsTest, FloatAddition)
+{
+  auto c_0   = column_wrapper<int64_t>{2, 5, 3, 6};
+  auto c_1   = column_wrapper<float>{5.0, 4.0, 3.0, 3.0};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto add_expr = gqe::add_expression(std::make_shared<gqe::column_reference_expression>(0),
+                                      std::make_shared<gqe::column_reference_expression>(1));
+  std::vector<gqe::expression const*> expressions = {&add_expr};
+
+  auto expected                          = column_wrapper<double>{7.0, 9.0, 6.0, 9.0};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+}
+
+TEST(EvalExpressionsTest, IntegerSubtraction)
+{
+  auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
+  auto c_1   = column_wrapper<uint32_t>{5, 4, 3, 3};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto subtract_expr =
+    gqe::subtract_expression(std::make_shared<gqe::column_reference_expression>(0),
+                             std::make_shared<gqe::column_reference_expression>(1));
+  std::vector<gqe::expression const*> expressions = {&subtract_expr};
+
+  auto expected                          = column_wrapper<int64_t>{-3, 1, 0, 3};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+}
+
+TEST(EvalExpressionsTest, IntegerMultiplication)
+{
+  auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
+  auto c_1   = column_wrapper<int32_t>{5, 4, 3, 3};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto multiply_expr =
+    gqe::multiply_expression(std::make_shared<gqe::column_reference_expression>(0),
+                             std::make_shared<gqe::column_reference_expression>(1));
+  std::vector<gqe::expression const*> expressions = {&multiply_expr};
+
+  auto expected                          = column_wrapper<int64_t>{10, 20, 9, 18};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+}
+
+TEST(EvalExpressionsTest, IntegerDivision)
+{
+  auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
+  auto c_1   = column_wrapper<int64_t>{5, 4, 3, 3};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto divide_expr = gqe::divide_expression(std::make_shared<gqe::column_reference_expression>(0),
+                                            std::make_shared<gqe::column_reference_expression>(1));
+  std::vector<gqe::expression const*> expressions = {&divide_expr};
+
+  auto expected                          = column_wrapper<double>{0.4, 1.25, 1.0, 2.0};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+}
+
+TEST(EvalExpressionsTest, FloatDivision)
+{
+  auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
+  auto c_1   = column_wrapper<float>{5.0, 4.0, 3.0, 3.0};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto divide_expr = gqe::divide_expression(std::make_shared<gqe::column_reference_expression>(0),
+                                            std::make_shared<gqe::column_reference_expression>(1));
+  std::vector<gqe::expression const*> expressions = {&divide_expr};
+
+  auto expected                          = column_wrapper<double>{0.4, 1.25, 1.0, 2.0};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
   cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);

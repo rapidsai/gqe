@@ -143,6 +143,10 @@ class expression_evaluator : public expression_visitor {
 
   static inline const std::unordered_map<cudf::binary_operator, cudf::ast::ast_operator>
     _operator_map = {
+      {cudf::binary_operator::ADD, cudf::ast::ast_operator::ADD},
+      {cudf::binary_operator::SUB, cudf::ast::ast_operator::SUB},
+      {cudf::binary_operator::MUL, cudf::ast::ast_operator::MUL},
+      {cudf::binary_operator::TRUE_DIV, cudf::ast::ast_operator::TRUE_DIV},
       {cudf::binary_operator::LOGICAL_AND, cudf::ast::ast_operator::LOGICAL_AND},
       {cudf::binary_operator::LOGICAL_OR, cudf::ast::ast_operator::LOGICAL_OR},
       {cudf::binary_operator::EQUAL, cudf::ast::ast_operator::EQUAL},

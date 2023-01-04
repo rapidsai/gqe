@@ -18,6 +18,7 @@
 #include <cudf/detail/aggregation/aggregation.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/reduction.hpp>
+#include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/table/table.hpp>
 
 #include <algorithm>
@@ -123,10 +124,17 @@ void aggregate_task::execute()
                    operations.begin(),
                    std::back_inserter(result_columns),
                    [](cudf::column_view const& value_column, cudf::aggregation::Kind const& kind) {
-                     auto result =
-                       cudf::reduce(value_column,
-                                    get_reduce_aggregation(kind),
-                                    cudf::detail::target_type(value_column.type(), kind));
+                     std::unique_ptr<cudf::scalar> result;
+                     if (kind == cudf::aggregation::COUNT_VALID) {
+                       result = cudf::make_fixed_width_scalar<cudf::size_type>(
+                         value_column.size() - value_column.null_count());
+                     } else if (kind == cudf::aggregation::COUNT_ALL) {
+                       result = cudf::make_fixed_width_scalar<cudf::size_type>(value_column.size());
+                     } else {
+                       result = cudf::reduce(value_column,
+                                             get_reduce_aggregation(kind),
+                                             cudf::detail::target_type(value_column.type(), kind));
+                     }
                      return cudf::make_column_from_scalar(*result, 1);
                    });
   } else {

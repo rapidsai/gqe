@@ -16,9 +16,10 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/subquery.hpp>
+#include <gqe/logical/aggregate.hpp>
+#include <gqe/logical/join.hpp>
+#include <gqe/logical/read.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
-#include <gqe/physical/join.hpp>
-#include <gqe/physical/read.hpp>
 #include <gqe/types.hpp>
 
 #include <cudf/column/column.hpp>
@@ -144,4 +145,74 @@ TEST(LogicalToExecution, HardcodePlanAndData)
   auto execute_result_sorted = cudf::sort(*execute_result);
 
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(execute_result_sorted->view(), ref_table->view());
+}
+
+TEST(LogicalToExecution, ApplyConcatApply)
+{
+  auto generate_parquet_file = [](std::string file_name, std::vector<double> values) {
+    cudf::test::fixed_width_column_wrapper<double> partition_values(values.begin(), values.end());
+
+    std::vector<std::unique_ptr<cudf::column>> columns;
+    columns.push_back(partition_values.release());
+    auto partition_table = std::make_unique<cudf::table>(std::move(columns));
+
+    cudf::io::table_input_metadata partition_metadata(partition_table->view());
+    partition_metadata.column_metadata[0].set_name("values");
+
+    auto partition_filepath = temp_env->get_temp_filepath(file_name);
+    auto partition_options  = cudf::io::parquet_writer_options::builder(
+      cudf::io::sink_info(partition_filepath), partition_table->view());
+    partition_options.metadata(&partition_metadata);
+    cudf::io::write_parquet(partition_options);
+  };
+
+  generate_parquet_file("partition_0.parquet", std::vector<double>({1.0, 2.0, 3.0}));
+  generate_parquet_file("partition_1.parquet", std::vector<double>({4.0, 5.0}));
+
+  // Register the input tables
+  gqe::catalog catalog;
+  catalog.register_table("input",
+                         {{"values", cudf::data_type(cudf::type_id::FLOAT64)}},
+                         {temp_env->get_temp_filepath("partition_0.parquet"),
+                          temp_env->get_temp_filepath("partition_1.parquet")},
+                         gqe::file_format_type::parquet);
+
+  // Hand-code the logical plan
+  auto read_relation = std::make_shared<gqe::logical::read_relation>(
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
+    std::vector<std::string>({"values"}),
+    std::vector<cudf::data_type>({cudf::data_type(cudf::type_id::FLOAT64)}),
+    "input",
+    nullptr  // partial_filter
+  );
+
+  std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<gqe::expression>>> measures;
+  measures.emplace_back(cudf::aggregation::MEAN,
+                        std::make_unique<gqe::column_reference_expression>(0));
+
+  auto aggregate_relation = std::make_shared<gqe::logical::aggregate_relation>(
+    std::move(read_relation),
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
+    std::vector<std::unique_ptr<gqe::expression>>(),         // keys
+    std::move(measures));
+
+  gqe::physical_plan_builder plan_builder(&catalog);
+  auto physical_plan = plan_builder.build(aggregate_relation.get());
+
+  gqe::task_graph_builder graph_builder(&catalog);
+  auto task_graph = graph_builder.build(physical_plan.get());
+
+  gqe::execute_task_graph_single_gpu(task_graph.get());
+
+  // Compare against reference result
+  cudf::test::fixed_width_column_wrapper<double> ref_results({3.0});
+  std::vector<std::unique_ptr<cudf::column>> ref_columns;
+  ref_columns.push_back(ref_results.release());
+  auto ref_table = std::make_unique<cudf::table>(std::move(ref_columns));
+
+  ASSERT_EQ(task_graph->root_tasks.size(), 1);
+  auto execute_result = task_graph->root_tasks[0]->result();
+  ASSERT_EQ(execute_result.has_value(), true);
+
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*execute_result, ref_table->view());
 }

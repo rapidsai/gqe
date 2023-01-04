@@ -19,6 +19,7 @@
 #include <gqe/executor/read.hpp>
 #include <gqe/executor/sort.hpp>
 #include <gqe/executor/task_graph.hpp>
+#include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/physical/aggregate.hpp>
 #include <gqe/physical/fetch.hpp>
@@ -323,7 +324,6 @@ cudf::aggregation::Kind get_second_aggregation_kind(cudf::aggregation::Kind firs
     case cudf::aggregation::SUM: return cudf::aggregation::SUM;
     case cudf::aggregation::COUNT_VALID: return cudf::aggregation::SUM;
     case cudf::aggregation::COUNT_ALL: return cudf::aggregation::SUM;
-    case cudf::aggregation::MEAN: return cudf::aggregation::MEAN;
     default:
       throw std::logic_error("Unknown aggregation type in get_second_aggregation_kind: " +
                              std::to_string(first_aggregation_kind));
@@ -350,7 +350,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   // Step 2: Concatenate all partitions into a single partition
   // Step 3: Apply aggregations on the concatenated partition
   // Step 4: Optional post processing
-  // For example, for "avg" aggregation, step 1 will perform "sum" and "count", step 3 will
+  // For example, for "mean" aggregation, step 1 will perform "sum" and "count", step 3 will
   // perform "sum", and postprocessing will divide the sum by count.
   // Another example, for "count" aggregation, step 1 will perform "count", step 3 will perform
   // "sum", and there is no postprocessing.
@@ -375,7 +375,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
         first_aggregation_values.emplace_back(cudf::aggregation::SUM, expr->clone());
         break;
       case cudf::aggregation::MEAN:
-        first_aggregation_values.emplace_back(cudf::aggregation::MEAN, expr->clone());
+        first_aggregation_values.emplace_back(cudf::aggregation::SUM, expr->clone());
+        first_aggregation_values.emplace_back(cudf::aggregation::COUNT_VALID, expr->clone());
         break;
       default:
         throw std::logic_error("Unknown aggregation type in task_graph_builder: " +
@@ -439,9 +440,11 @@ void task_graph_builder::generate_task_graph_visitor::visit(
         in_idx++;
         break;
       case cudf::aggregation::MEAN:
-        // MEAN does not need post-processing
-        output_expressions.push_back(std::make_unique<column_reference_expression>(in_idx));
-        in_idx++;
+        // MEAN needs to divide the SUM by the COUNT_VALID
+        output_expressions.push_back(std::make_unique<divide_expression>(
+          std::make_shared<column_reference_expression>(in_idx),
+          std::make_shared<column_reference_expression>(in_idx + 1)));
+        in_idx += 2;
         break;
       default:
         throw std::logic_error("Unknown aggregation type in task_graph_builder: " +

@@ -378,6 +378,12 @@ void task_graph_builder::generate_task_graph_visitor::visit(
         first_aggregation_values.emplace_back(cudf::aggregation::SUM, expr->clone());
         first_aggregation_values.emplace_back(cudf::aggregation::COUNT_VALID, expr->clone());
         break;
+      case cudf::aggregation::COUNT_VALID:
+        first_aggregation_values.emplace_back(cudf::aggregation::COUNT_VALID, expr->clone());
+        break;
+      case cudf::aggregation::COUNT_ALL:
+        first_aggregation_values.emplace_back(cudf::aggregation::COUNT_ALL, expr->clone());
+        break;
       default:
         throw std::logic_error("Unknown aggregation type in task_graph_builder: " +
                                std::to_string(kind));
@@ -435,7 +441,9 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   for (auto const& value : values) {
     switch (value.first) {
       case cudf::aggregation::SUM:
-        // SUM does not need post-processing
+      case cudf::aggregation::COUNT_VALID:
+      case cudf::aggregation::COUNT_ALL:
+        // SUM, COUNT_VALID, COUNT_ALL do not need post-processing
         output_expressions.push_back(std::make_unique<column_reference_expression>(in_idx));
         in_idx++;
         break;

@@ -148,7 +148,7 @@ class expression_evaluator : public expression_visitor {
       {cudf::binary_operator::MUL, cudf::ast::ast_operator::MUL},
       {cudf::binary_operator::TRUE_DIV, cudf::ast::ast_operator::TRUE_DIV},
       {cudf::binary_operator::LOGICAL_AND, cudf::ast::ast_operator::LOGICAL_AND},
-      {cudf::binary_operator::LOGICAL_OR, cudf::ast::ast_operator::LOGICAL_OR},
+      {cudf::binary_operator::LOGICAL_OR, cudf::ast::ast_operator::NULL_LOGICAL_OR},
       {cudf::binary_operator::EQUAL, cudf::ast::ast_operator::EQUAL},
       {cudf::binary_operator::NOT_EQUAL, cudf::ast::ast_operator::NOT_EQUAL},
       {cudf::binary_operator::LESS, cudf::ast::ast_operator::LESS},

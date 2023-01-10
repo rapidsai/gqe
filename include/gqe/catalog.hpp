@@ -46,7 +46,7 @@ class catalog {
                       std::vector<std::pair<std::string, cudf::data_type>> const& columns,
                       std::vector<std::string> const& file_paths,
                       file_format_type file_format,
-                      size_t max_num_partitions = 8);
+                      size_t max_num_partitions = 32);
 
   /**
    * @brief Return the data type of a column in the catalog.

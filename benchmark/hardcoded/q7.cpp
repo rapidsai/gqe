@@ -57,9 +57,12 @@ void print_usage()
 }
 
 // TODO partial filter
-std::shared_ptr<gqe::logical::read_relation> read_table(std::string table_name,
-                                                        std::vector<std::string> column_names,
-                                                        gqe::catalog const* tpcds_catalog)
+std::shared_ptr<gqe::logical::read_relation> read_table(
+  std::string table_name,
+  std::vector<std::string> column_names,
+  gqe::catalog const* tpcds_catalog,
+  std::shared_ptr<gqe::logical::project_relation> partial_filter_haystack = nullptr,
+  std::unique_ptr<gqe::expression> partial_filter                         = nullptr)
 {
   std::vector<cudf::data_type> column_types;
   column_types.reserve(column_names.size());
@@ -67,11 +70,13 @@ std::shared_ptr<gqe::logical::read_relation> read_table(std::string table_name,
     column_types.push_back(tpcds_catalog->column_type(table_name, column_name));
 
   return std::make_shared<gqe::logical::read_relation>(
-    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
+    partial_filter
+      ? std::vector<std::shared_ptr<gqe::logical::relation>>{std::move(partial_filter_haystack)}
+      : std::vector<std::shared_ptr<gqe::logical::relation>>(),
     std::move(column_names),
     std::move(column_types),
     std::move(table_name),
-    nullptr);  // partial_filter
+    std::move(partial_filter));  // partial_filter
 }
 
 int main(int argc, char* argv[])
@@ -127,17 +132,43 @@ int main(int argc, char* argv[])
                                gqe::benchmark::get_file_paths(dataset_location + "/promotion"),
                                gqe::file_format_type::parquet);
 
+  std::shared_ptr<gqe::logical::relation> date_dim_table =
+    read_table("date_dim", {"d_date_sk", "d_year"}, &tpcds_catalog);
+  date_dim_table = std::make_shared<gqe::logical::filter_relation>(
+    std::move(date_dim_table),
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
+    std::make_unique<gqe::equal_expression>(
+      std::make_shared<gqe::column_reference_expression>(1),
+      std::make_shared<gqe::literal_expression<int64_t>>(2000)));
+
+  // predicate pushdown via partial filter
+  std::vector<std::unique_ptr<gqe::expression>> col_0_exprs;
+  col_0_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(0));
+
+  auto const partial_filter_haystack = std::make_shared<gqe::logical::project_relation>(
+    date_dim_table,
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery relations
+    std::move(col_0_exprs));
+
+  auto partial_filter = std::make_unique<gqe::in_predicate_expression>(
+    std::vector<std::shared_ptr<gqe::expression>>{
+      std::make_shared<gqe::column_reference_expression>(4)},  // ss_sold_date_sk
+    0);
+
   // Hand-code the logical plan
-  std::shared_ptr<gqe::logical::relation> store_sales_table = read_table("store_sales",
-                                                                         {"ss_quantity",
-                                                                          "ss_list_price",
-                                                                          "ss_coupon_amt",
-                                                                          "ss_sales_price",
-                                                                          "ss_sold_date_sk",
-                                                                          "ss_item_sk",
-                                                                          "ss_cdemo_sk",
-                                                                          "ss_promo_sk"},
-                                                                         &tpcds_catalog);
+  std::shared_ptr<gqe::logical::relation> store_sales_table =
+    read_table("store_sales",
+               {"ss_quantity",
+                "ss_list_price",
+                "ss_coupon_amt",
+                "ss_sales_price",
+                "ss_sold_date_sk",
+                "ss_item_sk",
+                "ss_cdemo_sk",
+                "ss_promo_sk"},
+               &tpcds_catalog,
+               std::move(partial_filter_haystack),
+               std::move(partial_filter));
 
   std::shared_ptr<gqe::logical::relation> customer_demographics_table =
     read_table("customer_demographics",
@@ -157,15 +188,6 @@ int main(int argc, char* argv[])
         std::make_shared<gqe::equal_expression>(
           std::make_shared<gqe::column_reference_expression>(3),
           std::make_shared<gqe::literal_expression<std::string>>("College")))));
-
-  std::shared_ptr<gqe::logical::relation> date_dim_table =
-    read_table("date_dim", {"d_date_sk", "d_year"}, &tpcds_catalog);
-  date_dim_table = std::make_shared<gqe::logical::filter_relation>(
-    std::move(date_dim_table),
-    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
-    std::make_unique<gqe::equal_expression>(
-      std::make_shared<gqe::column_reference_expression>(1),
-      std::make_shared<gqe::literal_expression<int64_t>>(2000)));
 
   std::shared_ptr<gqe::logical::relation> item_table =
     read_table("item", {"i_item_sk", "i_item_id"}, &tpcds_catalog);

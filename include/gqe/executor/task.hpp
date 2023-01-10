@@ -25,6 +25,15 @@ namespace gqe {
 class task {
  public:
   /**
+   * @brief Status of a task.
+   */
+  enum class status_type {
+    not_started,  ///< Task has not been started on the current GPU.
+    in_progress,  ///< Task is currently executing on or migrating to the current GPU.
+    finished      ///< Task result is available to the current GPU.
+  };
+
+  /**
    * @brief Construct a new task.
    *
    * @param[in] task_id Globally unique identifier of the task.
@@ -137,6 +146,7 @@ class task {
   // that it is possible that this field is empty but `_result` contains the valid view, when
   // directly accessing a remote GPU's mapped memory.
   std::unique_ptr<cudf::table> _result_cache;
+  std::atomic<status_type> _status;
 };
 
 }  // namespace gqe

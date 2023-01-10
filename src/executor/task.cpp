@@ -24,7 +24,8 @@ task::task(int32_t task_id,
   : _task_id(task_id),
     _stage_id(stage_id),
     _dependencies(std::move(dependencies)),
-    _subqueries(std::move(subqueries))
+    _subqueries(std::move(subqueries)),
+    _status(status_type::not_started)
 {
 }
 
@@ -34,6 +35,7 @@ void task::update_result_cache(std::unique_ptr<cudf::table> new_result)
 {
   _result_cache = std::move(new_result);
   _result       = _result_cache->view();
+  _status       = status_type::finished;
 }
 
 std::vector<task*> task::dependencies() const noexcept
@@ -46,7 +48,8 @@ std::vector<task*> task::subqueries() const noexcept { return utility::to_raw_pt
 void task::prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent_tasks)
 {
   for (auto const& dependent_task : dependent_tasks) {
-    if (!dependent_task->_result.has_value()) {
+    auto expected = status_type::not_started;
+    if (dependent_task->_status.compare_exchange_strong(expected, status_type::in_progress)) {
       if (dependent_task->stage_id() == this->stage_id()) {
         // If the dependent task belongs to the same stage, it has not been executed by any other
         // GPUs, so the current GPU executes the task.
@@ -58,6 +61,8 @@ void task::prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent
       } else {
         throw std::logic_error("Dependent task belongs to a later stage than the current task");
       }
+    } else {
+      while (dependent_task->_status != status_type::finished) {}
     }
   }
 }

@@ -61,3 +61,12 @@ To decode a `Substrait` plan, `cd` to the directory which contains `plan.proto` 
 $ cd <path_to_subtrait_def>/substrait/proto
 $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 ```
+
+### Environment variables
+
+| Variable           | Default | Description                                                               |
+|--------------------|---------|---------------------------------------------------------------------------|
+| MAX_NUM_WORKERS    | 1       | Max number of worker threads per stage                                    |
+| MAX_NUM_PARTITIONS | 8       | The maximum number of read tasks that can be generated for a single table |
+
+Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-22.12/CONTRIBUTING.md#build-cudf-from-source).

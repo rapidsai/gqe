@@ -19,11 +19,15 @@ namespace gqe {
 void catalog::register_table(std::string table_name,
                              std::vector<std::pair<std::string, cudf::data_type>> const& columns,
                              std::vector<std::string> const& file_paths,
-                             file_format_type file_format,
-                             size_t max_num_partitions)
+                             file_format_type file_format)
 {
   if (_tables_info.find(table_name) != _tables_info.end())
     throw std::logic_error("table \"" + table_name + "\" is already registered");
+
+  std::size_t max_num_partitions    = 8;  // Default max number of partitions
+  auto const max_num_partitions_str = std::getenv("MAX_NUM_PARTITIONS");
+  if (max_num_partitions_str != nullptr)
+    max_num_partitions = std::strtoul(max_num_partitions_str, nullptr, 10);
 
   table_info_type table_info;
   for (auto const& column : columns) {

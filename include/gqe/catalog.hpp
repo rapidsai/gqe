@@ -39,14 +39,11 @@ class catalog {
    * @param[in] columns A collection of (column name, column data type) pairs.
    * @param[in] file_paths List of files for containing data of `table_name`.
    * @param[in] file_format Format of files in `file_paths`.
-   * @param[in] max_num_partitions The maximum number of read tasks that can be generated for a
-   * single table
    */
   void register_table(std::string table_name,
                       std::vector<std::pair<std::string, cudf::data_type>> const& columns,
                       std::vector<std::string> const& file_paths,
-                      file_format_type file_format,
-                      size_t max_num_partitions = 32);
+                      file_format_type file_format);
 
   /**
    * @brief Return the data type of a column in the catalog.

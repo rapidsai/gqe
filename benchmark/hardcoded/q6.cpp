@@ -88,8 +88,7 @@ int main(int argc, char* argv[])
                                 {"ss_sold_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"ss_customer_sk", cudf::data_type(cudf::type_id::INT64)}},
                                gqe::benchmark::get_file_paths(dataset_location + "/store_sales"),
-                               gqe::file_format_type::parquet,
-                               1);
+                               gqe::file_format_type::parquet);
   tpcds_catalog.register_table("date_dim",
                                {{"d_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"d_year", cudf::data_type(cudf::type_id::INT64)},

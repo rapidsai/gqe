@@ -30,6 +30,7 @@
 #include <gqe/physical/sort.hpp>
 #include <gqe/utility.hpp>
 
+#include <cstdlib>
 #include <limits>
 #include <stdexcept>
 
@@ -71,8 +72,35 @@ std::shared_ptr<task> task_graph_builder::concatenate(
 void execute_task_graph_single_gpu(task_graph const* task_graph_to_execute)
 {
   for (auto const& tasks_current_stage : task_graph_to_execute->stage_root_tasks) {
-    for (auto& task : tasks_current_stage)
-      task->execute();
+    auto const num_tasks_current_stage = tasks_current_stage.size();
+
+    std::size_t num_workers    = 1;
+    auto const num_workers_str = std::getenv("MAX_NUM_WORKERS");
+    if (num_workers_str != nullptr) num_workers = std::strtoul(num_workers_str, nullptr, 10);
+    if (num_workers > num_tasks_current_stage) num_workers = num_tasks_current_stage;
+    // FIXME: Log number of workers used
+
+    if (num_workers == 1) {
+      // If the number of worker threads is 1, we could avoid the thread spawning cost by using the
+      // main thread.
+      for (auto& task : tasks_current_stage)
+        task->execute();
+    } else {
+      std::vector<std::thread> workers;
+      workers.reserve(num_workers);
+
+      for (std::size_t worker_idx = 0; worker_idx < num_workers; worker_idx++) {
+        workers.emplace_back([=, &tasks_current_stage]() {
+          for (std::size_t task_idx = worker_idx; task_idx < num_tasks_current_stage;
+               task_idx += num_workers) {
+            tasks_current_stage[task_idx]->execute();
+          }
+        });
+      }
+
+      for (auto& worker : workers)
+        worker.join();
+    }
   }
 }
 

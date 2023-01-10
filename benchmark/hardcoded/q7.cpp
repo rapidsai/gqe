@@ -56,7 +56,6 @@ void print_usage()
             << "./q7 <path-to-dataset>" << std::endl;
 }
 
-// TODO partial filter
 std::shared_ptr<gqe::logical::read_relation> read_table(
   std::string table_name,
   std::vector<std::string> column_names,

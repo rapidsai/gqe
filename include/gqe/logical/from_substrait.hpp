@@ -97,6 +97,20 @@ class substrait_parser {
     substrait::Expression_Literal const& literal_expression) const;
 
   /**
+   * @brief Parse binary or multi-arg ScalarFunction expression from the specified function name and
+   * list of Substrait arguments
+   *
+   * @param function_name Name of function to parse
+   * @param arg_expressions List of argument expressions
+   * @param subquery_relations Vector reference to store subquery relations
+   * @return std::unique_ptr<gqe::expression>
+   */
+  std::unique_ptr<gqe::expression> _parse_scalar_function_expression(
+    std::string function_name,
+    std::vector<substrait::Expression> const& arg_expressions,
+    std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const;
+
+  /**
    * @brief Parse Substrait ScalarFunction expression message into `gqe::scalar_function_expression`
    *
    * @param selection_expression Substrait scalar function expression

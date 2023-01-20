@@ -180,22 +180,22 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_selection_expressi
   return std::make_unique<gqe::column_reference_expression>(struct_field.field());
 }
 
-std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_scalar_function_expression(
-  substrait::Expression_ScalarFunction const& scalar_function_expression,
+std::unique_ptr<gqe::expression> gqe::substrait_parser::_parse_scalar_function_expression(
+  std::string function_name,
+  std::vector<substrait::Expression> const& arg_expressions,
   std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
 {
-  auto function_name = get_function_name(scalar_function_expression.function_reference());
-
-  if (scalar_function_expression.arguments_size() == 2) {  // Binary function
-    auto lhs =
-      parse_expression(scalar_function_expression.arguments().Get(0).value(), subquery_relations);
-    auto rhs =
-      parse_expression(scalar_function_expression.arguments().Get(1).value(), subquery_relations);
+  int nargs = arg_expressions.size();
+  if (nargs == 2) {  // Binary function base case
+    auto lhs = parse_expression(arg_expressions[0], subquery_relations);
+    auto rhs = parse_expression(arg_expressions[1], subquery_relations);
 
     if (function_name == "equal" || function_name == "equal:any_any")
       return std::make_unique<gqe::equal_expression>(std::move(lhs), std::move(rhs));
     else if (function_name == "and" || function_name == "and:bool")
       return std::make_unique<gqe::logical_and_expression>(std::move(lhs), std::move(rhs));
+    else if (function_name == "or" || function_name == "or:bool")
+      return std::make_unique<gqe::logical_or_expression>(std::move(lhs), std::move(rhs));
     else if (function_name == "gt" || function_name == "gt:any_any")
       return std::make_unique<gqe::greater_expression>(std::move(lhs), std::move(rhs));
     else if (function_name == "lt" || function_name == "lt:any_any")
@@ -205,11 +205,46 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_scalar_function_ex
     else if (function_name == "lte" || function_name == "lte:any_any")
       return std::make_unique<gqe::less_equal_expression>(std::move(lhs), std::move(rhs));
     else
-      throw std::runtime_error("SubstraitParser cannot parse scalar function \"" + function_name +
-                               "\"");
+      throw std::runtime_error("SubstraitParser cannot parse binary scalar function \"" +
+                               function_name + "\"");
+  } else if (nargs > 2) {  // Multi-argument function recursive case
+    // Only associative functions are implemented here
+    auto output_expr = parse_expression(arg_expressions[0], subquery_relations);
+    std::for_each(arg_expressions.begin() + 1,
+                  arg_expressions.end(),
+                  [&](substrait::Expression const& input_expr) {
+                    auto rhs = parse_expression(input_expr, subquery_relations);
+                    if (function_name == "and" || function_name == "and:bool")
+                      output_expr = std::make_unique<gqe::logical_and_expression>(
+                        std::move(output_expr), std::move(rhs));
+                    else if (function_name == "or" || function_name == "or:bool")
+                      output_expr = std::make_unique<gqe::logical_or_expression>(
+                        std::move(output_expr), std::move(rhs));
+                    else
+                      throw std::runtime_error(
+                        "SubstraitParser cannot parse multi-argument scalar function \"" +
+                        function_name + "\"");
+                  });
+    return output_expr;
   } else {
-    throw std::runtime_error("Non-binary functions are not yet supported");
+    throw std::runtime_error("ScalarFunction with less than 2 arguments is not supported");
   }
+}
+
+std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_scalar_function_expression(
+  substrait::Expression_ScalarFunction const& scalar_function_expression,
+  std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
+{
+  auto function_name = get_function_name(scalar_function_expression.function_reference());
+  int nargs          = scalar_function_expression.arguments_size();
+  // Get arguments
+  std::vector<substrait::Expression> arg_expressions;
+  arg_expressions.reserve(nargs);
+  for (int arg_idx = 0; arg_idx < nargs; arg_idx++) {
+    arg_expressions.push_back(scalar_function_expression.arguments().Get(arg_idx).value());
+  }
+  // Parse scalar function with extracted function name and arguments
+  return _parse_scalar_function_expression(function_name, arg_expressions, subquery_relations);
 }
 
 std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_subquery_expression(

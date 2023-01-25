@@ -292,16 +292,61 @@ gqe::substrait_parser::parse_aggregate_function(
   std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
 {
   auto function_name = get_function_name(aggregate_function.function_reference());
+  int nargs          = aggregate_function.arguments_size();
 
-  if (function_name == "sum" || function_name == "sum:opt_dec" ||
-      function_name == "sum:opt_i32") {  // TODO: Look into substrait function naming standards
-    assert(aggregate_function.arguments_size() == 1);
-    return std::make_pair(cudf::aggregation::SUM,
-                          parse_expression(std::move(aggregate_function.arguments().Get(0).value()),
-                                           subquery_relations));
-  } else {
-    throw std::runtime_error("SubstraitParser cannot parse aggregate function \"" + function_name +
-                             "\"");
+  if (function_name == "count" || function_name == "count:opt" ||
+      function_name == "count:opt_any") {
+    // Different Substrait producer encode `count(*)` differently. Cases encountered so far:
+    // - DataFusion encodes `count(*)` as `count(1)` in Substrait plan
+    // - Isthmus encodes `count(*)` as `count()` in Susbtrait plan
+    // According to https://www.postgresql.org/docs/current/functions-aggregate.html, `count("any")`
+    // "computes the number of input rows which the input value is not null."
+    //
+    // We can think of `SELECT COUNT(<expression>) FROM table_name` as
+    // ```
+    // SELECT COUNT(*)
+    // FROM (
+    //         SELECT <expression>
+    //         FROM table
+    //         WHERE <expression> IS NOT NULL
+    //      )
+    // ```
+    // Since `count(<literal>)` will return the total number of rows regardless of NULL values in
+    // other columns (as they are irrelevant), we can use `COUNT_ALL` for this case. However, we
+    // have opted to use `COUNT_VALID` to handle cases like `count(NULL)` without having to
+    // explicitly check for the literal type.
+    //
+    // Please note that `COUNT_ALL` may allow for better performance depending on the optimization
+    // further down the pipeline. This can be implemented by checking Substrait's literal type.
+
+    std::unique_ptr<gqe::expression> arg_expression;
+    if (nargs == 0) {
+      // Zero argument implies COUNT_ALL
+      return std::make_pair(cudf::aggregation::COUNT_ALL,
+                            std::make_unique<gqe::literal_expression<uint32_t>>(1));
+    } else if (nargs == 1) {
+      return std::make_pair(
+        cudf::aggregation::COUNT_VALID,
+        parse_expression(aggregate_function.arguments().Get(0).value(), subquery_relations));
+    } else {
+      throw std::runtime_error("SubstraitParser cannot parse aggregate function \"count\" with " +
+                               std::to_string(nargs) + " arguments. Must have 0 or 1 argument.");
+    }
+  } else {  // Aggregate functions with strictly 1 argument
+    assert(nargs == 1);
+    if (function_name == "sum" || function_name == "sum:opt_dec" ||
+        function_name == "sum:opt_i32") {  // TODO: Look into substrait function naming standards
+      return std::make_pair(
+        cudf::aggregation::SUM,
+        parse_expression(aggregate_function.arguments().Get(0).value(), subquery_relations));
+    } else if (function_name == "avg") {
+      return std::make_pair(
+        cudf::aggregation::MEAN,
+        parse_expression(aggregate_function.arguments().Get(0).value(), subquery_relations));
+    } else {
+      throw std::runtime_error("SubstraitParser cannot parse aggregate function \"" +
+                               function_name + "\"");
+    }
   }
 }
 

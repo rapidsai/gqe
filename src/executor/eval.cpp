@@ -13,6 +13,7 @@
 #include <gqe/executor/eval.hpp>
 
 #include <cudf/binaryop.hpp>
+#include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/transform.hpp>
 #include <cudf/unary.hpp>
@@ -46,15 +47,15 @@ expression_evaluator::evaluate() const
 
   auto cudf_scalar_cast = [](gqe::expression* expr) -> std::unique_ptr<cudf::scalar> {
     if (auto lit = dynamic_cast<gqe::literal_expression<std::string>*>(expr)) {
-      return std::make_unique<cudf::string_scalar>(lit->value());
+      return std::make_unique<cudf::string_scalar>(lit->value(), !lit->is_null());
     } else if (auto lit = dynamic_cast<gqe::literal_expression<int32_t>*>(expr)) {
-      return std::make_unique<cudf::numeric_scalar<int32_t>>(lit->value());
+      return std::make_unique<cudf::numeric_scalar<int32_t>>(lit->value(), !lit->is_null());
     } else if (auto lit = dynamic_cast<gqe::literal_expression<int64_t>*>(expr)) {
-      return std::make_unique<cudf::numeric_scalar<int64_t>>(lit->value());
+      return std::make_unique<cudf::numeric_scalar<int64_t>>(lit->value(), !lit->is_null());
     } else if (auto lit = dynamic_cast<gqe::literal_expression<float>*>(expr)) {
-      return std::make_unique<cudf::numeric_scalar<float>>(lit->value());
+      return std::make_unique<cudf::numeric_scalar<float>>(lit->value(), !lit->is_null());
     } else if (auto lit = dynamic_cast<gqe::literal_expression<double>*>(expr)) {
-      return std::make_unique<cudf::numeric_scalar<double>>(lit->value());
+      return std::make_unique<cudf::numeric_scalar<double>>(lit->value(), !lit->is_null());
     } else {
       throw std::logic_error("Invalid `gqe::literal_expression`");
     }
@@ -72,50 +73,62 @@ expression_evaluator::evaluate() const
     } else if (std::holds_alternative<gqe::expression*>(task)) {
       auto task_ptr = std::get<gqe::expression*>(task);
       auto children = task_ptr->children();
-      // if the expression is a binary op we can evaluate it using `cudf::binary_operation`
-      if (auto binop = dynamic_cast<gqe::binary_op_expression*>(task_ptr)) {
-        // children can only be of type column_reference or literal -> 4 combinations
-        auto lhs_ref = dynamic_cast<gqe::column_reference_expression*>(children[0]);
-        auto rhs_ref = dynamic_cast<gqe::column_reference_expression*>(children[1]);
 
-        if (lhs_ref && rhs_ref) {
-          auto result = cudf::binary_operation(table.column(lhs_ref->column_idx()),
-                                               table.column(rhs_ref->column_idx()),
-                                               binop->binary_operator(),
-                                               binop->data_type(types));
-          intermediate_results.push_back(std::move(result));
+      switch (task_ptr->type()) {
+        case gqe::expression::expression_type::binary_op: {
+          auto binop   = dynamic_cast<gqe::binary_op_expression*>(task_ptr);
+          auto lhs_ref = dynamic_cast<gqe::column_reference_expression*>(children[0]);
+          auto rhs_ref = dynamic_cast<gqe::column_reference_expression*>(children[1]);
+
+          // if the expression is a binary op we can evaluate it using `cudf::binary_operation`
+          // children can only be of type column_reference or literal -> 4 combinations
+          if (lhs_ref && rhs_ref) {
+            auto result = cudf::binary_operation(table.column(lhs_ref->column_idx()),
+                                                 table.column(rhs_ref->column_idx()),
+                                                 binop->binary_operator(),
+                                                 binop->data_type(types));
+            intermediate_results.push_back(std::move(result));
+          }
+
+          if (lhs_ref && !rhs_ref) {
+            auto rhs_scalar = cudf_scalar_cast(children[1]);
+            auto result     = cudf::binary_operation(table.column(lhs_ref->column_idx()),
+                                                 *(rhs_scalar.get()),
+                                                 binop->binary_operator(),
+                                                 binop->data_type(types));
+            intermediate_results.push_back(std::move(result));
+          }
+
+          if (!lhs_ref && rhs_ref) {
+            auto lhs_scalar = cudf_scalar_cast(children[0]);
+            auto result     = cudf::binary_operation(*(lhs_scalar.get()),
+                                                 table.column(rhs_ref->column_idx()),
+                                                 binop->binary_operator(),
+                                                 binop->data_type(types));
+            intermediate_results.push_back(std::move(result));
+          }
+
+          if (!lhs_ref && !rhs_ref) { throw std::logic_error("Not implemented"); }
+          break;
         }
+        case gqe::expression::expression_type::if_then_else: {
+          auto if_ref   = dynamic_cast<gqe::column_reference_expression*>(children[0]);
+          auto then_ref = dynamic_cast<gqe::column_reference_expression*>(children[1]);
+          auto else_ref = dynamic_cast<gqe::column_reference_expression*>(children[2]);
 
-        if (lhs_ref && !rhs_ref) {
-          auto rhs_scalar = cudf_scalar_cast(children[1]);
-          auto result     = cudf::binary_operation(table.column(lhs_ref->column_idx()),
-                                               *(rhs_scalar.get()),
-                                               binop->binary_operator(),
-                                               binop->data_type(types));
+          auto result = cudf::copy_if_else(table.column(then_ref->column_idx()),
+                                           table.column(else_ref->column_idx()),
+                                           table.column(if_ref->column_idx()));
           intermediate_results.push_back(std::move(result));
+          break;
         }
-
-        if (!lhs_ref && rhs_ref) {
-          auto lhs_scalar = cudf_scalar_cast(children[0]);
-          auto result     = cudf::binary_operation(*(lhs_scalar.get()),
-                                               table.column(rhs_ref->column_idx()),
-                                               binop->binary_operator(),
-                                               binop->data_type(types));
-          intermediate_results.push_back(std::move(result));
-        }
-
-        if (!lhs_ref && !rhs_ref) { throw std::logic_error("Not implemented"); }
-      } else if (dynamic_cast<gqe::if_then_else_expression*>(task_ptr)) {
-        auto if_ref   = dynamic_cast<gqe::column_reference_expression*>(children[0]);
-        auto then_ref = dynamic_cast<gqe::column_reference_expression*>(children[1]);
-        auto else_ref = dynamic_cast<gqe::column_reference_expression*>(children[2]);
-
-        auto result = cudf::copy_if_else(table.column(then_ref->column_idx()),
-                                         table.column(else_ref->column_idx()),
-                                         table.column(if_ref->column_idx()));
-        intermediate_results.push_back(std::move(result));
-      } else {
-        throw std::logic_error("Cannot evaluate expression " + task_ptr->to_string());
+        case gqe::expression::expression_type::literal:
+          intermediate_results.push_back(
+            cudf::make_column_from_scalar(*cudf_scalar_cast(task_ptr), table.num_rows()));
+          break;
+        default:
+          throw std::logic_error("Cannot evaluate expression in the fallback path: " +
+                                 task_ptr->to_string());
       }
     } else {
       throw std::bad_variant_access();
@@ -145,7 +158,7 @@ void expression_evaluator::visit(literal_expression<int32_t> const* expression)
   // `expression` and `scalar` objects must be kept alive for the lifetime of
   // the evaluator so we store them in member vectors
   _converted_scalars.push_back(
-    std::make_unique<cudf::numeric_scalar<int32_t>>(expression->value()));
+    std::make_unique<cudf::numeric_scalar<int32_t>>(expression->value(), !expression->is_null()));
   auto const value = dynamic_cast<cudf::numeric_scalar<int32_t>*>(_converted_scalars.back().get());
   _converted_expressions.emplace_back(std::make_shared<cudf::ast::literal>(*(value)));
 }
@@ -153,29 +166,30 @@ void expression_evaluator::visit(literal_expression<int32_t> const* expression)
 void expression_evaluator::visit(literal_expression<int64_t> const* expression)
 {
   _converted_scalars.push_back(
-    std::make_unique<cudf::numeric_scalar<int64_t>>(expression->value()));
+    std::make_unique<cudf::numeric_scalar<int64_t>>(expression->value(), !expression->is_null()));
   auto const value = dynamic_cast<cudf::numeric_scalar<int64_t>*>(_converted_scalars.back().get());
   _converted_expressions.emplace_back(std::make_shared<cudf::ast::literal>(*(value)));
 }
 
 void expression_evaluator::visit(literal_expression<float> const* expression)
 {
-  _converted_scalars.push_back(std::make_unique<cudf::numeric_scalar<float>>(expression->value()));
+  _converted_scalars.push_back(
+    std::make_unique<cudf::numeric_scalar<float>>(expression->value(), !expression->is_null()));
   auto const value = dynamic_cast<cudf::numeric_scalar<float>*>(_converted_scalars.back().get());
   _converted_expressions.emplace_back(std::make_shared<cudf::ast::literal>(*(value)));
 }
 
 void expression_evaluator::visit(literal_expression<double> const* expression)
 {
-  _converted_scalars.push_back(std::make_unique<cudf::numeric_scalar<double>>(expression->value()));
+  _converted_scalars.push_back(
+    std::make_unique<cudf::numeric_scalar<double>>(expression->value(), !expression->is_null()));
   auto const value = dynamic_cast<cudf::numeric_scalar<double>*>(_converted_scalars.back().get());
   _converted_expressions.emplace_back(std::make_shared<cudf::ast::literal>(*(value)));
 }
 
 void expression_evaluator::visit(literal_expression<std::string> const* expression)
 {
-  _converted_expressions.emplace_back(
-    std::make_shared<gqe::literal_expression<std::string>>(expression->value()));
+  _converted_expressions.emplace_back(expression->clone());
 }
 
 void expression_evaluator::visit(binary_op_expression const* expression)
@@ -381,11 +395,6 @@ evaluate_expressions(cudf::table_view const& table,
                      std::vector<expression const*> const& exprs,
                      cudf::size_type column_reference_offset)
 {
-  // FIXME: Extend this function to support scalar results.
-  // The current implementation always evaluates to a cudf::column_view. This is okay for
-  // expressions like `col_ref(1) + 10`. However, other expressions like `3 + 5` should be evaluated
-  // to a cudf::scalar instead.
-
   std::vector<cudf::column_view> evaluated_results;
   evaluated_results.reserve(exprs.size());
   std::vector<std::unique_ptr<cudf::column>> column_cache;

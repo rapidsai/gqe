@@ -314,3 +314,40 @@ TEST(EvalExpressionsTest, ComplexConditional)
 
   cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
 }
+
+TEST(EvalExpressionsTest, NumericalLiteral)
+{
+  auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
+  auto c_1   = column_wrapper<float>{5.0, 4.0, 3.0, 3.0};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto literal_expr                               = gqe::literal_expression<int32_t>(1);
+  auto literal_expr_null                          = gqe::literal_expression<int32_t>(1, true);
+  std::vector<gqe::expression const*> expressions = {&literal_expr, &literal_expr_null};
+  auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
+
+  auto expected = column_wrapper<int32_t>{1, 1, 1, 1};
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+
+  auto expected_null = column_wrapper<int32_t>{{1, 1, 1, 1}, {false, false, false, false}};
+  cudf::test::expect_columns_equal(expected_null, evaluated_results[1], verbosity);
+}
+
+TEST(EvalExpressionsTest, StringLiteral)
+{
+  auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
+  auto c_1   = column_wrapper<float>{5.0, 4.0, 3.0, 3.0};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto literal_expr      = gqe::literal_expression<std::string>("apple");
+  auto literal_expr_null = gqe::literal_expression<std::string>("apple", true);
+  std::vector<gqe::expression const*> expressions = {&literal_expr, &literal_expr_null};
+  auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
+
+  auto expected = cudf::test::strings_column_wrapper{"apple", "apple", "apple", "apple"};
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+
+  auto expected_null = cudf::test::strings_column_wrapper{{"apple", "apple", "apple", "apple"},
+                                                          {false, false, false, false}};
+  cudf::test::expect_columns_equal(expected_null, evaluated_results[1], verbosity);
+}

@@ -26,9 +26,9 @@ class if_then_else_expression : public expression {
    * @param then_expr The expression to be evaluated if `if_expr` condition returns true
    * @param else_expr The expression to be evaluated if `if_expr` condition returns false
    */
-  if_then_else_expression(std::unique_ptr<expression> if_expr,
-                          std::unique_ptr<expression> then_expr,
-                          std::unique_ptr<expression> else_expr)
+  if_then_else_expression(std::shared_ptr<expression> if_expr,
+                          std::shared_ptr<expression> then_expr,
+                          std::shared_ptr<expression> else_expr)
     : expression({std::move(if_expr), std::move(then_expr), std::move(else_expr)})
   {
   }

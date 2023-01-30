@@ -13,6 +13,7 @@
 #include <gqe/executor/eval.hpp>
 
 #include <cudf/binaryop.hpp>
+#include <cudf/copying.hpp>
 #include <cudf/transform.hpp>
 #include <cudf/unary.hpp>
 
@@ -104,6 +105,17 @@ expression_evaluator::evaluate() const
         }
 
         if (!lhs_ref && !rhs_ref) { throw std::logic_error("Not implemented"); }
+      } else if (dynamic_cast<gqe::if_then_else_expression*>(task_ptr)) {
+        auto if_ref   = dynamic_cast<gqe::column_reference_expression*>(children[0]);
+        auto then_ref = dynamic_cast<gqe::column_reference_expression*>(children[1]);
+        auto else_ref = dynamic_cast<gqe::column_reference_expression*>(children[2]);
+
+        auto result = cudf::copy_if_else(table.column(then_ref->column_idx()),
+                                         table.column(else_ref->column_idx()),
+                                         table.column(if_ref->column_idx()));
+        intermediate_results.push_back(std::move(result));
+      } else {
+        throw std::logic_error("Cannot evaluate expression " + task_ptr->to_string());
       }
     } else {
       throw std::bad_variant_access();
@@ -257,6 +269,70 @@ void expression_evaluator::visit(binary_op_expression const* expression)
       converted_op->second,
       *std::get<cudf::ast::expression*>(to_raw_expr_ptr(_converted_expressions[lhs_child_index])),
       *std::get<cudf::ast::expression*>(to_raw_expr_ptr(_converted_expressions[rhs_child_index]))));
+  }
+}
+
+void expression_evaluator::visit(if_then_else_expression const* expression)
+{
+  if (!cudf::is_boolean(expression->_children[0]->data_type(column_types(_table)))) {
+    throw std::logic_error("Cannot convert " + expression->_children[0]->to_string() +
+                           " to boolean");
+  }
+
+  if (expression->_children[1]->data_type(column_types(_table)) !=
+      expression->_children[2]->data_type(column_types(_table))) {
+    throw std::logic_error("Column types of " + expression->_children[1]->to_string() + " and " +
+                           expression->_children[2]->to_string() + " must be equal");
+  }
+
+  auto create_task = [this](gqe::expression* child) -> decltype(auto) {
+    // compute AST for child
+    child->accept(*this);
+    // child has been created at the back of _converted_expressions
+    auto converted_child = to_raw_expr_ptr(_converted_expressions.back());
+
+    // if the current child is already a `cudf::ast::column_reference`
+    // we just convert it to a `gqe::column_reference_expression` and pass it on
+    if (std::holds_alternative<cudf::ast::expression*>(converted_child) &&
+        dynamic_cast<cudf::ast::column_reference*>(
+          std::get<cudf::ast::expression*>(converted_child))) {
+      _converted_expressions.emplace_back(std::make_shared<gqe::column_reference_expression>(
+        dynamic_cast<cudf::ast::column_reference*>(
+          std::get<cudf::ast::expression*>(converted_child))
+          ->get_column_index()));
+    } else {
+      // push child expr into task queue for evaluation
+      _sub_tasks.emplace_back(converted_child);
+      // fetch result of child expr
+      _converted_expressions.emplace_back(
+        std::make_shared<gqe::column_reference_expression>(_next_intermediate++));
+    }
+    // child's result has been created at the back of `_converted_expressions`
+    return _converted_expressions.size() - 1;
+  };
+
+  // create task for IF child
+  auto if_child_index = create_task(expression->_children[0].get());
+  // create task for THEN child
+  auto then_child_index = create_task(expression->_children[1].get());
+  // create task for ELSE child
+  auto else_child_index = create_task(expression->_children[2].get());
+
+  // make a copy of the current expression but with the new child expressions
+  auto new_expr       = expression->clone();
+  new_expr->_children = {
+    std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[if_child_index]),
+    std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[then_child_index]),
+    std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[else_child_index])};
+
+  _converted_expressions.emplace_back(std::move(new_expr));
+
+  // mark the new expression as to be evaluated
+  if (expression != _root_expression) {
+    _sub_tasks.emplace_back(to_raw_expr_ptr(_converted_expressions.back()));
+    // parent expression picks up the reference to the intermediate result for its child
+    _converted_expressions.emplace_back(
+      std::make_shared<cudf::ast::column_reference>(_next_intermediate++));
   }
 }
 

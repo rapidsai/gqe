@@ -269,3 +269,48 @@ TEST(EvalExpressionsTest, FloatDivision)
 
   cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
 }
+
+TEST(EvalExpressionsTest, SimpleConditional)
+{
+  auto c_0   = column_wrapper<bool>{true, false, false, true};
+  auto c_1   = column_wrapper<int32_t>{42, 43, 44, 45};
+  auto c_2   = column_wrapper<int32_t>{52, 53, 54, 55};
+  auto table = cudf::table_view{{c_0, c_1, c_2}};
+
+  auto cond_expr =
+    gqe::if_then_else_expression(std::make_shared<gqe::column_reference_expression>(0),
+                                 std::make_shared<gqe::column_reference_expression>(1),
+                                 std::make_shared<gqe::column_reference_expression>(2));
+  std::vector<gqe::expression const*> expressions = {&cond_expr};
+
+  auto expected                          = column_wrapper<int32_t>{42, 53, 54, 45};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+}
+
+TEST(EvalExpressionsTest, ComplexConditional)
+{
+  auto c_0   = column_wrapper<int32_t>{2, 5, 1, 9};
+  auto c_1   = column_wrapper<int32_t>{42, 43, 44, 45};
+  auto c_2   = column_wrapper<int32_t>{52, 53, 54, 55};
+  auto table = cudf::table_view{{c_0, c_1, c_2}};
+
+  auto ref_0 = std::make_shared<gqe::column_reference_expression>(0);
+  auto ref_1 = std::make_shared<gqe::column_reference_expression>(1);
+  auto ref_2 = std::make_shared<gqe::column_reference_expression>(2);
+
+  auto if_expr = std::make_shared<gqe::greater_expression>(
+    ref_0, std::make_shared<gqe::literal_expression<int32_t>>(3));
+  auto then_expr = std::make_shared<gqe::add_expression>(ref_0, ref_1);
+  auto else_expr = std::make_shared<gqe::add_expression>(ref_0, ref_2);
+
+  // IF (ref_0 > 3) THEN return ref_0 + ref_1 ELSE return ref_0 + ref_2 FI
+  auto cond_expr = gqe::if_then_else_expression(if_expr, then_expr, else_expr);
+  std::vector<gqe::expression const*> expressions = {&cond_expr};
+
+  auto expected                          = column_wrapper<int64_t>{54, 48, 55, 54};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+}

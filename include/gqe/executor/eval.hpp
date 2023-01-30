@@ -15,6 +15,7 @@
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
+#include <gqe/expression/if_then_else.hpp>
 #include <gqe/expression/literal.hpp>
 
 #include <cudf/ast/expressions.hpp>
@@ -94,6 +95,11 @@ class expression_evaluator : public expression_visitor {
    * @copydoc gqe::expression_visitor::visit(binary_op_expression const*)
    */
   void visit(binary_op_expression const* expression) override;
+
+  /**
+   * @copydoc gqe::expression_visitor::visit(if_then_else_expression const*)
+   */
+  void visit(if_then_else_expression const* expression) override;
 
  private:
   /**

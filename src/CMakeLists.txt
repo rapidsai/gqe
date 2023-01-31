@@ -37,6 +37,7 @@ add_library(
     logical/join.cpp
     logical/project.cpp
     logical/read.cpp
+    logical/set.cpp
     logical/sort.cpp
     logical/from_substrait.cpp
     executor/aggregate.cpp

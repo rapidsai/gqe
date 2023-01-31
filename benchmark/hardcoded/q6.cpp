@@ -23,6 +23,8 @@
 #include <gqe/logical/filter.hpp>
 #include <gqe/logical/join.hpp>
 #include <gqe/logical/project.hpp>
+#include <gqe/logical/read.hpp>
+#include <gqe/logical/sort.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>

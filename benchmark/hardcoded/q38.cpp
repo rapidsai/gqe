@@ -20,6 +20,7 @@
 #include <gqe/logical/aggregate.hpp>
 #include <gqe/logical/filter.hpp>
 #include <gqe/logical/join.hpp>
+#include <gqe/logical/project.hpp>
 #include <gqe/logical/read.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 

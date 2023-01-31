@@ -27,6 +27,7 @@
 #include <gqe/physical/join.hpp>
 #include <gqe/physical/project.hpp>
 #include <gqe/physical/read.hpp>
+#include <gqe/physical/set.hpp>
 #include <gqe/physical/sort.hpp>
 #include <gqe/utility.hpp>
 
@@ -41,7 +42,7 @@ std::unique_ptr<task_graph> task_graph_builder::build(physical::relation* root_r
   auto generated_tasks = generate_tasks(root_relation);
 
   // Update _stage_root_tasks with tasks in the last stage
-  _stage_root_tasks.push_back(utility::to_raw_ptrs(generated_tasks));
+  insert_pipeline_breaker(utility::to_raw_ptrs(generated_tasks));
 
   return std::make_unique<task_graph>(
     task_graph({std::move(generated_tasks), std::move(_stage_root_tasks)}));
@@ -518,6 +519,27 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::fetch_rela
                                                           relation->offset(),
                                                           relation->count()));
   _builder->_current_task_id++;
+
+  update_cache(relation);
+}
+
+void task_graph_builder::generate_task_graph_visitor::visit(physical::union_all_relation* relation)
+{
+  if (is_cached(relation)) return;
+
+  // Recursively generate the input tasks
+  auto const children = relation->children_unsafe();
+  assert(children.size() == 2);
+  auto left_tasks = _builder->generate_tasks(children[0]);
+  _builder->insert_pipeline_breaker(utility::to_raw_ptrs(left_tasks));
+  auto right_tasks = _builder->generate_tasks(children[1]);
+
+  // Concatenate the left tasks and right tasks
+  for (auto& task : left_tasks)
+    _generated_tasks.push_back(std::move(task));
+
+  for (auto& task : right_tasks)
+    _generated_tasks.push_back(std::move(task));
 
   update_cache(relation);
 }

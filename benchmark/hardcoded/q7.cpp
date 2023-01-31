@@ -17,6 +17,13 @@
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/literal.hpp>
+#include <gqe/logical/aggregate.hpp>
+#include <gqe/logical/fetch.hpp>
+#include <gqe/logical/filter.hpp>
+#include <gqe/logical/join.hpp>
+#include <gqe/logical/project.hpp>
+#include <gqe/logical/read.hpp>
+#include <gqe/logical/sort.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>

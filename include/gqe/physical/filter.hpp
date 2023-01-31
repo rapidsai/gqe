@@ -34,7 +34,6 @@ class filter_relation : public relation {
    * @param[in] condition A boolean expression evaluated on `input` to represent the filter
    * condition.
    */
-
   filter_relation(std::shared_ptr<relation> input,
                   std::vector<std::shared_ptr<relation>> subquery_relations,
                   std::unique_ptr<expression> condition)

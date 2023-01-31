@@ -34,7 +34,7 @@ namespace logical {
 
 class relation {
  public:
-  enum class relation_type { fetch, sort, project, aggregate, join, read, filter };
+  enum class relation_type { fetch, sort, project, aggregate, join, read, filter, set };
 
   /**
    * @brief Construct a relation node.

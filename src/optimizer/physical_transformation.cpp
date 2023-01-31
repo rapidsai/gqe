@@ -10,6 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/logical/aggregate.hpp>
+#include <gqe/logical/fetch.hpp>
+#include <gqe/logical/filter.hpp>
+#include <gqe/logical/join.hpp>
+#include <gqe/logical/project.hpp>
+#include <gqe/logical/read.hpp>
+#include <gqe/logical/set.hpp>
+#include <gqe/logical/sort.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/physical/aggregate.hpp>
 #include <gqe/physical/fetch.hpp>
@@ -17,6 +25,7 @@
 #include <gqe/physical/join.hpp>
 #include <gqe/physical/project.hpp>
 #include <gqe/physical/read.hpp>
+#include <gqe/physical/set.hpp>
 #include <gqe/physical/sort.hpp>
 
 namespace gqe {
@@ -168,6 +177,21 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
                                                                    std::move(subqueries_physical),
                                                                    std::move(keys),
                                                                    std::move(values));
+      break;
+    }
+    case logical::relation::relation_type::set: {
+      assert(children_physical.size() == 2);
+      auto const logical_set_relation =
+        dynamic_cast<logical::set_relation const*>(logical_relation);
+
+      switch (logical_set_relation->set_operator()) {
+        case logical::set_relation::set_union_all: {
+          out_physical_relation = std::make_shared<physical::union_all_relation>(
+            std::move(children_physical[0]), std::move(children_physical[1]));
+          break;
+        }
+        default: throw std::logic_error("Unsupported set operator");
+      }
       break;
     }
     default:

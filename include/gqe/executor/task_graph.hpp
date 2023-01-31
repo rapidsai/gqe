@@ -92,6 +92,7 @@ class task_graph_builder {
     void visit(physical::filter_relation* relation) override;
     void visit(physical::concatenate_aggregate_relation* relation) override;
     void visit(physical::fetch_relation* relation) override;
+    void visit(physical::union_all_relation* relation) override;
 
     // Check the task cache in `_builder`. If the relation is found in the cache, the retrieved
     // tasks are copied to `_generated_tasks`, and the function returns true. Otherwise, the
@@ -104,10 +105,17 @@ class task_graph_builder {
     std::vector<std::shared_ptr<task>> _generated_tasks;
   };
 
-  // `stage_root_tasks` contains the root tasks of the current stage
-  void insert_pipeline_breaker(std::vector<task*> stage_root_tasks)
+  // `root_tasks` contains the tasks passed to the parent relation
+  void insert_pipeline_breaker(std::vector<task*> root_tasks)
   {
-    _stage_root_tasks.push_back(std::move(stage_root_tasks));
+    std::vector<task*> current_stage_tasks;
+    for (auto const& task : root_tasks) {
+      // Checking the stage is necessary because a task from `root_tasks` can belong to a previous
+      // stage.
+      if (task->stage_id() == _current_stage_id) current_stage_tasks.push_back(task);
+    }
+
+    _stage_root_tasks.push_back(std::move(current_stage_tasks));
     _current_stage_id++;
   }
 

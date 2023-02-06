@@ -77,6 +77,17 @@ class substrait_parser {
   std::string get_function_name(uint32_t reference) const;
 
   /**
+   * @brief Parse Substrait Cast expression message into `gqe::cast_expression`
+   *
+   * @param cast_expression Substrait Cast expression
+   * @param subquery_relations Vector reference to store subquery relations
+   * @return The parsed cast expression
+   */
+  std::unique_ptr<gqe::expression> parse_cast_expression(
+    substrait::Expression_Cast const& cast_expression,
+    std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const;
+
+  /**
    * @brief Parse Substrait IfThen expression message into `gqe::if_then_else_expression`
    *
    * @param if_then_expression Substrait IfThen expression

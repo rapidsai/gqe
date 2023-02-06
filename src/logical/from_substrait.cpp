@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <gqe/expression/binary_op.hpp>
+#include <gqe/expression/cast.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/if_then_else.hpp>
@@ -105,6 +106,8 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_expression(
     return parse_subquery_expression(expression.subquery(), subqueries);
   else if (expression.has_if_then())
     return parse_if_then_expression(expression.if_then(), subqueries);
+  else if (expression.has_cast())
+    return parse_cast_expression(expression.cast(), subqueries);
   else
     throw std::runtime_error("SubstraitParser cannot parse expression with type " +
                              std::to_string(expression.rex_type_case()));
@@ -161,6 +164,39 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression
       throw std::runtime_error("SubstraitParser cannot parse literal expression with type " +
                                std::to_string(literal_expression.literal_type_case()));
   }
+}
+namespace {
+// Helper function for translating Substrait data type to cudf data type
+cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
+{
+  switch (substrait_type.kind_case()) {
+    case substrait::Type::kBool: return cudf::data_type(cudf::type_id::BOOL8);
+    case substrait::Type::kI8: return cudf::data_type(cudf::type_id::INT8);
+    case substrait::Type::kI16: return cudf::data_type(cudf::type_id::INT16);
+    case substrait::Type::kI32: return cudf::data_type(cudf::type_id::INT32);
+    case substrait::Type::kI64: return cudf::data_type(cudf::type_id::INT64);
+    case substrait::Type::kFp32: return cudf::data_type(cudf::type_id::FLOAT32);
+    case substrait::Type::kFp64: return cudf::data_type(cudf::type_id::FLOAT64);
+    case substrait::Type::kString:
+    case substrait::Type::kVarchar: return cudf::data_type(cudf::type_id::STRING);
+    case substrait::Type::kDecimal:
+      // TODO: Do we need to also consider DECIMAL32 and DECIMAL128 here?
+      // Substrait does not specify the decimal length
+      return cudf::data_type(cudf::type_id::DECIMAL64, substrait_type.decimal().precision());
+    default:
+      throw std::runtime_error("SubstraitParser cannot convert substrait type " +
+                               std::to_string(substrait_type.kind_case()) + " to cuDF type");
+  }
+}
+}  // namespace
+
+std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_cast_expression(
+  substrait::Expression_Cast const& cast_expression,
+  std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
+{
+  auto input_expr       = parse_expression(cast_expression.input(), subquery_relations);
+  auto output_data_type = substrait_to_cudf_type(cast_expression.type());
+  return std::make_unique<gqe::cast_expression>(std::move(input_expr), output_data_type);
 }
 
 std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_selection_expression(

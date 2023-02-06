@@ -24,6 +24,7 @@
 namespace gqe {
 
 class binary_op_expression;
+class cast_expression;
 class column_reference_expression;
 class if_then_else_expression;
 template <typename T>
@@ -88,6 +89,11 @@ struct expression_visitor {
   virtual void visit(if_then_else_expression const* expression)
   {
     throw std::logic_error("Visiting if_then_else_expression is not implemented");
+  }
+
+  virtual void visit(cast_expression const* expression)
+  {
+    throw std::logic_error("Visiting cast_expression is not implemented");
   }
 };
 

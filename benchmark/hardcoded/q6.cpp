@@ -33,7 +33,6 @@
 
 #include <cudf/io/parquet.hpp>
 
-#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -307,11 +306,7 @@ int main(int argc, char* argv[])
   gqe::task_graph_builder graph_builder(&tpcds_catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  auto start_time = std::chrono::high_resolution_clock::now();
-  gqe::execute_task_graph_single_gpu(task_graph.get());
-  auto stop_time = std::chrono::high_resolution_clock::now();
-  auto duration  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_time - start_time);
-  std::cout << "Execution time: " << duration.count() << " ms." << std::endl;
+  gqe::benchmark::time_function(gqe::execute_task_graph_single_gpu, task_graph.get());
 
   // Output the result to disk
   assert(task_graph->root_tasks.size() == 1);

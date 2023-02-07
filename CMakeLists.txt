@@ -43,7 +43,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Setup gtest
 include(${rapids-cmake-dir}/cpm/gtest.cmake)
+include(${rapids-cmake-dir}/cpm/spdlog.cmake)
 rapids_cpm_gtest()
+rapids_cpm_spdlog()
 
 # Setup CTest
 if(PROJECT_IS_TOP_LEVEL)
@@ -51,7 +53,8 @@ if(PROJECT_IS_TOP_LEVEL)
 endif()
 
 rapids_find_package(cudf CONFIG REQUIRED COMPONENTS testing)
-find_package(Protobuf REQUIRED)
+rapids_find_package(Protobuf REQUIRED)
+rapids_find_package(Threads REQUIRED)
 
 add_subdirectory(src)
 if(PROJECT_IS_TOP_LEVEL)

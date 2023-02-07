@@ -41,10 +41,10 @@ class read_task : public task {
    * is different from expected, the column will be casted to the data type specified. If not empty,
    * this argument must have the same length as `column_names`. If empty, the deduced data types
    * from the file will be used for the result table.
-   * @param[in] predicate Used to support predicate pushdown. Note that a row that satisfies the
-   * predicate is guaranteed to be included in the loaded table, but a row that does not satisfy the
-   * predicate may or may not be excluded. If such exclusion needs to be guaranteed, an extra filter
-   * task is needed. If this argument is nullptr, no rows will be filtered out.
+   * @param[in] partial_filter Used to support predicate pushdown. Note that a row that satisfies
+   * the predicate is guaranteed to be included in the loaded table, but a row that does not satisfy
+   * the predicate may or may not be excluded. If such exclusion needs to be guaranteed, an extra
+   * filter task is needed. If this argument is nullptr, no rows will be filtered out.
    * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
    * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
    */
@@ -65,6 +65,8 @@ class read_task : public task {
  private:
   [[nodiscard]] std::unique_ptr<cudf::table> table_from_parquet(
     std::vector<std::string> const& file_paths) const;
+
+  [[nodiscard]] std::string print_column_names() const;
 
   std::vector<std::string> _file_paths;
   file_format_type _file_format;

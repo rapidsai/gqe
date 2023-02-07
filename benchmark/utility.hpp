@@ -12,6 +12,9 @@
 
 #pragma once
 
+#include <gqe/utility.hpp>
+
+#include <chrono>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -28,6 +31,17 @@ inline std::vector<std::string> get_file_paths(std::string path)
       parquet_files.push_back(entry.path());
   }
   return parquet_files;
+}
+
+// Wrapper for logging the execution time
+template <typename function_type, typename... argument_type>
+inline void time_function(function_type func, argument_type&&... args)
+{
+  auto start_time = std::chrono::high_resolution_clock::now();
+  func(std::forward<argument_type>(args)...);
+  auto stop_time = std::chrono::high_resolution_clock::now();
+  auto duration  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_time - start_time);
+  GQE_LOG_INFO("Query execution time: {} ms.", duration.count());
 }
 
 }  // namespace benchmark

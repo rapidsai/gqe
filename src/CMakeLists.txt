@@ -59,5 +59,7 @@ add_library(
 
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(gqe PUBLIC cudf::cudf)
+target_link_libraries(gqe PUBLIC spdlog::spdlog)
+target_link_libraries(gqe PRIVATE Threads::Threads)
 
 target_link_libraries(gqe PRIVATE substrait)

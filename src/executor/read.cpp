@@ -12,6 +12,7 @@
 
 #include <gqe/executor/read.hpp>
 #include <gqe/expression/column_reference.hpp>
+#include <gqe/utility.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
@@ -24,11 +25,10 @@
 #include <cassert>
 #include <filesystem>
 #include <memory>
+#include <numeric>
 #include <regex>
 #include <stdexcept>
 #include <unordered_set>
-
-#include <numeric>
 
 namespace gqe {
 
@@ -121,6 +121,17 @@ std::unique_ptr<cudf::table> read_task::table_from_parquet(
   return std::make_unique<cudf::table>(std::move(converted_columns));
 }
 
+std::string read_task::print_column_names() const
+{
+  std::string output = "[";
+  for (std::size_t column_idx = 0; column_idx < _column_names.size(); column_idx++) {
+    output += _column_names[column_idx];
+    if (column_idx + 1 < _column_names.size()) output += ",";
+  }
+  output += "]";
+  return output;
+}
+
 void read_task::execute()
 {
   if (_file_format != file_format_type::parquet)
@@ -208,7 +219,12 @@ void read_task::execute()
     if (file_filter[file_idx]) filtered_file_paths.push_back(_file_paths[file_idx]);
   }
 
-  update_result_cache(table_from_parquet(filtered_file_paths));
+  auto loaded_table = table_from_parquet(filtered_file_paths);
+
+  GQE_LOG_TRACE(
+    "Load {0} from files with {1} rows.", print_column_names(), loaded_table->num_rows());
+
+  update_result_cache(std::move(loaded_table));
   remove_dependencies();
   remove_subqueries();
 }

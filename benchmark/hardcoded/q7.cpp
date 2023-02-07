@@ -310,7 +310,7 @@ int main(int argc, char* argv[])
   gqe::task_graph_builder graph_builder(&tpcds_catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::execute_task_graph_single_gpu(task_graph.get());
+  gqe::benchmark::time_function(gqe::execute_task_graph_single_gpu, task_graph.get());
 
   // Output the result to disk
   assert(task_graph->root_tasks.size() == 1);

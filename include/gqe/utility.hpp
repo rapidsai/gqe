@@ -12,7 +12,12 @@
 
 #pragma once
 
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
+
+#include <cstdlib>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace gqe {
@@ -86,3 +91,33 @@ struct cuda_error : public std::runtime_error {
     }                                                                                             \
   } while (0);
 #define GQE_CUDA_TRY_1(_call) GQE_CUDA_TRY_2(_call, gqe::utility::cuda_error)
+
+namespace gqe {
+
+/**
+ * @brief Return the logger used by the GQE library.
+ *
+ * @note The easiest way to log messages is to use the `GQE_LOG_*` macros.
+ */
+inline spdlog::logger* logger()
+{
+  static std::shared_ptr<spdlog::logger> _logger = []() {
+    auto gqe_logger = spdlog::stdout_color_mt("gqe");
+
+    auto const log_level = std::getenv("GQE_LOG_LEVEL");
+    if (log_level) gqe_logger->set_level(spdlog::level::from_str(log_level));
+
+    return gqe_logger;
+  }();
+
+  return _logger.get();
+}
+
+}  // namespace gqe
+
+#define GQE_LOG_TRACE(...)    gqe::logger()->trace(__VA_ARGS__)
+#define GQE_LOG_DEBUG(...)    gqe::logger()->debug(__VA_ARGS__)
+#define GQE_LOG_INFO(...)     gqe::logger()->info(__VA_ARGS__)
+#define GQE_LOG_WARN(...)     gqe::logger()->warn(__VA_ARGS__)
+#define GQE_LOG_ERROR(...)    gqe::logger()->error(__VA_ARGS__)
+#define GQE_LOG_CRITICAL(...) gqe::logger()->critical(__VA_ARGS__)

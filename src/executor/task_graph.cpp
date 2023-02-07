@@ -34,6 +34,7 @@
 #include <cstdlib>
 #include <limits>
 #include <stdexcept>
+#include <thread>
 
 namespace gqe {
 
@@ -79,7 +80,7 @@ void execute_task_graph_single_gpu(task_graph const* task_graph_to_execute)
     auto const num_workers_str = std::getenv("MAX_NUM_WORKERS");
     if (num_workers_str != nullptr) num_workers = std::strtoul(num_workers_str, nullptr, 10);
     if (num_workers > num_tasks_current_stage) num_workers = num_tasks_current_stage;
-    // FIXME: Log number of workers used
+    GQE_LOG_TRACE("Execute the stage with {} workers", num_workers);
 
     if (num_workers == 1) {
       // If the number of worker threads is 1, we could avoid the thread spawning cost by using the

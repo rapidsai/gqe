@@ -79,7 +79,9 @@ class literal_expression : public gqe::expression {
   [[nodiscard]] std::string to_string() const noexcept override
   {
     std::string value_string;
-    if constexpr (std::is_convertible_v<T, std::string>) {
+    if (_is_null) {
+      value_string = "NULL";
+    } else if constexpr (std::is_convertible_v<T, std::string>) {
       value_string = _value;
     } else {
       value_string = std::to_string(_value);

@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-#include <cstddef>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/cast.hpp>
 #include <gqe/expression/column_reference.hpp>
@@ -131,15 +130,33 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_if_then_expression
     std::move(if_expr), std::move(then_expr), std::move(else_expr));
 }
 
+namespace {
+// Helper function for translating Substrait decimal to C++ decimal
+// Substrait encodes decimal value as 16-byte little-endian array
+// source: https://substrait.io/types/type_classes/#compound-types
+numeric::decimal128 from_substrait_decimal(substrait::Expression_Literal_Decimal decimal_expr)
+{
+  auto v_str = decimal_expr.value();
+  assert(v_str.length() == 16);
+  // Note: This implementation only works on little-endian machines. The bytes need to be reversed
+  // on big-endian machines.
+  auto const decimal_value = *reinterpret_cast<numeric::decimal128::rep const*>(v_str.c_str());
+  auto const decimal_scale = static_cast<numeric::scale_type>(-decimal_expr.scale());
+  numeric::scaled_integer<numeric::decimal128::rep> scaled_integer_value(decimal_value,
+                                                                         decimal_scale);
+  numeric::decimal128 fixed_point_value(scaled_integer_value);
+  return fixed_point_value;
+}
+}  // namespace
+
 std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression(
   substrait::Expression_Literal const& literal_expression) const
 {
   // TODO:
   // - Support
-  //  - substrait::Expression_Literal::LiteralTypeCase::kDecimal
-  //  - substrait::Expression_Literal::LiteralTypeCase::kNull
   //  - substrait::Expression_Literal::LiteralTypeCase::kDate
-  // - Add unit test for all cases. For now, only i32 has been validated with real plan
+  // - Add unit test for all cases. For now, only i32, decimal, and NULL has been validated with
+  // real plan
   switch (literal_expression.literal_type_case()) {
     case substrait::Expression_Literal::LiteralTypeCase::kBoolean:
       return std::make_unique<gqe::literal_expression<bool>>(literal_expression.boolean());
@@ -160,11 +177,41 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression
     case substrait::Expression_Literal::LiteralTypeCase::kFixedChar:
       return std::make_unique<gqe::literal_expression<std::string>>(
         literal_expression.fixed_char());
+    case substrait::Expression_Literal::LiteralTypeCase::kDecimal: {
+      // For now, always parse a decimal into a floating point number
+      auto fixed_point_value = from_substrait_decimal(literal_expression.decimal());
+      return std::make_unique<gqe::literal_expression<double>>(
+        static_cast<double>(fixed_point_value));
+    }
+    case substrait::Expression_Literal::LiteralTypeCase::kNull: {
+      std::unique_ptr<gqe::expression> null_literal;
+      // TODO: Support more NULL types
+      // We currently treat all integers as int64_t
+      if (literal_expression.null().has_i16())
+        null_literal = std::make_unique<gqe::literal_expression<int64_t>>(0, true);
+      else if (literal_expression.null().has_i32())
+        null_literal = std::make_unique<gqe::literal_expression<int64_t>>(0, true);
+      else if (literal_expression.null().has_i32())
+        null_literal = std::make_unique<gqe::literal_expression<int64_t>>(0, true);
+      // We currently treat all floating point and decimals as double
+      else if (literal_expression.null().has_decimal())
+        null_literal = std::make_unique<gqe::literal_expression<double>>(0, true);
+      else if (literal_expression.null().has_fp32())
+        null_literal = std::make_unique<gqe::literal_expression<double>>(0, true);
+      else if (literal_expression.null().has_fp64())
+        null_literal = std::make_unique<gqe::literal_expression<double>>(0, true);
+      else
+        throw std::runtime_error("SubstraitParser cannot parse null literal expression with type " +
+                                 std::to_string(literal_expression.null().kind_case()));
+
+      return null_literal;
+    }
     default:
       throw std::runtime_error("SubstraitParser cannot parse literal expression with type " +
                                std::to_string(literal_expression.literal_type_case()));
   }
 }
+
 namespace {
 // Helper function for translating Substrait data type to cudf data type
 cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
@@ -180,9 +227,9 @@ cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
     case substrait::Type::kString:
     case substrait::Type::kVarchar: return cudf::data_type(cudf::type_id::STRING);
     case substrait::Type::kDecimal:
-      // TODO: Do we need to also consider DECIMAL32 and DECIMAL128 here?
-      // Substrait does not specify the decimal length
-      return cudf::data_type(cudf::type_id::DECIMAL64, substrait_type.decimal().precision());
+      // Decimal is encoded as 16-byte little-endian
+      // source: https://substrait.io/types/type_classes/#compound-types
+      return cudf::data_type(cudf::type_id::DECIMAL128, substrait_type.decimal().precision());
     default:
       throw std::runtime_error("SubstraitParser cannot convert substrait type " +
                                std::to_string(substrait_type.kind_case()) + " to cuDF type");

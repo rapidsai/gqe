@@ -16,6 +16,7 @@
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
+#include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/stream_compaction.hpp>
@@ -85,6 +86,13 @@ struct file_filter_functor {
 std::unique_ptr<cudf::table> read_task::table_from_parquet(
   std::vector<std::string> const& file_paths) const
 {
+  if (file_paths.size() == 0) {
+    std::vector<std::unique_ptr<cudf::column>> empty_columns;
+    for (auto const& column_type : _data_types)
+      empty_columns.push_back(cudf::make_empty_column(column_type));
+    return std::make_unique<cudf::table>(std::move(empty_columns));
+  }
+
   auto const num_columns = _column_names.size();
   auto source            = cudf::io::source_info(file_paths);
 
@@ -96,28 +104,23 @@ std::unique_ptr<cudf::table> read_task::table_from_parquet(
   assert(read_columns.size() == num_columns);
 
   // Convert the read columns into the specified types if necessary
+  if (_data_types.size() != num_columns)
+    throw std::length_error("data_types must have the same length as the number of columns");
 
   std::vector<std::unique_ptr<cudf::column>> converted_columns;
+  converted_columns.reserve(num_columns);
+  for (std::size_t column_idx = 0; column_idx < num_columns; column_idx++) {
+    auto const column_view   = read_columns[column_idx]->view();
+    auto const expected_type = _data_types[column_idx];
 
-  if (_data_types.empty()) {
-    converted_columns = std::move(read_columns);
-  } else {
-    if (_data_types.size() != num_columns)
-      throw std::length_error("data_types must have the same length as the number of columns");
-
-    converted_columns.reserve(num_columns);
-    for (std::size_t column_idx = 0; column_idx < num_columns; column_idx++) {
-      auto const column_view   = read_columns[column_idx]->view();
-      auto const expected_type = _data_types[column_idx];
-
-      if (column_view.type() == expected_type) {
-        converted_columns.push_back(std::move(read_columns[column_idx]));
-      } else {
-        converted_columns.push_back(cudf::cast(column_view, expected_type));
-      }
+    if (column_view.type() == expected_type) {
+      converted_columns.push_back(std::move(read_columns[column_idx]));
+    } else {
+      converted_columns.push_back(cudf::cast(column_view, expected_type));
     }
   }
   assert(converted_columns.size() == num_columns);
+
   return std::make_unique<cudf::table>(std::move(converted_columns));
 }
 

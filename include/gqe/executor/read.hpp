@@ -37,10 +37,9 @@ class read_task : public task {
    * @param[in] file_paths Paths of the files to be read.
    * @param[in] file_format Format of the file.
    * @param[in] column_names Columns to be loaded.
-   * @param[in] data_types Expected data types of each column. If the data type of a loaded column
-   * is different from expected, the column will be casted to the data type specified. If not empty,
-   * this argument must have the same length as `column_names`. If empty, the deduced data types
-   * from the file will be used for the result table.
+   * @param[in] data_types Expected data types of each column. If the actual data type of a loaded
+   * column is different from expected, the column will be casted to the data type specified. Must
+   * have the same length as `column_names`.
    * @param[in] partial_filter Used to support predicate pushdown. Note that a row that satisfies
    * the predicate is guaranteed to be included in the loaded table, but a row that does not satisfy
    * the predicate may or may not be excluded. If such exclusion needs to be guaranteed, an extra
@@ -53,7 +52,7 @@ class read_task : public task {
             std::vector<std::string> file_paths,
             file_format_type file_format,
             std::vector<std::string> column_names,
-            std::vector<cudf::data_type> data_types           = {},
+            std::vector<cudf::data_type> data_types,
             std::unique_ptr<gqe::expression> partial_filter   = nullptr,
             std::vector<std::shared_ptr<task>> subquery_tasks = {});
 

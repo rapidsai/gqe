@@ -10,20 +10,13 @@
 
 # We cannot use add_custom_command() since the file names need to be known at
 #  configuration time so depenencies can be known during compile time
-# Note that we're assuming Substrait protobuf is stable and, in most cases, will not
-#  need to be updated after the first header and source file generation. So the
-#  generate_substrait.sh will not generate anything if the subtrait files in the
-#  include directory already exist. In the rare circumstances that we want to
-#  re-generate the substrait include files, the include/substrait directory needs
-#  to be removed before running CMAKE again
 execute_process(
-    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_substrait.sh
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../
+    COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/generate_substrait.sh ${CMAKE_SOURCE_DIR}/substrait ${CMAKE_BINARY_DIR}
 )
 
-file(GLOB substrait_sources ${CMAKE_CURRENT_SOURCE_DIR}/../include/substrait/*.cc ${CMAKE_CURRENT_SOURCE_DIR}/../include/substrait/extensions/*.cc)
+file(GLOB substrait_sources ${CMAKE_BINARY_DIR}/substrait/*.cc ${CMAKE_BINARY_DIR}/substrait/extensions/*.cc)
 add_library(substrait ${substrait_sources})
-target_include_directories(substrait PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_include_directories(substrait PUBLIC ${CMAKE_BINARY_DIR})
 target_link_libraries(substrait PRIVATE protobuf::libprotobuf)
 # Setting `-DNDEBUG` to match the ABI of libprotobuf.so
 # See this issue for details: https://github.com/protocolbuffers/protobuf/issues/9947
@@ -61,5 +54,4 @@ target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(gqe PUBLIC cudf::cudf)
 target_link_libraries(gqe PUBLIC spdlog::spdlog)
 target_link_libraries(gqe PRIVATE Threads::Threads)
-
-target_link_libraries(gqe PRIVATE substrait)
+target_link_libraries(gqe PUBLIC substrait)

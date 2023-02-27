@@ -63,7 +63,7 @@ class literal_expression : public gqe::expression {
    *
    * @return The value of this expression
    */
-  T value() const noexcept { return _value; }
+  [[nodiscard]] T value() const noexcept { return _value; }
 
   /**
    * @brief Return whether this literal is null

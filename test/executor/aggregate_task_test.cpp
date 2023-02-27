@@ -90,8 +90,8 @@ TEST_F(HandCodedValuesAggregationTest, Groupby)
   keys.push_back(std::make_unique<gqe::column_reference_expression>(1));
 
   std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<gqe::expression>>> values;
-  values.push_back(
-    std::make_pair(cudf::aggregation::SUM, std::make_unique<gqe::column_reference_expression>(2)));
+  values.emplace_back(cudf::aggregation::SUM,
+                      std::make_unique<gqe::column_reference_expression>(2));
 
   construct_aggregate_task(std::move(keys), std::move(values));
   aggregate_task->execute();

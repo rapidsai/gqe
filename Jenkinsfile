@@ -88,7 +88,7 @@ spec:
             sh'''#!/bin/bash
               source /conda/bin/activate gqe
               mkdir build && cd build && cmake .. && cd ..
-              find ./include ./src -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-tidy -p build --warnings-as-errors=*
+              find ./include ./src ./test -name *.cpp -o -name *.cu | xargs clang-tidy -p build --header-filter=include/gqe/ --warnings-as-errors=*
             '''
           }
           updateGitlabCommitStatus name: 'code style', state: 'success'

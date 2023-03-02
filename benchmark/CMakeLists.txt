@@ -31,3 +31,7 @@ target_link_libraries(q22 PUBLIC gqe)
 add_executable(q38 hardcoded/q38.cpp)
 target_include_directories(q38 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(q38 PUBLIC gqe)
+
+add_executable(q43 hardcoded/q43.cpp)
+target_include_directories(q43 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(q43 PUBLIC gqe)

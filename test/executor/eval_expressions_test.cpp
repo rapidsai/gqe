@@ -25,8 +25,6 @@
 template <typename T>
 using column_wrapper = cudf::test::fixed_width_column_wrapper<T>;
 
-constexpr cudf::test::debug_output_level verbosity{cudf::test::debug_output_level::ALL_ERRORS};
-
 TEST(EvalExpressionsTest, ColumnReference)
 {
   auto c_0   = column_wrapper<int32_t>{3, 20, 1, 50};
@@ -39,7 +37,7 @@ TEST(EvalExpressionsTest, ColumnReference)
   auto const& expected                   = c_0;
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, IntegerColumnIntegerColumnEquality)
@@ -57,7 +55,7 @@ TEST(EvalExpressionsTest, IntegerColumnIntegerColumnEquality)
   auto expected                          = column_wrapper<bool>{true, false, true, false};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, IntegerColumnIntegerColumnEqualityMixedTypes)
@@ -75,7 +73,7 @@ TEST(EvalExpressionsTest, IntegerColumnIntegerColumnEqualityMixedTypes)
   auto expected                          = column_wrapper<bool>{true, false, true, false};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, StringColumnStringColumnEquality)
@@ -93,7 +91,7 @@ TEST(EvalExpressionsTest, StringColumnStringColumnEquality)
   auto expected                          = column_wrapper<bool>{false, true};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, IntegerColumnIntegerLiteralEquality)
@@ -111,7 +109,7 @@ TEST(EvalExpressionsTest, IntegerColumnIntegerLiteralEquality)
   auto expected                          = column_wrapper<bool>{true, false, true, false};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, IntegerColumnIntegerLiteralEqualityMixedTypes)
@@ -129,7 +127,7 @@ TEST(EvalExpressionsTest, IntegerColumnIntegerLiteralEqualityMixedTypes)
   auto expected                          = column_wrapper<bool>{true, false, true, false};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, StringColumnStringLiteralEquality)
@@ -147,7 +145,7 @@ TEST(EvalExpressionsTest, StringColumnStringLiteralEquality)
   auto expected                          = column_wrapper<bool>{true, false, true, false};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, HeterogeneousEvaluationStrategy)
@@ -169,7 +167,7 @@ TEST(EvalExpressionsTest, HeterogeneousEvaluationStrategy)
   auto expected                          = column_wrapper<bool>{false, false, true, false};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, IntegerAddition)
@@ -185,7 +183,7 @@ TEST(EvalExpressionsTest, IntegerAddition)
   auto expected                          = column_wrapper<int64_t>{7, 9, 6, 9};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, FloatAddition)
@@ -201,7 +199,7 @@ TEST(EvalExpressionsTest, FloatAddition)
   auto expected                          = column_wrapper<double>{7.0, 9.0, 6.0, 9.0};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, IntegerSubtraction)
@@ -218,7 +216,7 @@ TEST(EvalExpressionsTest, IntegerSubtraction)
   auto expected                          = column_wrapper<int64_t>{-3, 1, 0, 3};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, IntegerMultiplication)
@@ -235,7 +233,7 @@ TEST(EvalExpressionsTest, IntegerMultiplication)
   auto expected                          = column_wrapper<int64_t>{10, 20, 9, 18};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, IntegerDivision)
@@ -251,7 +249,7 @@ TEST(EvalExpressionsTest, IntegerDivision)
   auto expected                          = column_wrapper<double>{0.4, 1.25, 1.0, 2.0};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, FloatDivision)
@@ -267,7 +265,7 @@ TEST(EvalExpressionsTest, FloatDivision)
   auto expected                          = column_wrapper<double>{0.4, 1.25, 1.0, 2.0};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, SimpleConditional)
@@ -286,7 +284,7 @@ TEST(EvalExpressionsTest, SimpleConditional)
   auto expected                          = column_wrapper<int32_t>{42, 53, 54, 45};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, ComplexConditional)
@@ -312,7 +310,7 @@ TEST(EvalExpressionsTest, ComplexConditional)
   auto expected                          = column_wrapper<int64_t>{54, 48, 55, 54};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
 TEST(EvalExpressionsTest, NumericalLiteral)
@@ -327,10 +325,10 @@ TEST(EvalExpressionsTest, NumericalLiteral)
   auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
 
   auto expected = column_wrapper<int32_t>{1, 1, 1, 1};
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 
   auto expected_null = column_wrapper<int32_t>{{1, 1, 1, 1}, {false, false, false, false}};
-  cudf::test::expect_columns_equal(expected_null, evaluated_results[1], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_null, evaluated_results[1]);
 }
 
 TEST(EvalExpressionsTest, StringLiteral)
@@ -345,11 +343,11 @@ TEST(EvalExpressionsTest, StringLiteral)
   auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
 
   auto expected = cudf::test::strings_column_wrapper{"apple", "apple", "apple", "apple"};
-  cudf::test::expect_columns_equal(expected, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 
   auto expected_null = cudf::test::strings_column_wrapper{{"apple", "apple", "apple", "apple"},
                                                           {false, false, false, false}};
-  cudf::test::expect_columns_equal(expected_null, evaluated_results[1], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_null, evaluated_results[1]);
 }
 
 TEST(EvalExpressionsTest, Cast)
@@ -368,11 +366,11 @@ TEST(EvalExpressionsTest, Cast)
   auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
 
   auto expected_0 = column_wrapper<int64_t>{2, 5, 3, 6};
-  cudf::test::expect_columns_equal(expected_0, evaluated_results[0], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_0, evaluated_results[0]);
 
   auto expected_1 = column_wrapper<double>{5.0, 4.0, 3.0, 3.0};
-  cudf::test::expect_columns_equal(expected_1, evaluated_results[1], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_1, evaluated_results[1]);
 
   auto expected_2 = column_wrapper<int8_t>{2, 5, 3, 6};
-  cudf::test::expect_columns_equal(expected_2, evaluated_results[2], verbosity);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_2, evaluated_results[2]);
 }

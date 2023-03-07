@@ -36,7 +36,7 @@ inline std::string list_to_string(std::vector<cudf::data_type> const& types)
   bool first                   = true;
   for (auto dt : types) {
     if (!first) data_type_string += ", ";
-    data_type_string += "\"" + cudf::type_dispatcher(dt, cudf::type_to_name{}) + "\"";
+    data_type_string += "\"" + cudf::type_to_name(dt) + "\"";
     first = false;
   }
   return data_type_string + "]";

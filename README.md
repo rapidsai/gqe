@@ -70,4 +70,4 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | MAX_NUM_PARTITIONS | 8       | The maximum number of read tasks that can be generated for a single table |
 | GQE_LOG_LEVEL      | info    | Enable log messages for this level or higher                              |
 
-Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-22.12/CONTRIBUTING.md#build-cudf-from-source).
+Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-23.02/CONTRIBUTING.md#build-cudf-from-source).

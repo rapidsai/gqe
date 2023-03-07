@@ -86,8 +86,7 @@ class literal_expression : public gqe::expression {
     } else {
       value_string = std::to_string(_value);
     }
-    return "literal(" + cudf::type_dispatcher(_data_type, cudf::type_to_name{}) + " " +
-           value_string + ")";
+    return "literal(" + cudf::type_to_name(_data_type) + " " + value_string + ")";
   }
 
   /**

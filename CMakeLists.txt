@@ -12,7 +12,7 @@ cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
 # Setup rapids-cmake
 if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/GQE_RAPIDS.cmake)
-  file(DOWNLOAD https://raw.githubusercontent.com/rapidsai/rapids-cmake/branch-22.12/RAPIDS.cmake
+  file(DOWNLOAD https://raw.githubusercontent.com/rapidsai/rapids-cmake/branch-23.02/RAPIDS.cmake
        ${CMAKE_CURRENT_BINARY_DIR}/GQE_RAPIDS.cmake
   )
 endif()

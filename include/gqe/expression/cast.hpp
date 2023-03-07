@@ -56,11 +56,7 @@ class cast_expression : public expression {
   {
     auto child_exprs = children();
     assert(child_exprs.size() == 1);
-    // TODO: Use `cudf::type_to_name(cudf::data_type) once migrated to 23.02
-    // ref:
-    // https://github.com/rapidsai/cudf/blob/branch-23.02/cpp/include/cudf/utilities/type_dispatcher.hpp#L604
-    return "cast(" + child_exprs[0]->to_string() + " as " +
-           cudf::type_dispatcher(_out_type, cudf::type_to_name{}) + ")";
+    return "cast(" + child_exprs[0]->to_string() + " as " + cudf::type_to_name(_out_type) + ")";
   }
 
   /**

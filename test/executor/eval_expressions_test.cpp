@@ -351,3 +351,28 @@ TEST(EvalExpressionsTest, StringLiteral)
                                                           {false, false, false, false}};
   cudf::test::expect_columns_equal(expected_null, evaluated_results[1], verbosity);
 }
+
+TEST(EvalExpressionsTest, Cast)
+{
+  auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
+  auto c_1   = column_wrapper<float>{5.0, 4.0, 3.0, 3.0};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto cast_expr_0 = gqe::cast_expression(std::make_shared<gqe::column_reference_expression>(0),
+                                          cudf::data_type(cudf::type_id::INT64));
+  auto cast_expr_1 = gqe::cast_expression(std::make_shared<gqe::column_reference_expression>(1),
+                                          cudf::data_type(cudf::type_id::FLOAT64));
+  auto cast_expr_2 = gqe::cast_expression(std::make_shared<gqe::column_reference_expression>(0),
+                                          cudf::data_type(cudf::type_id::INT8));
+  std::vector<gqe::expression const*> expressions = {&cast_expr_0, &cast_expr_1, &cast_expr_2};
+  auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
+
+  auto expected_0 = column_wrapper<int64_t>{2, 5, 3, 6};
+  cudf::test::expect_columns_equal(expected_0, evaluated_results[0], verbosity);
+
+  auto expected_1 = column_wrapper<double>{5.0, 4.0, 3.0, 3.0};
+  cudf::test::expect_columns_equal(expected_1, evaluated_results[1], verbosity);
+
+  auto expected_2 = column_wrapper<int8_t>{2, 5, 3, 6};
+  cudf::test::expect_columns_equal(expected_2, evaluated_results[2], verbosity);
+}

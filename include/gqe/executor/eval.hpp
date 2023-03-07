@@ -13,6 +13,7 @@
 #pragma once
 
 #include <gqe/expression/binary_op.hpp>
+#include <gqe/expression/cast.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/if_then_else.hpp>
@@ -101,6 +102,11 @@ class expression_evaluator : public expression_visitor {
    */
   void visit(if_then_else_expression const* expression) override;
 
+  /**
+   * @copydoc gqe::expression_visitor::visit(cast_expression const*)
+   */
+  void visit(cast_expression const* expression) override;
+
  private:
   /**
    * @brief Helper function for convertion a variant of `shared_ptr`to a variant of raw pointers.
@@ -132,6 +138,15 @@ class expression_evaluator : public expression_visitor {
    * @return Vector of column data types.
    */
   [[nodiscard]] std::vector<cudf::data_type> column_types(cudf::table_view const& table) const;
+
+  /**
+   * @brief Helper function to create a column reference for the evaluation result of `expr`.
+   *
+   * @return Index in the `_converted_expressions` for the evaluation result.
+   * `_converted_expressions[idx]` is guaranteed to have type
+   * `std::shared_ptr<gqe::column_reference_expression>`.
+   */
+  [[nodiscard]] cudf::size_type create_column_reference(gqe::expression* expr);
 
   cudf::table_view const&
     _table;  ///< Non-owning reference to the table on which to evaluate the expression.

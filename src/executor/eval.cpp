@@ -126,6 +126,14 @@ expression_evaluator::evaluate() const
           intermediate_results.push_back(
             cudf::make_column_from_scalar(*cudf_scalar_cast(task_ptr), table.num_rows()));
           break;
+        case gqe::expression::expression_type::cast: {
+          auto const child_ref =
+            dynamic_cast<gqe::column_reference_expression*>(children[0])->column_idx();
+          auto const out_type = dynamic_cast<gqe::cast_expression*>(task_ptr)->out_type();
+
+          intermediate_results.push_back(cudf::cast(table.column(child_ref), out_type));
+          break;
+        }
         default:
           throw std::logic_error("Cannot evaluate expression in the fallback path: " +
                                  task_ptr->to_string());
@@ -299,38 +307,12 @@ void expression_evaluator::visit(if_then_else_expression const* expression)
                            expression->_children[2]->to_string() + " must be equal");
   }
 
-  auto create_task = [this](gqe::expression* child) -> decltype(auto) {
-    // compute AST for child
-    child->accept(*this);
-    // child has been created at the back of _converted_expressions
-    auto converted_child = to_raw_expr_ptr(_converted_expressions.back());
-
-    // if the current child is already a `cudf::ast::column_reference`
-    // we just convert it to a `gqe::column_reference_expression` and pass it on
-    if (std::holds_alternative<cudf::ast::expression*>(converted_child) &&
-        dynamic_cast<cudf::ast::column_reference*>(
-          std::get<cudf::ast::expression*>(converted_child))) {
-      _converted_expressions.emplace_back(std::make_shared<gqe::column_reference_expression>(
-        dynamic_cast<cudf::ast::column_reference*>(
-          std::get<cudf::ast::expression*>(converted_child))
-          ->get_column_index()));
-    } else {
-      // push child expr into task queue for evaluation
-      _sub_tasks.emplace_back(converted_child);
-      // fetch result of child expr
-      _converted_expressions.emplace_back(
-        std::make_shared<gqe::column_reference_expression>(_next_intermediate++));
-    }
-    // child's result has been created at the back of `_converted_expressions`
-    return _converted_expressions.size() - 1;
-  };
-
   // create task for IF child
-  auto if_child_index = create_task(expression->_children[0].get());
+  auto if_child_index = create_column_reference(expression->_children[0].get());
   // create task for THEN child
-  auto then_child_index = create_task(expression->_children[1].get());
+  auto then_child_index = create_column_reference(expression->_children[1].get());
   // create task for ELSE child
-  auto else_child_index = create_task(expression->_children[2].get());
+  auto else_child_index = create_column_reference(expression->_children[2].get());
 
   // make a copy of the current expression but with the new child expressions
   auto new_expr       = expression->clone();
@@ -338,6 +320,32 @@ void expression_evaluator::visit(if_then_else_expression const* expression)
     std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[if_child_index]),
     std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[then_child_index]),
     std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[else_child_index])};
+
+  _converted_expressions.emplace_back(std::move(new_expr));
+
+  // mark the new expression as to be evaluated
+  if (expression != _root_expression) {
+    _sub_tasks.emplace_back(to_raw_expr_ptr(_converted_expressions.back()));
+    // parent expression picks up the reference to the intermediate result for its child
+    _converted_expressions.emplace_back(
+      std::make_shared<cudf::ast::column_reference>(_next_intermediate++));
+  }
+}
+
+void expression_evaluator::visit(cast_expression const* expression)
+{
+  // FIXME: The current implementation always uses the fallback path to evaluate cast expressions,
+  // but cuDF's AST module has cast support for limited types: int64, uint64 and double:
+  // https://github.com/rapidsai/cudf/blob/branch-22.12/cpp/include/cudf/ast/expressions.hpp#L137-L139
+  // It might be worthwhile to take advantage of that.
+
+  assert(expression->_children.size() == 1);
+  auto const child_index = create_column_reference(expression->_children[0].get());
+
+  // make a copy of the current expression but with the new child expressions
+  auto new_expr       = expression->clone();
+  new_expr->_children = {
+    std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[child_index])};
 
   _converted_expressions.emplace_back(std::move(new_expr));
 
@@ -388,6 +396,32 @@ std::vector<cudf::data_type> expression_evaluator::column_types(cudf::table_view
     column_types.push_back(col.type());
   }
   return column_types;
+}
+
+cudf::size_type expression_evaluator::create_column_reference(gqe::expression* expr)
+{
+  // compute AST for `expr`
+  expr->accept(*this);
+  // the converted expression has been created at the back of _converted_expressions
+  auto converted_expr = to_raw_expr_ptr(_converted_expressions.back());
+
+  // if the current expression is already a `cudf::ast::column_reference`
+  // we just convert it to a `gqe::column_reference_expression` and pass it on
+  if (std::holds_alternative<cudf::ast::expression*>(converted_expr) &&
+      dynamic_cast<cudf::ast::column_reference*>(
+        std::get<cudf::ast::expression*>(converted_expr))) {
+    _converted_expressions.emplace_back(std::make_shared<gqe::column_reference_expression>(
+      dynamic_cast<cudf::ast::column_reference*>(std::get<cudf::ast::expression*>(converted_expr))
+        ->get_column_index()));
+  } else {
+    // push the expression into task queue for evaluation
+    _sub_tasks.emplace_back(converted_expr);
+    // fetch result of the expression
+    _converted_expressions.emplace_back(
+      std::make_shared<gqe::column_reference_expression>(_next_intermediate++));
+  }
+  // The result of `eval` has been created at the back of `_converted_expressions`
+  return _converted_expressions.size() - 1;
 }
 
 std::pair<std::vector<cudf::column_view>, std::vector<std::unique_ptr<cudf::column>>>

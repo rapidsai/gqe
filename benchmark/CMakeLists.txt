@@ -16,6 +16,11 @@ add_executable(q3 hardcoded/q3.cpp)
 target_include_directories(q3 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(q3 PUBLIC gqe)
 
+add_executable(q3_udr hardcoded/q3_udr.cu)
+target_include_directories(q3_udr PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(q3_udr PUBLIC gqe)
+target_link_libraries(q3_udr PUBLIC cuco::cuco)
+
 add_executable(q6 hardcoded/q6.cpp)
 target_include_directories(q6 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(q6 PUBLIC gqe)

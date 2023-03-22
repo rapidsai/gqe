@@ -18,6 +18,7 @@
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/set.hpp>
 #include <gqe/logical/sort.hpp>
+#include <gqe/logical/user_defined.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/physical/aggregate.hpp>
 #include <gqe/physical/fetch.hpp>
@@ -27,6 +28,7 @@
 #include <gqe/physical/read.hpp>
 #include <gqe/physical/set.hpp>
 #include <gqe/physical/sort.hpp>
+#include <gqe/physical/user_defined.hpp>
 
 namespace gqe {
 
@@ -192,6 +194,19 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
         }
         default: throw std::logic_error("Unsupported set operator");
       }
+      break;
+    }
+    case logical::relation::relation_type::user_defined: {
+      if (subqueries_physical.size())
+        throw std::logic_error("Subqueries are not supported in user-defined relations");
+
+      auto const logical_user_defined_relation =
+        dynamic_cast<logical::user_defined_relation const*>(logical_relation);
+
+      out_physical_relation = std::make_shared<physical::user_defined_relation>(
+        std::move(children_physical),
+        logical_user_defined_relation->task_functor(),
+        logical_user_defined_relation->last_child_break_pipeline());
       break;
     }
     default:

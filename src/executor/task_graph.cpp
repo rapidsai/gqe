@@ -29,6 +29,7 @@
 #include <gqe/physical/read.hpp>
 #include <gqe/physical/set.hpp>
 #include <gqe/physical/sort.hpp>
+#include <gqe/physical/user_defined.hpp>
 #include <gqe/utility.hpp>
 
 #include <cstdlib>
@@ -541,6 +542,32 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::union_all_
 
   for (auto& task : right_tasks)
     _generated_tasks.push_back(std::move(task));
+
+  update_cache(relation);
+}
+
+void task_graph_builder::generate_task_graph_visitor::visit(
+  physical::user_defined_relation* relation)
+{
+  if (is_cached(relation)) return;
+
+  // Recursively generate the tasks for child relations
+  auto const children                  = relation->children_unsafe();
+  auto const last_child_break_pipeline = relation->last_child_break_pipeline();
+
+  std::vector<std::vector<std::shared_ptr<task>>> children_tasks;
+  for (std::size_t child_idx = 0; child_idx < children.size(); child_idx++) {
+    auto child_task = _builder->generate_tasks(children[child_idx]);
+    if (child_idx != children.size() - 1 || last_child_break_pipeline)
+      _builder->insert_pipeline_breaker(utility::to_raw_ptrs(child_task));
+    children_tasks.push_back(std::move(child_task));
+  }
+
+  // Generate tasks for the user-defined relation through the user specified functor
+  int32_t task_id = _builder->_current_task_id;
+  _generated_tasks =
+    relation->task_functor()(std::move(children_tasks), task_id, _builder->_current_stage_id);
+  _builder->_current_task_id = task_id;
 
   update_cache(relation);
 }

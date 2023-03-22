@@ -10,6 +10,10 @@
 
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
+if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  set(CMAKE_CUDA_ARCHITECTURES "70" "80")
+endif()
+
 # Setup rapids-cmake
 if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/GQE_RAPIDS.cmake)
   file(DOWNLOAD https://raw.githubusercontent.com/rapidsai/rapids-cmake/branch-23.02/RAPIDS.cmake
@@ -34,18 +38,16 @@ add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--generate-line-info>")
 
-if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES "70" "80")
-endif()
-
 # needed for clang-tidy
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Setup gtest
+# Setup CPM dependencies
 include(${rapids-cmake-dir}/cpm/gtest.cmake)
 include(${rapids-cmake-dir}/cpm/spdlog.cmake)
+include(${rapids-cmake-dir}/cpm/cuco.cmake)
 rapids_cpm_gtest()
 rapids_cpm_spdlog()
+rapids_cpm_cuco()
 
 # Setup CTest
 if(PROJECT_IS_TOP_LEVEL)

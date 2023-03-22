@@ -30,6 +30,7 @@ class filter_relation;
 class concatenate_aggregate_relation;
 class fetch_relation;
 class union_all_relation;
+class user_defined_relation;
 
 /**
  * @brief Base interface for a physical relation visitor.
@@ -68,6 +69,10 @@ struct relation_visitor {
   virtual void visit(union_all_relation* relation)
   {
     throw std::logic_error("Visiting union_all_relation is not implemented");
+  }
+  virtual void visit(user_defined_relation* relation)
+  {
+    throw std::logic_error("Visiting user_defined_relation is not implemented");
   }
 };
 

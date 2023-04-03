@@ -24,6 +24,27 @@
 
 namespace gqe {
 
+namespace {
+
+/**
+ * @brief Helper function to extract the data type of each column from a table view.
+ *
+ * @param table Table view.
+ *
+ * @return Vector of column data types.
+ */
+std::vector<cudf::data_type> extract_column_types(cudf::table_view const& table)
+{
+  std::vector<cudf::data_type> column_types;
+  column_types.reserve(table.num_columns());
+  for (auto const& col : table) {
+    column_types.push_back(col.type());
+  }
+  return column_types;
+}
+
+}  // namespace
+
 expression_evaluator::expression_evaluator(cudf::table_view const& table,
                                            expression const* root_expression,
                                            cudf::size_type column_reference_offset)
@@ -64,7 +85,7 @@ expression_evaluator::evaluate() const
   for (auto task : _sub_tasks) {
     // input table and associated column types the expression should be evaluated on
     auto table = concat_input_table(intermediate_results);
-    auto types = column_types(table);
+    auto types = extract_column_types(table);
 
     if (std::holds_alternative<cudf::ast::expression*>(task)) {
       // evaluate the the `cudf::ast` (sub-)expression using `cudf::compute_column`
@@ -146,7 +167,7 @@ expression_evaluator::evaluate() const
   // cuDF's AST module might evaluate expression to a different type than GQE expression's data
   // type. For example, the AST module might evaluate an expression to int32_t, while GQE promotes
   // the result to int64_t. In such case, we cast the result to GQE expression's data type.
-  auto const expected_type = _root_expression->data_type(column_types(_table));
+  auto const expected_type = _root_expression->data_type(extract_column_types(_table));
   if (intermediate_results.back()->type() != expected_type) {
     intermediate_results.push_back(cudf::cast(intermediate_results.back()->view(), expected_type));
   }
@@ -221,10 +242,10 @@ void expression_evaluator::visit(binary_op_expression const* expression)
   // lhs fallback and rhs fallback -> emit gqe expr
   if (lhs_needs_fallback || rhs_needs_fallback ||
       // `cudf::ast` cannot handle non-fixed width output columns
-      !cudf::is_fixed_width(expression->data_type(column_types(_table))) ||
+      !cudf::is_fixed_width(expression->data_type(extract_column_types(_table))) ||
       // `cudf::ast` cannot handle expressions with different types
-      expression->_children[0]->data_type(column_types(_table)) !=
-        expression->_children[1]->data_type(column_types(_table))) {
+      expression->_children[0]->data_type(extract_column_types(_table)) !=
+        expression->_children[1]->data_type(extract_column_types(_table))) {
     if (!lhs_needs_fallback) {
       auto lhs_child =
         std::get<cudf::ast::expression*>(to_raw_expr_ptr(_converted_expressions[lhs_child_index]));
@@ -296,13 +317,13 @@ void expression_evaluator::visit(binary_op_expression const* expression)
 
 void expression_evaluator::visit(if_then_else_expression const* expression)
 {
-  if (!cudf::is_boolean(expression->_children[0]->data_type(column_types(_table)))) {
+  if (!cudf::is_boolean(expression->_children[0]->data_type(extract_column_types(_table)))) {
     throw std::logic_error("Cannot convert " + expression->_children[0]->to_string() +
                            " to boolean");
   }
 
-  if (expression->_children[1]->data_type(column_types(_table)) !=
-      expression->_children[2]->data_type(column_types(_table))) {
+  if (expression->_children[1]->data_type(extract_column_types(_table)) !=
+      expression->_children[2]->data_type(extract_column_types(_table))) {
     throw std::logic_error("Column types of " + expression->_children[1]->to_string() + " and " +
                            expression->_children[2]->to_string() + " must be equal");
   }
@@ -388,16 +409,6 @@ cudf::table_view expression_evaluator::concat_input_table(
   }
 }
 
-std::vector<cudf::data_type> expression_evaluator::column_types(cudf::table_view const& table) const
-{
-  std::vector<cudf::data_type> column_types;
-  column_types.reserve(table.num_columns());
-  for (auto const& col : table) {
-    column_types.push_back(col.type());
-  }
-  return column_types;
-}
-
 cudf::size_type expression_evaluator::create_column_reference(gqe::expression* expr)
 {
   // compute AST for `expr`
@@ -445,12 +456,17 @@ evaluate_expressions(cudf::table_view const& table,
 
       evaluated_results.push_back(table.column(column_idx - column_reference_offset));
       continue;
-    }
-    auto evaluator       = expression_evaluator(table, expr, column_reference_offset);
-    auto [result, cache] = evaluator.evaluate();
+    } else if (table.num_rows() == 0) {
+      auto empty_column = cudf::make_empty_column(expr->data_type(extract_column_types(table)));
+      evaluated_results.push_back(empty_column->view());
+      column_cache.push_back(std::move(empty_column));
+    } else {
+      auto evaluator       = expression_evaluator(table, expr, column_reference_offset);
+      auto [result, cache] = evaluator.evaluate();
 
-    evaluated_results.push_back(std::move(result));
-    column_cache.push_back(std::move(cache));
+      evaluated_results.push_back(std::move(result));
+      column_cache.push_back(std::move(cache));
+    }
   }
 
   return std::make_pair(std::move(evaluated_results), std::move(column_cache));

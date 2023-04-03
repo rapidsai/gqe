@@ -131,15 +131,6 @@ class expression_evaluator : public expression_visitor {
     std::vector<std::unique_ptr<cudf::column>> const& intermediate_results) const;
 
   /**
-   * @brief Helper function to extract the data type of each column from a table view.
-   *
-   * @param table Table view.
-   *
-   * @return Vector of column data types.
-   */
-  [[nodiscard]] std::vector<cudf::data_type> column_types(cudf::table_view const& table) const;
-
-  /**
    * @brief Helper function to create a column reference for the evaluation result of `expr`.
    *
    * @return Index in the `_converted_expressions` for the evaluation result.

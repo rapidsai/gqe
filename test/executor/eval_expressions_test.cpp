@@ -374,3 +374,21 @@ TEST(EvalExpressionsTest, Cast)
   auto expected_2 = column_wrapper<int8_t>{2, 5, 3, 6};
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_2, evaluated_results[2]);
 }
+
+TEST(EvalExpressionsTest, EmptyInput)
+{
+  auto c_0   = column_wrapper<int32_t>{};
+  auto c_1   = column_wrapper<int32_t>{};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto col_ref_0 = std::make_shared<gqe::column_reference_expression>(0);
+  auto col_ref_1 = std::make_shared<gqe::column_reference_expression>(1);
+
+  auto eq_0_1                                     = gqe::equal_expression(col_ref_0, col_ref_1);
+  std::vector<gqe::expression const*> expressions = {&eq_0_1};
+
+  auto expected                          = column_wrapper<bool>{};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}

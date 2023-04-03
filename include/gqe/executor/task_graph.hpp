@@ -92,6 +92,7 @@ class task_graph_builder {
     void visit(physical::filter_relation* relation) override;
     void visit(physical::concatenate_aggregate_relation* relation) override;
     void visit(physical::fetch_relation* relation) override;
+    void visit(physical::window_relation* relation) override;
     void visit(physical::union_all_relation* relation) override;
     void visit(physical::user_defined_relation* relation) override;
 

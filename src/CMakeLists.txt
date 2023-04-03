@@ -44,6 +44,7 @@ add_library(
     executor/read.cpp
     executor/sort.cpp
     executor/task.cpp
+    executor/window.cpp
     executor/task_graph.cpp
     expression/binary_op.cpp
     optimizer/physical_transformation.cpp

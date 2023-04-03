@@ -1,0 +1,66 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+#pragma once
+
+#include <gqe/executor/task.hpp>
+#include <gqe/expression/expression.hpp>
+
+#include <cudf/detail/aggregation/aggregation.hpp>
+
+#include <memory>
+#include <utility>
+#include <vector>
+
+namespace gqe {
+
+class window_task : public task {
+ public:
+  /**
+   * @brief Construct a window task. Currently only works on a single partition.
+   *
+   * @param[in] input Input table containing columns necessary for the window function
+   * @param[in] subquery_relations Subquery relations that are referenced within the given
+   * expressions.
+   * @param[in] aggr_func The mathematical function used to aggregate rows inside the current
+   * window.
+   * @param[in] ident_cols Columns that are processed during the window function before being
+   * prepended to the output column. Used to merge the result back into the result table.
+   * @param[in] arguments Columns on which the window function is to be performed.
+   * @param[in] partition_by Columns which are used to group the input table before windowing.
+   * @param[in] order_by Columns which are used to order the grouped input table before windowing.
+   */
+  window_task(int32_t task_id,
+              int32_t stage_id,
+              std::shared_ptr<task> input,
+              cudf::aggregation::Kind aggr_func,
+              std::vector<std::unique_ptr<expression>> ident_cols,
+              std::vector<std::unique_ptr<expression>> arguments,
+              std::vector<std::unique_ptr<expression>> partition_by,
+              std::vector<std::unique_ptr<expression>> order_by,
+              std::vector<cudf::order> order_dirs);
+
+  /**
+   * @copydoc gqe::task::execute()
+   */
+  void execute() override;
+
+ private:
+  cudf::aggregation::Kind _aggr_func;
+  std::vector<std::unique_ptr<expression>> _ident_cols;
+  std::vector<std::unique_ptr<expression>> _arguments;
+  std::vector<std::unique_ptr<expression>> _partition_by;
+  std::vector<std::unique_ptr<expression>> _order_by;
+  std::vector<cudf::order> _order_dirs;
+};
+
+}  // namespace gqe

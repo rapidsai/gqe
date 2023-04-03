@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -19,6 +19,7 @@
 #include <gqe/executor/read.hpp>
 #include <gqe/executor/sort.hpp>
 #include <gqe/executor/task_graph.hpp>
+#include <gqe/executor/window.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/physical/aggregate.hpp>
@@ -30,6 +31,7 @@
 #include <gqe/physical/set.hpp>
 #include <gqe/physical/sort.hpp>
 #include <gqe/physical/user_defined.hpp>
+#include <gqe/physical/window.hpp>
 #include <gqe/utility.hpp>
 
 #include <cstdlib>
@@ -319,6 +321,49 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::filter_rel
       std::vector<std::shared_ptr<task>>{concatenated_subquery_task}));
     _builder->_current_task_id++;
   }
+
+  update_cache(relation);
+}
+
+void task_graph_builder::generate_task_graph_visitor::visit(physical::window_relation* relation)
+{
+  if (is_cached(relation)) return;
+
+  // Recursively generate the input tasks
+  auto const children = relation->children_unsafe();
+  assert(children.size() == 1);
+  auto concatenated_input = _builder->concatenate(_builder->generate_tasks(children[0]));
+
+  cudf::aggregation::Kind aggr_func = relation->aggr_func();
+  std::vector<std::unique_ptr<expression>> ident_cols;
+  std::vector<std::unique_ptr<expression>> arguments;
+  std::vector<std::unique_ptr<expression>> partition_by;
+  std::vector<std::unique_ptr<expression>> order_by;
+
+  for (auto const& ident_col : relation->ident_cols_unsafe()) {
+    ident_cols.push_back(ident_col->clone());
+  }
+  for (auto const& argument : relation->arguments_unsafe()) {
+    arguments.push_back(argument->clone());
+  }
+  for (auto const& partition_by_exp : relation->partition_by_unsafe()) {
+    partition_by.push_back(partition_by_exp->clone());
+  }
+  for (auto const& order_by_exp : relation->order_by_unsafe()) {
+    order_by.push_back(order_by_exp->clone());
+  }
+  auto order_dirs = relation->order_dirs();
+
+  _generated_tasks.push_back(std::make_shared<window_task>(_builder->_current_task_id,
+                                                           _builder->_current_stage_id,
+                                                           std::move(concatenated_input),
+                                                           aggr_func,
+                                                           std::move(ident_cols),
+                                                           std::move(arguments),
+                                                           std::move(partition_by),
+                                                           std::move(order_by),
+                                                           std::move(order_dirs)));
+  _builder->_current_task_id++;
 
   update_cache(relation);
 }

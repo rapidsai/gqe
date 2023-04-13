@@ -15,13 +15,46 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
+#include <cassert>
 #include <cstdlib>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace gqe {
 namespace utility {
+
+/**
+ * @brief Helper function for `std::visit`.
+ *
+ * @details See the [C++ reference](https://en.cppreference.com/w/cpp/utility/variant/visit) for
+ * details.
+ */
+template <class... Ts>
+struct overloaded : Ts... {
+  using Ts::operator()...;
+};
+
+/**
+ * @brief Explicit deduction guide for `std::visit`.
+ *
+ * @details Not needed as of C++20. See the [C++
+ * reference](https://en.cppreference.com/w/cpp/utility/variant/visit) for details.
+ */
+template <class... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+
+/**
+ * @brief Helper function for integer division by rounding up to next-higher integer.
+ */
+template <typename type, std::enable_if_t<std::is_integral_v<type>>* = nullptr>
+inline type divide_round_up(type dividend, type divisor)
+{
+  assert(divisor != 0);
+
+  return dividend / divisor + (dividend % divisor != 0);
+}
 
 /**
  * @brief Helper function for converting a vector of smart pointers to raw pointers.

@@ -33,17 +33,22 @@
 
 namespace gqe {
 
-read_task::read_task(int32_t task_id,
-                     int32_t stage_id,
-                     std::vector<std::string> file_paths,
-                     file_format_type file_format,
-                     std::vector<std::string> column_names,
-                     std::vector<cudf::data_type> data_types,
-                     std::unique_ptr<expression> partial_filter,
-                     std::vector<std::shared_ptr<task>> subquery_tasks)
-  : task(task_id, stage_id, {}, std::move(subquery_tasks)),
+read_task_base::read_task_base(int32_t task_id,
+                               int32_t stage_id,
+                               std::vector<std::shared_ptr<task>> subquery_tasks)
+  : task(task_id, stage_id, {}, std::move(subquery_tasks))
+{
+}
+
+parquet_read_task::parquet_read_task(int32_t task_id,
+                                     int32_t stage_id,
+                                     std::vector<std::string> file_paths,
+                                     std::vector<std::string> column_names,
+                                     std::vector<cudf::data_type> data_types,
+                                     std::unique_ptr<expression> partial_filter,
+                                     std::vector<std::shared_ptr<task>> subquery_tasks)
+  : read_task_base(task_id, stage_id, std::move(subquery_tasks)),
     _file_paths(std::move(file_paths)),
-    _file_format(file_format),
     _column_names(std::move(column_names)),
     _data_types(std::move(data_types)),
     _partial_filter(std::move(partial_filter))
@@ -83,7 +88,7 @@ struct file_filter_functor {
   }
 };
 
-std::unique_ptr<cudf::table> read_task::table_from_parquet(
+std::unique_ptr<cudf::table> parquet_read_task::table_from_parquet(
   std::vector<std::string> const& file_paths) const
 {
   if (file_paths.size() == 0) {
@@ -124,7 +129,7 @@ std::unique_ptr<cudf::table> read_task::table_from_parquet(
   return std::make_unique<cudf::table>(std::move(converted_columns));
 }
 
-std::string read_task::print_column_names() const
+std::string parquet_read_task::print_column_names() const
 {
   std::string output = "[";
   for (std::size_t column_idx = 0; column_idx < _column_names.size(); column_idx++) {
@@ -135,11 +140,8 @@ std::string read_task::print_column_names() const
   return output;
 }
 
-void read_task::execute()
+void parquet_read_task::execute()
 {
-  if (_file_format != file_format_type::parquet)
-    throw std::logic_error("Read task can only load Parquet files");
-
   auto const partial_filter = _partial_filter.get();
 
   // Indicates whether each file should be loaded

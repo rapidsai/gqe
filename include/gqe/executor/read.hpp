@@ -25,10 +25,25 @@
 
 namespace gqe {
 
-class read_task : public task {
+/**
+ * @brief Task that reads data from a base table.
+ *
+ * This abstract class serves as a base class for all read tasks.
+ */
+class read_task_base : public task {
  public:
   /**
-   * @brief Construct a read task.
+   * @copydoc gqe::task::task()
+   */
+  read_task_base(int32_t task_id,
+                 int32_t stage_id,
+                 std::vector<std::shared_ptr<task>> subquery_tasks);
+};
+
+class parquet_read_task : public read_task_base {
+ public:
+  /**
+   * @brief Construct a Parquet read task.
    *
    * A read task is used for loading a table from a file.
    *
@@ -47,14 +62,13 @@ class read_task : public task {
    * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
    * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
    */
-  read_task(int32_t task_id,
-            int32_t stage_id,
-            std::vector<std::string> file_paths,
-            file_format_type file_format,
-            std::vector<std::string> column_names,
-            std::vector<cudf::data_type> data_types,
-            std::unique_ptr<gqe::expression> partial_filter   = nullptr,
-            std::vector<std::shared_ptr<task>> subquery_tasks = {});
+  parquet_read_task(int32_t task_id,
+                    int32_t stage_id,
+                    std::vector<std::string> file_paths,
+                    std::vector<std::string> column_names,
+                    std::vector<cudf::data_type> data_types,
+                    std::unique_ptr<gqe::expression> partial_filter   = nullptr,
+                    std::vector<std::shared_ptr<task>> subquery_tasks = {});
 
   /**
    * @copydoc gqe::task::execute()
@@ -68,7 +82,6 @@ class read_task : public task {
   [[nodiscard]] std::string print_column_names() const;
 
   std::vector<std::string> _file_paths;
-  file_format_type _file_format;
   std::vector<std::string> _column_names;
   std::vector<cudf::data_type> _data_types;
   std::unique_ptr<gqe::expression> _partial_filter;

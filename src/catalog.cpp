@@ -11,23 +11,37 @@
  */
 
 #include <gqe/catalog.hpp>
+#include <gqe/storage/parquet.hpp>
+#include <gqe/types.hpp>
+#include <gqe/utility.hpp>
 
+#include <memory>
+#include <optional>
 #include <stdexcept>
+#include <variant>
 
 namespace gqe {
 
+namespace detail {
+constexpr std::size_t DEFAULT_MAX_NUM_PARTITIONS = 8;  // Default max number of partitions
+}
+
 void catalog::register_table(std::string table_name,
-                             std::vector<std::pair<std::string, cudf::data_type>> const& columns,
-                             std::vector<std::string> const& file_paths,
-                             file_format_type file_format)
+                             const std::vector<std::pair<std::string, cudf::data_type>>& columns,
+                             storage_kind::type storage,
+                             partitioning_schema_kind::type partitioning_schema)
 {
-  if (_tables_info.find(table_name) != _tables_info.end())
+  if (_table_entries.find(table_name) != _table_entries.end())
     throw std::logic_error("table \"" + table_name + "\" is already registered");
 
-  std::size_t max_num_partitions    = 8;  // Default max number of partitions
+  std::size_t max_num_partitions    = detail::DEFAULT_MAX_NUM_PARTITIONS;
   auto const max_num_partitions_str = std::getenv("MAX_NUM_PARTITIONS");
-  if (max_num_partitions_str != nullptr)
+  if (max_num_partitions_str != nullptr) {
     max_num_partitions = std::strtoul(max_num_partitions_str, nullptr, 10);
+  }
+  if (auto file = std::get_if<storage_kind::parquet_file>(&storage)) {
+    max_num_partitions = std::min(file->file_paths.size(), max_num_partitions);
+  }
 
   table_info_type table_info;
   for (auto const& column : columns) {
@@ -37,27 +51,55 @@ void catalog::register_table(std::string table_name,
       throw std::logic_error("column name already exists when registering table");
     table_info._column_name_to_type[column_name] = column_type;
   }
-  table_info._file_paths     = file_paths;
-  table_info._file_format    = file_format;
-  table_info._num_partitions = std::min(file_paths.size(), max_num_partitions);
+  table_info._storage             = storage;
+  table_info._partitioning_schema = partitioning_schema;
+  table_info._num_partitions      = max_num_partitions;
+
+  int64_t num_rows = 0;
+  if (auto file = std::get_if<storage_kind::parquet_file>(&storage)) {
+    // FIXME: Parse the table metadata for a more accurate estimation
+    constexpr int64_t default_num_rows_per_file = 10000;
+    num_rows = default_num_rows_per_file * file->file_paths.size();
+  }
 
   table_statistics stats;
-  // FIXME: Parse the table metadata for a more accurate estimation
-  constexpr int64_t default_num_rows_per_file = 10000;
-  stats.num_rows         = default_num_rows_per_file * table_info._file_paths.size();
+  stats.num_rows         = num_rows;
   table_info._statistics = stats;
 
-  _tables_info[table_name] = std::move(table_info);
+  std::unique_ptr<storage::table> table = std::visit(
+    utility::overloaded{
+      [](storage_kind::parquet_file file) -> std::unique_ptr<storage::table> {
+        return std::make_unique<storage::parquet_table>(std::move(file.file_paths));
+      },
+      [](storage_kind::system_memory memory) -> std::unique_ptr<storage::table> { return {}; },
+      [](storage_kind::numa_memory memory) -> std::unique_ptr<storage::table> { return {}; },
+      [](storage_kind::device_memory memory) -> std::unique_ptr<storage::table> { return {}; }},
+    storage);
+
+  table_entry entry = {std::move(table_info), std::move(table)};
+
+  _table_entries[table_name] = std::move(entry);
+}
+
+void catalog::register_table(std::string table_name,
+                             std::vector<std::pair<std::string, cudf::data_type>> const& columns,
+                             std::vector<std::string> const& file_paths,
+                             file_format_type file_format)
+{
+  catalog::register_table(std::move(table_name),
+                          std::move(columns),
+                          storage_kind::parquet_file{std::move(file_paths)},
+                          partitioning_schema_kind::automatic{});
 }
 
 cudf::data_type catalog::column_type(std::string const& table_name,
                                      std::string const& column_name) const
 {
-  auto const table_info_iter = _tables_info.find(table_name);
+  auto const table_info_iter = _table_entries.find(table_name);
 
-  if (table_info_iter == _tables_info.end())
+  if (table_info_iter == _table_entries.end())
     throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
-  auto const& column_name_to_type = table_info_iter->second._column_name_to_type;
+  auto const& column_name_to_type = table_info_iter->second.info._column_name_to_type;
 
   auto const column_type_iter = column_name_to_type.find(column_name);
   if (column_type_iter == column_name_to_type.end())
@@ -67,44 +109,56 @@ cudf::data_type catalog::column_type(std::string const& table_name,
   return column_type_iter->second;
 }
 
-std::vector<std::string> catalog::file_paths(std::string const& table_name) const
+storage_kind::type catalog::storage_kind(const std::string& table_name) const
 {
-  auto const table_info_iter = _tables_info.find(table_name);
+  auto const table_info_iter = _table_entries.find(table_name);
 
-  if (table_info_iter == _tables_info.end())
+  if (table_info_iter == _table_entries.end())
     throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
 
-  return table_info_iter->second._file_paths;
-}
-
-file_format_type catalog::file_format(std::string const& table_name) const
-{
-  auto const table_info_iter = _tables_info.find(table_name);
-
-  if (table_info_iter == _tables_info.end())
-    throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
-
-  return table_info_iter->second._file_format;
+  return table_info_iter->second.info._storage;
 }
 
 table_statistics catalog::statistics(std::string const& table_name) const
 {
-  auto const table_info_iter = _tables_info.find(table_name);
+  auto const table_info_iter = _table_entries.find(table_name);
 
-  if (table_info_iter == _tables_info.end())
+  if (table_info_iter == _table_entries.end())
     throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
 
-  return table_info_iter->second._statistics;
+  return table_info_iter->second.info._statistics;
 }
 
 size_t catalog::num_partitions(std::string const& table_name) const
 {
-  auto const table_info_iter = _tables_info.find(table_name);
+  auto const table_info_iter = _table_entries.find(table_name);
 
-  if (table_info_iter == _tables_info.end())
+  if (table_info_iter == _table_entries.end())
     throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
 
-  return table_info_iter->second._num_partitions;
+  return table_info_iter->second.info._num_partitions;
+}
+
+bool catalog::is_readable(std::string const& table_name) const
+{
+  auto const table_storage_iter = _table_entries.find(table_name);
+
+  if (table_storage_iter == _table_entries.end()) {
+    throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
+  }
+
+  return table_storage_iter->second.storage->is_readable();
+}
+
+std::unique_ptr<storage::readable_view> catalog::readable_view(std::string const& table_name) const
+{
+  auto const table_storage_iter = _table_entries.find(table_name);
+
+  if (table_storage_iter == _table_entries.end()) {
+    throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
+  }
+
+  return table_storage_iter->second.storage->readable_view();
 }
 
 }  // namespace gqe

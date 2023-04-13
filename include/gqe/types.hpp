@@ -14,7 +14,11 @@
 
 #include <gqe/executor/task.hpp>
 
+#include <rmm/cuda_device.hpp>
+
 #include <cstdint>
+#include <string>
+#include <variant>
 #include <vector>
 
 namespace gqe {
@@ -28,6 +32,108 @@ enum class join_type_type { inner, left, left_semi, left_anti, full, single };
  * @brief List of input file formats.
  */
 enum class file_format_type { parquet };
+
+/**
+ * @brief Strong type for a NUMA node indentifier.
+ */
+struct numa_node_id {
+  using value_type = uint16_t;
+
+  /**
+   * @brief Construct a `numa_node_id` from the specified integer value.
+   *
+   * @param node_id The NUMA node's integer identifier.
+   */
+  explicit constexpr numa_node_id(value_type node_id) noexcept : _id(node_id) {}
+
+  [[nodiscard]] constexpr value_type value() const noexcept { return _id; }
+
+ private:
+  value_type _id;
+};
+
+namespace storage_kind {
+
+/**
+ * @brief System memory allocated with the default system allocator.
+ */
+struct system_memory {
+};
+
+/**
+ * @brief System memory allocated on a specific NUMA node.
+ */
+struct numa_memory {
+  uint16_t numa_node; /**< NUMA node identifier hint. */
+};
+
+/**
+ * @brief CUDA device memory.
+ */
+struct device_memory {
+  rmm::cuda_device_id device_id; /**< CUDA device identifier hint. */
+  cpu_set_t set;
+};
+
+/**
+ * @brief Parquet file format, optionally Hive partitioned.
+ */
+struct parquet_file {
+  std::vector<std::string> file_paths; /**< File paths. */
+};
+
+/**
+ * @brief Storage kind of a table.
+ *
+ * The storage kind declares the physical representation of a table. For
+ * example, the storage kind can be in-memory or a file. Some storage kinds also
+ * take a location hint that specifies where the table should be stored, e.g.,
+ * on which NUMA node.
+ */
+using type = std::variant<storage_kind::system_memory,
+                          storage_kind::numa_memory,
+                          storage_kind::device_memory,
+                          storage_kind::parquet_file>;
+
+}  // namespace storage_kind
+
+namespace partitioning_schema_kind {
+
+/**
+ * @brief Automatic partitioning that infers the schema from the data.
+ *
+ * Inferrence of the partitioning schema is only possible for files. In-memory
+ * storage defaults to `none`.
+ */
+struct automatic {
+};
+
+/**
+ * @brief Do not partition data.
+ */
+struct none {
+};
+
+/**
+ * @brief Key-by partitioning schema.
+ *
+ * The data are partitioned by key. Each unique key defines a partition.
+ */
+struct key {
+  std::vector<std::string> columns; /**< Declare the key attributes. */
+};
+
+/**
+ * @brief Partitioning schema kind of a table.
+ *
+ * The partitioning schema kind declares how records are assigned to table
+ * partitions.
+ */
+using type = std::variant<partitioning_schema_kind::automatic,
+                          partitioning_schema_kind::none,
+                          partitioning_schema_kind::key>;
+
+};  // namespace partitioning_schema_kind
 
 /**
  * @brief Statistics of a table.

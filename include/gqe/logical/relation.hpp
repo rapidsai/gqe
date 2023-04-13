@@ -43,6 +43,7 @@ class relation {
     read,
     filter,
     set,
+    insert,
     user_defined
   };
 

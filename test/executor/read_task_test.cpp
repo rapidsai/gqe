@@ -69,8 +69,8 @@ TEST(FixedDataReadTaskTest, MixTypes)
                                                cudf::data_type(cudf::type_id::INT32),
                                                cudf::data_type(cudf::type_id::STRING)};
 
-  auto read_task = std::make_unique<gqe::read_task>(
-    0, 0, filepaths, gqe::file_format_type::parquet, column_names, column_types);
+  auto read_task =
+    std::make_unique<gqe::parquet_read_task>(0, 0, filepaths, column_names, column_types);
   read_task->execute();
   auto result = read_task->result();
 
@@ -153,8 +153,8 @@ TEST(FixedDataReadTaskTestMultiTask, MixTypes)
                                                cudf::data_type(cudf::type_id::INT32),
                                                cudf::data_type(cudf::type_id::STRING)};
 
-  auto read_task = std::make_unique<gqe::read_task>(
-    0, 0, filepaths, gqe::file_format_type::parquet, column_names, column_types);
+  auto read_task =
+    std::make_unique<gqe::parquet_read_task>(0, 0, filepaths, column_names, column_types);
   read_task->execute();
   auto result = read_task->result();
 
@@ -245,23 +245,18 @@ TEST(FixedDataReadTaskTestPartialFilter, MixTypes)
   // Load the haystack table from disk
   std::vector<cudf::data_type> haystack_column_types = {cudf::data_type(cudf::type_id::INT32)};
   std::vector<std::string> haystack_filepaths{haystack_filepath};
-  auto haystack_task = std::make_shared<gqe::read_task>(0,
-                                                        0,
-                                                        haystack_filepaths,
-                                                        gqe::file_format_type::parquet,
-                                                        haystack_column_names,
-                                                        haystack_column_types);
+  auto haystack_task = std::make_shared<gqe::parquet_read_task>(
+    0, 0, haystack_filepaths, haystack_column_names, haystack_column_types);
 
   // Load the test table from disk using a read task
   std::vector<cudf::data_type> column_types = {cudf::data_type(cudf::type_id::INT64),
                                                cudf::data_type(cudf::type_id::INT32),
                                                cudf::data_type(cudf::type_id::STRING)};
 
-  auto read_task = std::make_unique<gqe::read_task>(
+  auto read_task = std::make_unique<gqe::parquet_read_task>(
     0,
     0,
     filepaths,
-    gqe::file_format_type::parquet,
     column_names,
     std::move(column_types),
     std::make_unique<gqe::in_predicate_expression>(

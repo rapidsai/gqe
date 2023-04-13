@@ -141,26 +141,22 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::read_relat
   for (auto const& column_name : column_names)
     data_types.push_back(_builder->_catalog->column_type(table_name, column_name));
 
-  auto const file_paths          = _builder->_catalog->file_paths(table_name);
-  auto const num_partitions      = _builder->_catalog->num_partitions(table_name);
-  int64_t max_num_files_per_part = (file_paths.size() + num_partitions - 1) / num_partitions;
-  auto file_it                   = file_paths.begin();
+  std::unique_ptr<storage::readable_view> readable_view =
+    _builder->_catalog->readable_view(table_name);
+  if (!readable_view) { throw std::logic_error("table \"" + table_name + "\" is not readable"); }
 
-  // Evenly distribute files among the partitions
+  auto const num_partitions = _builder->_catalog->num_partitions(table_name);
   for (size_t partition_idx = 0; partition_idx < num_partitions; ++partition_idx) {
-    size_t num_files_part = std::min(int64_t{file_paths.end() - file_it}, max_num_files_per_part);
-    std::vector<std::string> file_paths_task{file_it, file_it + num_files_part};
-    _generated_tasks.push_back(
-      std::make_shared<read_task>(_builder->_current_task_id,
-                                  _builder->_current_stage_id,
-                                  std::move(file_paths_task),
-                                  _builder->_catalog->file_format(table_name),
-                                  column_names,
-                                  data_types,
-                                  partial_filter ? partial_filter->clone() : nullptr,
-                                  std::vector<std::shared_ptr<task>>{concatenated_subquery_task}));
+    _generated_tasks.emplace_back(
+      readable_view->get_read_task(_builder->_current_task_id,
+                                   _builder->_current_stage_id,
+                                   num_partitions,
+                                   partition_idx,
+                                   column_names,
+                                   data_types,
+                                   partial_filter ? partial_filter->clone() : nullptr,
+                                   std::vector<std::shared_ptr<task>>{concatenated_subquery_task}));
     _builder->_current_task_id++;
-    file_it += num_files_part;
   }
 
   update_cache(relation);

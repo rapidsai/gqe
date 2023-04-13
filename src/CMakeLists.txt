@@ -49,6 +49,7 @@ add_library(
     expression/binary_op.cpp
     optimizer/physical_transformation.cpp
     optimizer/estimator.cpp
+    storage/parquet.cpp
     catalog.cpp
 )
 

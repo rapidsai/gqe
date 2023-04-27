@@ -25,7 +25,6 @@
 #include <cudf/sorting.hpp>
 #include <cudf/stream_compaction.hpp>
 #include <cudf/table/table.hpp>
-#include <cudf_test/column_utilities.hpp>
 #include <rmm/device_uvector.hpp>
 
 #include <algorithm>
@@ -42,14 +41,18 @@ window_task::window_task(int32_t task_id,
                          std::vector<std::unique_ptr<expression>> arguments,
                          std::vector<std::unique_ptr<expression>> partition_by,
                          std::vector<std::unique_ptr<expression>> order_by,
-                         std::vector<cudf::order> order_dirs)
+                         std::vector<cudf::order> order_dirs,
+                         window_frame_bound::type window_lower_bound,
+                         window_frame_bound::type window_upper_bound)
   : task(task_id, stage_id, {std::move(input)}, {}),
     _aggr_func{aggr_func},
     _ident_cols{std::move(ident_cols)},
     _arguments{std::move(arguments)},
     _partition_by{std::move(partition_by)},
     _order_by{std::move(order_by)},
-    _order_dirs{std::move(order_dirs)}
+    _order_dirs{std::move(order_dirs)},
+    _window_lower_bound{window_lower_bound},
+    _window_upper_bound{window_upper_bound}
 {
 }
 
@@ -78,12 +81,12 @@ std::unique_ptr<cudf::rolling_aggregation> get_rolling_aggregation(
 }
 }  // namespace
 
-struct zero_scalar_functor {
+struct constant_scalar_functor {
   template <typename T>
-  std::unique_ptr<cudf::scalar> operator()()
+  std::unique_ptr<cudf::scalar> operator()(int val)
   {
     if constexpr (cudf::is_integral<T>()) {
-      return cudf::make_fixed_width_scalar<T>(0);
+      return cudf::make_fixed_width_scalar<T>(val);
     } else {
       throw std::runtime_error("Non-integral order-by columns not supported!\n");
     }
@@ -97,7 +100,9 @@ std::unique_ptr<cudf::table> window_partition_and_order(
   std::vector<std::unique_ptr<expression>> arguments,
   std::vector<std::unique_ptr<expression>> partition_by,
   std::vector<std::unique_ptr<expression>> order_by,
-  std::vector<cudf::order> order_dirs)
+  std::vector<cudf::order> order_dirs,
+  window_frame_bound::type window_lower_bound,
+  window_frame_bound::type window_upper_bound)
 {
   if (order_by.size() > 1) {
     throw std::runtime_error("Window function cannot have more than one order_by column");
@@ -167,13 +172,16 @@ std::unique_ptr<cudf::table> window_partition_and_order(
   std::unique_ptr<cudf::column> window_col;
 
   if (aggr_func == cudf::aggregation::RANK) {
-    cudf::groupby::groupby grpby_scan(grouped_table);
+    if (std::holds_alternative<window_frame_bound::bounded>(window_lower_bound)) {
+      throw std::runtime_error(
+        "RANK-aggregated window function does not support a custom lower window bound.");
+    }
 
+    cudf::groupby::groupby grpby_scan(grouped_table);
     cudf::groupby::scan_request request;
     request.values = sort_col_view;
 
     std::vector<std::unique_ptr<cudf::groupby_scan_aggregation>> aggregations;
-    // TODO: check on this. Do we want DENSE?
     aggregations.push_back(
       cudf::make_rank_aggregation<cudf::groupby_scan_aggregation>(cudf::rank_method::MIN));
     request.aggregations = std::move(aggregations);
@@ -190,20 +198,27 @@ std::unique_ptr<cudf::table> window_partition_and_order(
       evaluate_expressions(sorted_table.get()->view(), utility::to_const_raw_ptrs(arguments));
     auto aggr_col_view = aggr_cols[0];
 
-    auto preceding_bound = cudf::range_window_bounds::unbounded(sort_col_view.type());
-    auto zero_scalar     = cudf::type_dispatcher(sort_col_view.type(), zero_scalar_functor{});
-    auto following_bound = cudf::range_window_bounds::get(*zero_scalar.get());
+    auto get_window_bound = [&sort_col_view](window_frame_bound::type bound) {
+      if (std::holds_alternative<window_frame_bound::unbounded>(bound)) {
+        return cudf::range_window_bounds::unbounded(sort_col_view.type());
+      } else {
+        auto const_scalar =
+          cudf::type_dispatcher(sort_col_view.type(),
+                                constant_scalar_functor{},
+                                std::get<window_frame_bound::bounded>(bound).get_bound());
+        return cudf::range_window_bounds::get(*const_scalar.get());
+      }
+    };
 
     auto rolling_window_order = order_dirs[0];
 
-    auto aggr = get_rolling_aggregation(aggr_func);
-
+    auto aggr  = get_rolling_aggregation(aggr_func);
     window_col = cudf::grouped_range_rolling_window(grouped_table,
                                                     sort_col_view,
                                                     rolling_window_order,
                                                     aggr_col_view,
-                                                    preceding_bound,
-                                                    following_bound,
+                                                    get_window_bound(window_lower_bound),
+                                                    get_window_bound(window_upper_bound),
                                                     1 /*= min_periods*/,
                                                     *aggr.get());
   }
@@ -236,7 +251,9 @@ void window_task::execute()
                                                   std::move(_arguments),
                                                   std::move(_partition_by),
                                                   std::move(_order_by),
-                                                  std::move(_order_dirs));
+                                                  std::move(_order_dirs),
+                                                  _window_lower_bound,
+                                                  _window_upper_bound);
   } else {
     throw std::runtime_error("Window task needs an order-by expression\n");
   }

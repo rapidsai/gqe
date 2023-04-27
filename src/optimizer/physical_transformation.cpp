@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,6 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/expression/binary_op.hpp>
+#include <gqe/expression/column_reference.hpp>
+#include <gqe/expression/literal.hpp>
 #include <gqe/logical/aggregate.hpp>
 #include <gqe/logical/fetch.hpp>
 #include <gqe/logical/filter.hpp>
@@ -19,16 +22,21 @@
 #include <gqe/logical/set.hpp>
 #include <gqe/logical/sort.hpp>
 #include <gqe/logical/user_defined.hpp>
+#include <gqe/logical/window.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/physical/aggregate.hpp>
 #include <gqe/physical/fetch.hpp>
 #include <gqe/physical/filter.hpp>
+#include <gqe/physical/gen_ident_col.hpp>
 #include <gqe/physical/join.hpp>
 #include <gqe/physical/project.hpp>
 #include <gqe/physical/read.hpp>
 #include <gqe/physical/set.hpp>
 #include <gqe/physical/sort.hpp>
 #include <gqe/physical/user_defined.hpp>
+#include <gqe/physical/window.hpp>
+
+#include <numeric>
 
 namespace gqe {
 
@@ -179,6 +187,141 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
                                                                    std::move(subqueries_physical),
                                                                    std::move(keys),
                                                                    std::move(values));
+      break;
+    }
+    case logical::relation::relation_type::window: {
+      auto const logical_window_relation =
+        dynamic_cast<logical::window_relation const*>(logical_relation);
+      // if there is only a partition by and no order by, this should be converted to a physical
+      // aggregate and join relation
+      auto aggr_func          = logical_window_relation->aggr_func();
+      auto arguments          = logical_window_relation->arguments_unsafe();
+      auto partition_by       = logical_window_relation->partition_by_unsafe();
+      auto order_by           = logical_window_relation->order_by_unsafe();
+      auto order_dirs         = logical_window_relation->order_dirs();
+      auto window_lower_bound = logical_window_relation->window_lower_bound();
+      auto window_upper_bound = logical_window_relation->window_upper_bound();
+
+      if ((std::holds_alternative<gqe::window_frame_bound::bounded>(window_lower_bound) ||
+           std::holds_alternative<gqe::window_frame_bound::bounded>(window_upper_bound)) &&
+          (order_by.size() == 0)) {
+        throw std::runtime_error("Custom window frame only supported when order_by is present.");
+      }
+
+      // Convert to aggregate + join
+      if (partition_by.size() > 0 && order_by.size() == 0) {
+        std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values;
+        for (auto const& argument : arguments)
+          values.emplace_back(aggr_func, argument->clone());
+        if (values.size() > 1) {
+          throw std::runtime_error("Logical window relation can have at most one argument.");
+        }
+
+        std::vector<std::unique_ptr<expression>> aggregate_key_cols;
+        for (auto const& partition_expr : partition_by) {
+          aggregate_key_cols.push_back(partition_expr->clone());
+        }
+
+        auto const num_input_cols = children_logical[0]->num_columns();
+
+        // Initialize join condition
+        std::unique_ptr<expression> join_condition = std::make_unique<equal_expression>(
+          partition_by[0]->clone(), std::make_shared<column_reference_expression>(num_input_cols));
+
+        // If there's more than one join condition
+        for (std::size_t partition_idx = 1; partition_idx < partition_by.size(); ++partition_idx) {
+          join_condition = std::make_unique<logical_and_expression>(
+            std::shared_ptr<expression>(std::move(join_condition)),
+            std::make_shared<equal_expression>(
+              partition_by[partition_idx]->clone(),
+              std::make_shared<column_reference_expression>(num_input_cols + partition_idx)));
+        }
+
+        // In this case, no indices need to be dropped
+        std::vector<cudf::size_type> join_indices(num_input_cols);
+        std::iota(join_indices.begin(), join_indices.end(), 0);
+
+        // include all the original columns plus the aggregated argument col that is appended
+        // to the end of the key columns in the broadcast join
+        join_indices.push_back(num_input_cols + partition_by.size());
+
+        auto aggregate_relation =
+          std::make_shared<physical::concatenate_aggregate_relation>(children_physical[0],
+                                                                     std::move(subqueries_physical),
+                                                                     std::move(aggregate_key_cols),
+                                                                     std::move(values));
+
+        out_physical_relation = std::make_shared<physical::broadcast_join_relation>(
+          std::move(children_physical[0]),
+          std::move(aggregate_relation),
+          std::vector<std::shared_ptr<physical::relation>>(),
+          join_type_type::inner,
+          std::move(join_condition),
+          std::move(join_indices),
+          cudf::null_equality::UNEQUAL,
+          physical::broadcast_policy::right);
+      }
+      // Use physical window relation
+      else if (order_by.size() > 0) {
+        std::vector<std::unique_ptr<expression>> argument_cols;
+        for (auto const& argument_expr : arguments) {
+          argument_cols.push_back(argument_expr->clone());
+        }
+        std::vector<std::unique_ptr<expression>> partition_by_cols;
+        for (auto const& partition_expr : partition_by) {
+          partition_by_cols.push_back(partition_expr->clone());
+        }
+        std::vector<std::unique_ptr<expression>> order_by_cols;
+        for (auto const& order_expr : order_by) {
+          order_by_cols.push_back(order_expr->clone());
+        }
+
+        auto const num_input_cols = children_logical[0]->num_columns();
+
+        auto input_with_row_id =
+          std::make_shared<physical::gen_ident_col_relation>(children_physical[0]);
+
+        // reference the primary key col we just added to the input
+        std::vector<std::unique_ptr<expression>> ident_cols;
+        ident_cols.emplace_back(std::make_unique<column_reference_expression>(num_input_cols));
+
+        auto window_relation = std::make_shared<physical::window_relation>(
+          input_with_row_id,
+          std::vector<std::shared_ptr<physical::relation>>(),
+          aggr_func,
+          std::move(ident_cols),
+          std::move(argument_cols),
+          std::move(partition_by_cols),
+          std::move(order_by_cols),
+          std::move(order_dirs),
+          window_lower_bound,
+          window_upper_bound);
+
+        // Initialize join condition
+        std::unique_ptr<expression> join_condition = std::make_unique<equal_expression>(
+          std::make_shared<column_reference_expression>(num_input_cols),
+          std::make_shared<column_reference_expression>(num_input_cols + 1));
+
+        // Drop the primary key col and append the window col
+        std::vector<cudf::size_type> join_indices(num_input_cols);
+        std::iota(join_indices.begin(), join_indices.end(), 0);
+        join_indices.push_back(num_input_cols + 2);
+
+        out_physical_relation = std::make_shared<physical::broadcast_join_relation>(
+          std::move(input_with_row_id),
+          std::move(window_relation),
+          std::vector<std::shared_ptr<physical::relation>>(),
+          join_type_type::inner,
+          std::move(join_condition),
+          std::move(join_indices),
+          cudf::null_equality::UNEQUAL,
+          physical::broadcast_policy::right);
+      } else {
+        throw std::runtime_error(
+          "GQE currently doesn't support frame-only window functions. Logical window relation must "
+          "have partition-by or order-by clause.");
+      }
+
       break;
     }
     case logical::relation::relation_type::set: {

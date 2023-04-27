@@ -95,6 +95,7 @@ class task_graph_builder {
     void visit(physical::window_relation* relation) override;
     void visit(physical::union_all_relation* relation) override;
     void visit(physical::user_defined_relation* relation) override;
+    void visit(physical::gen_ident_col_relation* relation) override;
 
     // Check the task cache in `_builder`. If the relation is found in the cache, the retrieved
     // tasks are copied to `_generated_tasks`, and the function returns true. Otherwise, the

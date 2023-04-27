@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -450,10 +450,10 @@ evaluate_expressions(cudf::table_view const& table,
       auto const column_idx =
         dynamic_cast<gqe::column_reference_expression const*>(expr)->column_idx();
 
-      if (column_idx < column_reference_offset)
+      if (column_idx < column_reference_offset) {
         throw std::out_of_range("Invalid column index and offset combination in expression: " +
                                 expr->to_string());
-
+      }
       evaluated_results.push_back(table.column(column_idx - column_reference_offset));
       continue;
     } else if (table.num_rows() == 0) {

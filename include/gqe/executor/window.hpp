@@ -14,8 +14,10 @@
 
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
+#include <gqe/types.hpp>
 
 #include <cudf/detail/aggregation/aggregation.hpp>
+#include <cudf/rolling.hpp>
 
 #include <memory>
 #include <utility>
@@ -38,6 +40,12 @@ class window_task : public task {
    * @param[in] arguments Columns on which the window function is to be performed.
    * @param[in] partition_by Columns which are used to group the input table before windowing.
    * @param[in] order_by Columns which are used to order the grouped input table before windowing.
+   * @param[in] lower_window_bound Number of rows by which window frame extends beyond the current
+   * row index. Has type window_frame_bound::unbounded if the window extends to the boundary of the
+   * partition and window_frame_bound::bounded otherwise.
+   * @param[in] upper_window_bound Number of rows by which window frame extends above the current
+   * row index. Has type window_frame_bound::unbounded if the window extends to the boundary of the
+   * partition and window_frame_bound::bounded otherwise.
    */
   window_task(int32_t task_id,
               int32_t stage_id,
@@ -47,7 +55,9 @@ class window_task : public task {
               std::vector<std::unique_ptr<expression>> arguments,
               std::vector<std::unique_ptr<expression>> partition_by,
               std::vector<std::unique_ptr<expression>> order_by,
-              std::vector<cudf::order> order_dirs);
+              std::vector<cudf::order> order_dirs,
+              window_frame_bound::type window_lower_bound,
+              window_frame_bound::type window_upper_bound);
 
   /**
    * @copydoc gqe::task::execute()
@@ -61,6 +71,8 @@ class window_task : public task {
   std::vector<std::unique_ptr<expression>> _partition_by;
   std::vector<std::unique_ptr<expression>> _order_by;
   std::vector<cudf::order> _order_dirs;
+  window_frame_bound::type _window_lower_bound;
+  window_frame_bound::type _window_upper_bound;
 };
 
 }  // namespace gqe

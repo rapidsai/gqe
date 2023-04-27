@@ -160,4 +160,27 @@ struct table_statistics {
 using user_defined_task_functor = std::function<std::vector<std::shared_ptr<task>>(
   std::vector<std::vector<std::shared_ptr<task>>>, int32_t&, int32_t)>;
 
+namespace window_frame_bound {
+
+/**
+ * @brief Windows which do not have finite bounds but instead extend to the end of the partition.
+ */
+struct unbounded {
+};
+
+/**
+ * @brief Windows which extend a finite number of rows before or after the current row.
+ */
+struct bounded {
+  bounded(int64_t bound) : _bound(bound) {}
+
+  [[nodiscard]] int64_t get_bound() const noexcept { return _bound; }
+
+ private:
+  int64_t _bound;
+};
+
+using type = std::variant<unbounded, bounded>;
+
+}  // namespace window_frame_bound
 }  // namespace gqe

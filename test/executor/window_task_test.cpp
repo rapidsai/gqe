@@ -73,6 +73,9 @@ class WindowOrderByPartitionBy : public ::testing::Test {
     std::vector<cudf::order> order_dirs;
     order_dirs.push_back(cudf::order::ASCENDING);
 
+    gqe::window_frame_bound::unbounded window_lower_bound;
+    gqe::window_frame_bound::bounded window_upper_bound(0);
+
     window_task = std::make_unique<gqe::window_task>(filter_task_id,
                                                      stage_id,
                                                      std::move(input_task),
@@ -81,7 +84,9 @@ class WindowOrderByPartitionBy : public ::testing::Test {
                                                      std::move(arguments_vec),
                                                      std::move(partition_by_vec),
                                                      std::move(order_by_vec),
-                                                     std::move(order_dirs));
+                                                     std::move(order_dirs),
+                                                     window_lower_bound,
+                                                     window_upper_bound);
   }
 
   std::unique_ptr<gqe::window_task> window_task;
@@ -127,6 +132,9 @@ class WindowOrderBy : public ::testing::Test {
     std::vector<cudf::order> order_dirs;
     order_dirs.push_back(cudf::order::ASCENDING);
 
+    gqe::window_frame_bound::unbounded window_lower_bound;
+    gqe::window_frame_bound::bounded window_upper_bound(0);
+
     window_task = std::make_unique<gqe::window_task>(filter_task_id,
                                                      stage_id,
                                                      std::move(input_task),
@@ -135,7 +143,9 @@ class WindowOrderBy : public ::testing::Test {
                                                      std::move(arguments_vec),
                                                      std::move(partition_by_vec),
                                                      std::move(order_by_vec),
-                                                     std::move(order_dirs));
+                                                     std::move(order_dirs),
+                                                     window_lower_bound,
+                                                     window_upper_bound);
   }
 
   std::unique_ptr<gqe::window_task> window_task;
@@ -181,6 +191,9 @@ class WindowOrderByPartitionByRank : public ::testing::Test {
     std::vector<cudf::order> order_dirs;
     order_dirs.push_back(cudf::order::ASCENDING);
 
+    gqe::window_frame_bound::unbounded window_lower_bound;
+    gqe::window_frame_bound::bounded window_upper_bound(0);
+
     window_task = std::make_unique<gqe::window_task>(filter_task_id,
                                                      stage_id,
                                                      std::move(input_task),
@@ -189,7 +202,9 @@ class WindowOrderByPartitionByRank : public ::testing::Test {
                                                      std::move(arguments_vec),
                                                      std::move(partition_by_vec),
                                                      std::move(order_by_vec),
-                                                     std::move(order_dirs));
+                                                     std::move(order_dirs),
+                                                     window_lower_bound,
+                                                     window_upper_bound);
   }
 
   std::unique_ptr<gqe::window_task> window_task;
@@ -230,6 +245,9 @@ class WindowOrderByRank : public ::testing::Test {
     std::vector<cudf::order> order_dirs;
     order_dirs.push_back(cudf::order::ASCENDING);
 
+    gqe::window_frame_bound::unbounded window_lower_bound;
+    gqe::window_frame_bound::bounded window_upper_bound(0);
+
     window_task = std::make_unique<gqe::window_task>(filter_task_id,
                                                      stage_id,
                                                      std::move(input_task),
@@ -238,7 +256,9 @@ class WindowOrderByRank : public ::testing::Test {
                                                      std::move(arguments_vec),
                                                      std::move(partition_by_vec),
                                                      std::move(order_by_vec),
-                                                     std::move(order_dirs));
+                                                     std::move(order_dirs),
+                                                     window_lower_bound,
+                                                     window_upper_bound);
   }
 
   std::unique_ptr<gqe::window_task> window_task;

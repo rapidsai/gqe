@@ -14,6 +14,7 @@
 #include <gqe/executor/concatenate.hpp>
 #include <gqe/executor/fetch.hpp>
 #include <gqe/executor/filter.hpp>
+#include <gqe/executor/gen_ident_col.hpp>
 #include <gqe/executor/join.hpp>
 #include <gqe/executor/project.hpp>
 #include <gqe/executor/read.hpp>
@@ -25,6 +26,7 @@
 #include <gqe/physical/aggregate.hpp>
 #include <gqe/physical/fetch.hpp>
 #include <gqe/physical/filter.hpp>
+#include <gqe/physical/gen_ident_col.hpp>
 #include <gqe/physical/join.hpp>
 #include <gqe/physical/project.hpp>
 #include <gqe/physical/read.hpp>
@@ -348,7 +350,9 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::window_rel
   for (auto const& order_by_exp : relation->order_by_unsafe()) {
     order_by.push_back(order_by_exp->clone());
   }
-  auto order_dirs = relation->order_dirs();
+  auto order_dirs         = relation->order_dirs();
+  auto window_lower_bound = relation->window_lower_bound();
+  auto window_upper_bound = relation->window_upper_bound();
 
   _generated_tasks.push_back(std::make_shared<window_task>(_builder->_current_task_id,
                                                            _builder->_current_stage_id,
@@ -358,7 +362,9 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::window_rel
                                                            std::move(arguments),
                                                            std::move(partition_by),
                                                            std::move(order_by),
-                                                           std::move(order_dirs)));
+                                                           std::move(order_dirs),
+                                                           window_lower_bound,
+                                                           window_upper_bound));
   _builder->_current_task_id++;
 
   update_cache(relation);
@@ -562,6 +568,25 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::fetch_rela
                                                           relation->offset(),
                                                           relation->count()));
   _builder->_current_task_id++;
+
+  update_cache(relation);
+}
+
+void task_graph_builder::generate_task_graph_visitor::visit(
+  physical::gen_ident_col_relation* relation)
+{
+  if (is_cached(relation)) return;
+
+  // Recursively generate the input tasks
+  auto const children = relation->children_unsafe();
+  assert(children.size() == 1);
+  auto input_tasks = _builder->generate_tasks(children[0]);
+
+  for (auto& task : input_tasks) {
+    _generated_tasks.push_back(std::make_shared<gen_ident_col_task>(
+      _builder->_current_task_id, _builder->_current_stage_id, std::move(task)));
+    _builder->_current_task_id++;
+  }
 
   update_cache(relation);
 }

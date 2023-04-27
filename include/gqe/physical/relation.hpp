@@ -32,6 +32,7 @@ class fetch_relation;
 class union_all_relation;
 class user_defined_relation;
 class window_relation;
+class gen_ident_col_relation;
 
 /**
  * @brief Base interface for a physical relation visitor.
@@ -78,6 +79,10 @@ struct relation_visitor {
   virtual void visit(window_relation* relation)
   {
     throw std::logic_error("Visiting window_relation is not implemented");
+  }
+  virtual void visit(gen_ident_col_relation* relation)
+  {
+    throw std::logic_error("Visiting gen_ident_col_relation is not implemented");
   }
 };
 

@@ -14,6 +14,7 @@
 
 #include <gqe/expression/expression.hpp>
 #include <gqe/physical/relation.hpp>
+#include <gqe/types.hpp>
 #include <gqe/utility.hpp>
 
 #include <cudf/aggregation.hpp>
@@ -47,6 +48,13 @@ class window_relation : public relation {
    * @param[in] arguments Columns on which the window function is to be performed.
    * @param[in] partition_by Columns which are used to group the input table before windowing.
    * @param[in] order_by Columns which are used to order the grouped input table before windowing.
+   * @param[in] lower_window_bound Number of rows by which window frame extends beyond the current
+   * row index. Has type window_frame_bound::unbounded if the window extends to the boundary of the
+   * partition and window_frame_bound::bounded otherwise.
+   * @param[in] upper_window_bound Number of rows by which window frame extends above the current
+   * row index. Has type window_frame_bound::unbounded if the window extends to the boundary of the
+   * partition and window_frame_bound::bounded otherwise.
+
    */
   window_relation(std::shared_ptr<relation> input,
                   std::vector<std::shared_ptr<relation>> subquery_relations,
@@ -55,14 +63,18 @@ class window_relation : public relation {
                   std::vector<std::unique_ptr<expression>> arguments,
                   std::vector<std::unique_ptr<expression>> partition_by,
                   std::vector<std::unique_ptr<expression>> order_by,
-                  std::vector<cudf::order> order_dirs)
+                  std::vector<cudf::order> order_dirs,
+                  window_frame_bound::type window_lower_bound,
+                  window_frame_bound::type window_upper_bound)
     : relation({std::move(input)}, std::move(subquery_relations)),
       _aggr_func(aggr_func),
       _ident_cols(std::move(ident_cols)),
       _arguments(std::move(arguments)),
       _partition_by(std::move(partition_by)),
       _order_by(std::move(order_by)),
-      _order_dirs(std::move(order_dirs))
+      _order_dirs(std::move(order_dirs)),
+      _window_lower_bound(window_lower_bound),
+      _window_upper_bound(window_upper_bound)
   {
   }
 
@@ -73,6 +85,8 @@ class window_relation : public relation {
   std::vector<std::unique_ptr<expression>> _partition_by;
   std::vector<std::unique_ptr<expression>> _order_by;
   std::vector<cudf::order> _order_dirs;
+  window_frame_bound::type _window_lower_bound;
+  window_frame_bound::type _window_upper_bound;
 
  public:
   cudf::aggregation::Kind aggr_func() { return _aggr_func; }
@@ -81,6 +95,8 @@ class window_relation : public relation {
   std::vector<expression*> partition_by_unsafe() { return utility::to_raw_ptrs(_partition_by); }
   std::vector<expression*> order_by_unsafe() { return utility::to_raw_ptrs(_order_by); }
   std::vector<cudf::order> order_dirs() { return _order_dirs; }
+  window_frame_bound::type window_lower_bound() { return _window_lower_bound; }
+  window_frame_bound::type window_upper_bound() { return _window_upper_bound; }
 
   /**
    * @copydoc gqe::physical::relation::accept(relation_visitor&)

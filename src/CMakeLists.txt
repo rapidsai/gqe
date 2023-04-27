@@ -32,6 +32,7 @@ add_library(
     logical/read.cpp
     logical/set.cpp
     logical/sort.cpp
+    logical/window.cpp
     logical/user_defined.cpp
     logical/from_substrait.cpp
     executor/aggregate.cpp
@@ -45,6 +46,7 @@ add_library(
     executor/sort.cpp
     executor/task.cpp
     executor/window.cpp
+    executor/gen_ident_col.cu
     executor/task_graph.cpp
     expression/binary_op.cpp
     optimizer/physical_transformation.cpp

@@ -40,6 +40,7 @@ class relation {
     project,
     aggregate,
     join,
+    window,
     read,
     filter,
     set,

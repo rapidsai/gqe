@@ -52,8 +52,8 @@ class readable_view {
   virtual std::unique_ptr<read_task_base> get_read_task(
     int32_t task_id,
     int32_t stage_id,
-    uint32_t parallelism,
-    uint32_t instance_id,
+    int32_t parallelism,
+    int32_t instance_id,
     std::vector<std::string> column_names,
     std::vector<cudf::data_type> data_types,
     std::unique_ptr<gqe::expression> partial_filter   = nullptr,

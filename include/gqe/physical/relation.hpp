@@ -23,6 +23,7 @@ namespace gqe {
 namespace physical {
 
 class read_relation;
+class write_relation;
 class broadcast_join_relation;
 class project_relation;
 class concatenate_sort_relation;
@@ -43,6 +44,10 @@ struct relation_visitor {
   virtual void visit(read_relation* relation)
   {
     throw std::logic_error("Visiting read_relation is not implemented");
+  }
+  virtual void visit(write_relation* relation)
+  {
+    throw std::logic_error("Visiting write_relation is not implemented");
   }
   virtual void visit(broadcast_join_relation* relation)
   {

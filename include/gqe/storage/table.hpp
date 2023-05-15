@@ -13,6 +13,7 @@
 #pragma once
 
 #include <gqe/storage/readable_view.hpp>
+#include <gqe/storage/writeable_view.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -50,9 +51,26 @@ class table {
   [[nodiscard]] virtual bool is_readable() const = 0;
 
   /**
+   * @brief Return if the table is writeable.
+   *
+   * If true, a writeable view is available.
+   */
+  [[nodiscard]] virtual bool is_writeable() const = 0;
+
+  /**
+   * @brief Return the maximum number of concurrent writers.
+   */
+  [[nodiscard]] virtual int32_t max_concurrent_writers() const = 0;
+
+  /**
    * @brief Return a readable view to the table.
    */
   virtual std::unique_ptr<storage::readable_view> readable_view() = 0;
+
+  /**
+   * @brief Return a writeable view to the table.
+   */
+  virtual std::unique_ptr<storage::writeable_view> writeable_view() = 0;
 };
 
 };  // namespace storage

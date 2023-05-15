@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -86,6 +86,7 @@ class task_graph_builder {
     generate_task_graph_visitor(task_graph_builder* builder) : _builder(builder) {}
 
     void visit(physical::read_relation* relation) override;
+    void visit(physical::write_relation* relation) override;
     void visit(physical::broadcast_join_relation* relation) override;
     void visit(physical::project_relation* relation) override;
     void visit(physical::concatenate_sort_relation* relation) override;

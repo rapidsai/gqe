@@ -21,6 +21,7 @@
 #include <gqe/executor/sort.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/executor/window.hpp>
+#include <gqe/executor/write.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/physical/aggregate.hpp>
@@ -34,6 +35,7 @@
 #include <gqe/physical/sort.hpp>
 #include <gqe/physical/user_defined.hpp>
 #include <gqe/physical/window.hpp>
+#include <gqe/physical/write.hpp>
 #include <gqe/utility.hpp>
 
 #include <cstdlib>
@@ -147,9 +149,10 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::read_relat
     _builder->_catalog->readable_view(table_name);
   if (!readable_view) { throw std::logic_error("table \"" + table_name + "\" is not readable"); }
 
-  auto const num_partitions = _builder->_catalog->num_partitions(table_name);
-  for (size_t partition_idx = 0; partition_idx < num_partitions; ++partition_idx) {
-    _generated_tasks.emplace_back(
+  auto num_partitions = _builder->_catalog->num_partitions(table_name);
+  for (decltype(num_partitions) partition_idx = 0; partition_idx < num_partitions;
+       ++partition_idx) {
+    _generated_tasks.push_back(
       readable_view->get_read_task(_builder->_current_task_id,
                                    _builder->_current_stage_id,
                                    num_partitions,
@@ -158,6 +161,51 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::read_relat
                                    data_types,
                                    partial_filter ? partial_filter->clone() : nullptr,
                                    std::vector<std::shared_ptr<task>>{concatenated_subquery_task}));
+    _builder->_current_task_id++;
+  }
+
+  update_cache(relation);
+}
+
+void task_graph_builder::generate_task_graph_visitor::visit(physical::write_relation* relation)
+{
+  if (is_cached(relation)) return;
+
+  auto const table_name   = relation->table_name();
+  auto const column_names = relation->column_names();
+
+  std::vector<cudf::data_type> data_types;
+  data_types.reserve(column_names.size());
+  for (auto const& column_name : column_names) {
+    data_types.push_back(_builder->_catalog->column_type(table_name, column_name));
+  }
+
+  auto const children = relation->children_unsafe();
+  assert(children.size() == 1);
+
+  // FIXME: This implementation requires that the number of concurrent writes
+  // matches the number of child tasks. In future, we should handle mismatches
+  // better. For example, we could concatenate child tasks to the exact number
+  // of writers, or dynamically rescale the writer's concurrency (e.g., Parquet
+  // pages).
+  auto input_tasks = _builder->_catalog->max_concurrent_writers(table_name) == 1
+                       ? std::vector{_builder->concatenate(_builder->generate_tasks(children[0]))}
+                       : _builder->generate_tasks(children[0]);
+
+  std::unique_ptr<storage::writeable_view> writeable_view =
+    _builder->_catalog->writeable_view(table_name);
+  if (!writeable_view) { throw std::logic_error("Table \"" + table_name + "\" is not writeable"); }
+
+  auto parallelism = input_tasks.size();
+  for (decltype(parallelism) instance_idx = 0; instance_idx < parallelism; ++instance_idx) {
+    _generated_tasks.push_back(
+      writeable_view->get_write_task(_builder->_current_task_id,
+                                     _builder->_current_stage_id,
+                                     parallelism,
+                                     instance_idx,
+                                     column_names,
+                                     data_types,
+                                     std::move(input_tasks[instance_idx])));
     _builder->_current_task_id++;
   }
 

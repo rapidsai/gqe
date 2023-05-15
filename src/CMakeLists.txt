@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -34,19 +34,21 @@ add_library(
     logical/sort.cpp
     logical/window.cpp
     logical/user_defined.cpp
+    logical/write.cpp
     logical/from_substrait.cpp
     executor/aggregate.cpp
     executor/concatenate.cpp
     executor/eval.cpp
     executor/filter.cpp
     executor/fetch.cpp
+    executor/gen_ident_col.cu
     executor/join.cpp
     executor/project.cpp
     executor/read.cpp
     executor/sort.cpp
     executor/task.cpp
     executor/window.cpp
-    executor/gen_ident_col.cu
+    executor/write.cpp
     executor/task_graph.cpp
     expression/binary_op.cpp
     optimizer/physical_transformation.cpp

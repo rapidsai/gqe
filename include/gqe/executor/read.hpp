@@ -38,6 +38,9 @@ class read_task_base : public task {
   read_task_base(int32_t task_id,
                  int32_t stage_id,
                  std::vector<std::shared_ptr<task>> subquery_tasks);
+
+  read_task_base(const read_task_base&) = delete;
+  read_task_base& operator=(const read_task_base&) = delete;
 };
 
 class parquet_read_task : public read_task_base {
@@ -69,6 +72,9 @@ class parquet_read_task : public read_task_base {
                     std::vector<cudf::data_type> data_types,
                     std::unique_ptr<gqe::expression> partial_filter   = nullptr,
                     std::vector<std::shared_ptr<task>> subquery_tasks = {});
+
+  parquet_read_task(const parquet_read_task&) = delete;
+  parquet_read_task& operator=(const parquet_read_task&) = delete;
 
   /**
    * @copydoc gqe::task::execute()

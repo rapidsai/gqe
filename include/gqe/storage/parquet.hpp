@@ -15,6 +15,7 @@
 #include <gqe/executor/read.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/table.hpp>
+#include <gqe/storage/writeable_view.hpp>
 #include <gqe/utility.hpp>
 
 #include <cstdint>
@@ -46,9 +47,24 @@ class parquet_table : public table {
   [[nodiscard]] bool is_readable() const override;
 
   /**
+   * @copydoc gqe::storage::table::is_writeable()
+   */
+  [[nodiscard]] bool is_writeable() const override;
+
+  /**
+   * @copydoc gqe::storage::table::max_concurrent_writers()
+   */
+  [[nodiscard]] int32_t max_concurrent_writers() const override;
+
+  /**
    * @copydoc gqe::storage::table::readable_view()
    */
   std::unique_ptr<storage::readable_view> readable_view() override;
+
+  /**
+   * @copydoc gqe::storage::table::writeable_view()
+   */
+  std::unique_ptr<storage::writeable_view> writeable_view() override;
 
  private:
   std::shared_ptr<std::vector<std::string>> _file_paths;
@@ -67,8 +83,8 @@ class parquet_readable_view : public readable_view {
   std::unique_ptr<read_task_base> get_read_task(
     int32_t task_id,
     int32_t stage_id,
-    uint32_t parallelism,
-    uint32_t instance_id,
+    int32_t parallelism,
+    int32_t instance_id,
     std::vector<std::string> column_names,
     std::vector<cudf::data_type> data_types,
     std::unique_ptr<gqe::expression> partial_filter   = nullptr,
@@ -76,6 +92,31 @@ class parquet_readable_view : public readable_view {
 
  private:
   parquet_readable_view(std::vector<std::string>* non_owning_file_paths);
+
+  std::vector<std::string>*
+    _non_owning_file_paths /**< Non-owning reference to paths owned by `parquet_table`. */;
+};
+
+/**
+ * @brief Data access method to write a Parquet table.
+ */
+class parquet_writeable_view : public writeable_view {
+  friend parquet_table;
+
+ public:
+  /**
+   * @copydoc gqe::storage::writeable_view::get_write_task()
+   */
+  std::unique_ptr<write_task_base> get_write_task(int32_t task_id,
+                                                  int32_t stage_id,
+                                                  int32_t parallelism,
+                                                  int32_t instance_id,
+                                                  std::vector<std::string> column_names,
+                                                  std::vector<cudf::data_type> data_types,
+                                                  std::shared_ptr<task> input) override;
+
+ private:
+  parquet_writeable_view(std::vector<std::string>* non_owning_file_paths);
 
   std::vector<std::string>*
     _non_owning_file_paths /**< Non-owning reference to paths owned by `parquet_table`. */;

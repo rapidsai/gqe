@@ -24,7 +24,7 @@ namespace gqe {
 namespace physical {
 
 /**
- * @brief Physical relation for loading data from files.
+ * @brief Physical relation for loading data from tables.
  */
 class read_relation : public relation {
  public:

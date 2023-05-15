@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -14,6 +14,7 @@
 
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/table.hpp>
+#include <gqe/storage/writeable_view.hpp>
 #include <gqe/types.hpp>
 
 #include <cudf/types.hpp>
@@ -102,11 +103,32 @@ class catalog {
   bool is_readable(std::string const& table_name) const;
 
   /**
+   * @brief Return if the table is writeable.
+   *
+   * @throw std::logic_error if the table is not found in the catalog.
+   */
+  bool is_writeable(std::string const& table_name) const;
+
+  /**
+   * @brief Return the maximum number of concurrent writers.
+   *
+   * @throw std::logic_error if the table is not found in the catalog.
+   */
+  int32_t max_concurrent_writers(std::string const& table_name) const;
+
+  /**
    * @brief Return a readable view to the table.
    *
    * @throw std::logic_error if the table is not found in the catalog.
    */
   std::unique_ptr<storage::readable_view> readable_view(std::string const& table_name) const;
+
+  /**
+   * @brief Return a writeable view to the table.
+   *
+   * @throw std::logic_error if the table is not found in the catalog.
+   */
+  std::unique_ptr<storage::writeable_view> writeable_view(std::string const& table_name) const;
 
  private:
   struct table_info_type {

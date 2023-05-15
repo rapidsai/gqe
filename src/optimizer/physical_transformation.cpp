@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -23,6 +23,7 @@
 #include <gqe/logical/sort.hpp>
 #include <gqe/logical/user_defined.hpp>
 #include <gqe/logical/window.hpp>
+#include <gqe/logical/write.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/physical/aggregate.hpp>
 #include <gqe/physical/fetch.hpp>
@@ -35,6 +36,7 @@
 #include <gqe/physical/sort.hpp>
 #include <gqe/physical/user_defined.hpp>
 #include <gqe/physical/window.hpp>
+#include <gqe/physical/write.hpp>
 
 #include <numeric>
 
@@ -76,6 +78,19 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
         logical_read_relation->column_names(),
         logical_read_relation->table_name(),
         partial_filter_ptr ? partial_filter_ptr->clone() : nullptr);
+      break;
+    }
+    case logical::relation::relation_type::write: {
+      assert(children_physical.size() == 1);
+      auto& input_physical = children_physical[0];
+
+      auto const logical_insert_relation =
+        dynamic_cast<logical::write_relation const*>(logical_relation);
+
+      out_physical_relation =
+        std::make_shared<physical::write_relation>(std::move(input_physical),
+                                                   logical_insert_relation->column_names(),
+                                                   logical_insert_relation->table_name());
       break;
     }
     case logical::relation::relation_type::join: {

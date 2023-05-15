@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -12,6 +12,7 @@
 
 #include <gqe/catalog.hpp>
 #include <gqe/storage/parquet.hpp>
+#include <gqe/storage/writeable_view.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility.hpp>
 
@@ -150,6 +151,28 @@ bool catalog::is_readable(std::string const& table_name) const
   return table_storage_iter->second.storage->is_readable();
 }
 
+bool catalog::is_writeable(std::string const& table_name) const
+{
+  auto const table_storage_iter = _table_entries.find(table_name);
+
+  if (table_storage_iter == _table_entries.end()) {
+    throw std::logic_error("Cannot find table \"" + table_name + "\" in the catalog");
+  }
+
+  return table_storage_iter->second.storage->is_writeable();
+}
+
+int32_t catalog::max_concurrent_writers(std::string const& table_name) const
+{
+  auto const table_storage_iter = _table_entries.find(table_name);
+
+  if (table_storage_iter == _table_entries.end()) {
+    throw std::logic_error("Cannot find table \"" + table_name + "\" in the catalog");
+  }
+
+  return table_storage_iter->second.storage->max_concurrent_writers();
+}
+
 std::unique_ptr<storage::readable_view> catalog::readable_view(std::string const& table_name) const
 {
   auto const table_storage_iter = _table_entries.find(table_name);
@@ -159,6 +182,18 @@ std::unique_ptr<storage::readable_view> catalog::readable_view(std::string const
   }
 
   return table_storage_iter->second.storage->readable_view();
+}
+
+std::unique_ptr<storage::writeable_view> catalog::writeable_view(
+  const std::string& table_name) const
+{
+  auto const table_storage_iter = _table_entries.find(table_name);
+
+  if (table_storage_iter == _table_entries.end()) {
+    throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
+  }
+
+  return table_storage_iter->second.storage->writeable_view();
 }
 
 }  // namespace gqe

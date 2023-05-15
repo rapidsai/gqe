@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -80,6 +80,13 @@ target_link_libraries(logical_to_execution PUBLIC gqe)
 target_link_libraries(logical_to_execution PUBLIC GTest::gtest_main GTest::gmock)
 target_link_libraries(logical_to_execution PUBLIC cudf::cudftestutil)
 add_test(NAME logical_to_execution COMMAND logical_to_execution)
+
+add_executable(parquet_storage integration/parquet_storage.cpp)
+target_include_directories(parquet_storage PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(parquet_storage PUBLIC gqe)
+target_link_libraries(parquet_storage PUBLIC GTest::gtest_main GTest::gmock)
+target_link_libraries(parquet_storage PUBLIC cudf::cudftestutil)
+add_test(NAME parquet_storage COMMAND parquet_storage)
 
 add_executable(eval_expressions_test executor/eval_expressions_test.cpp)
 target_include_directories(eval_expressions_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)

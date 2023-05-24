@@ -58,12 +58,12 @@ std::unique_ptr<read_task_base> parquet_readable_view::get_read_task(
   std::unique_ptr<gqe::expression> partial_filter,
   std::vector<std::shared_ptr<task>> subquery_tasks)
 {
-  assert((task_id >= 0, "Task ID must be a positive value"));
-  assert((stage_id >= 0, "Stage ID must be a positive value"));
-  assert((parallelism > 1, "Parallelism must be at least 1"));
-  assert((instance_id >= 0, "Instance ID must be a positive value"));
+  assert(task_id >= 0);
+  assert(stage_id >= 0);
+  assert(parallelism >= 1);
+  assert(instance_id >= 0);
 
-  assert(_non_owning_file_paths->size() <= std::numeric_limits<int64_t>::max);
+  assert(_non_owning_file_paths->size() <= std::numeric_limits<int64_t>::max());
   int64_t const max_num_files_per_instance = utility::divide_round_up(
     static_cast<int64_t>(_non_owning_file_paths->size()), int64_t{parallelism});
   auto begin_offset = std::min(int64_t{instance_id} * max_num_files_per_instance,
@@ -97,16 +97,16 @@ std::unique_ptr<write_task_base> parquet_writeable_view::get_write_task(
   std::vector<cudf::data_type> data_types,
   std::shared_ptr<task> input)
 {
-  assert((task_id >= 0, "Task ID must be a positive value"));
-  assert((stage_id >= 0, "Stage ID must be a positive value"));
-  assert((parallelism > 1, "Parallelism must be at least 1"));
-  assert((instance_id >= 0, "Instance ID must be a positive value"));
+  assert(task_id >= 0);
+  assert(stage_id >= 0);
+  assert(parallelism >= 1);
+  assert(instance_id >= 0);
 
   if (_non_owning_file_paths->size() < static_cast<std::size_t>(parallelism)) {
     throw std::logic_error("Less than one Parquet output file per worker");
   }
 
-  assert(_non_owning_file_paths->size() <= std::numeric_limits<int64_t>::max);
+  assert(_non_owning_file_paths->size() <= std::numeric_limits<int64_t>::max());
   int64_t const max_num_files_per_instance = utility::divide_round_up(
     static_cast<int64_t>(_non_owning_file_paths->size()), int64_t{parallelism});
   auto begin_offset = std::min(int64_t{instance_id} * max_num_files_per_instance,

@@ -31,10 +31,9 @@ gen_ident_col_task::gen_ident_col_task(int32_t task_id,
 
 void gen_ident_col_task::execute()
 {
-  assert(dependent_tasks.size() == 1);
-
   prepare_dependencies();
   auto dependent_tasks = dependencies();
+  assert(dependent_tasks.size() == 1);
 
   auto input_table = dependent_tasks[0]->result().value();
 

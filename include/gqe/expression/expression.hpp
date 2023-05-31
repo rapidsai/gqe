@@ -12,7 +12,7 @@
 
 #pragma once
 
-#include <gqe/utility.hpp>
+#include <gqe/utility/helpers.hpp>
 
 #include <cudf/types.hpp>
 

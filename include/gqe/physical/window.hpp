@@ -15,7 +15,7 @@
 #include <gqe/expression/expression.hpp>
 #include <gqe/physical/relation.hpp>
 #include <gqe/types.hpp>
-#include <gqe/utility.hpp>
+#include <gqe/utility/helpers.hpp>
 
 #include <cudf/aggregation.hpp>
 

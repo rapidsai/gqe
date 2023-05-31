@@ -12,7 +12,7 @@
 
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/window.hpp>
-#include <gqe/utility.hpp>
+#include <gqe/utility/error.hpp>
 
 #include <cudf/aggregation.hpp>
 #include <cudf/column/column_factories.hpp>

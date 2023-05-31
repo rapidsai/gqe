@@ -36,7 +36,7 @@
 #include <gqe/physical/user_defined.hpp>
 #include <gqe/physical/window.hpp>
 #include <gqe/physical/write.hpp>
-#include <gqe/utility.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <cstdlib>
 #include <limits>

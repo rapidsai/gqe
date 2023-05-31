@@ -16,7 +16,6 @@
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/table.hpp>
 #include <gqe/storage/writeable_view.hpp>
-#include <gqe/utility.hpp>
 
 #include <cstdint>
 #include <memory>

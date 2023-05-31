@@ -10,8 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-#include "utility.hpp"
-
 #include <gqe/catalog.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/logical/read.hpp>
@@ -19,6 +17,7 @@
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/physical/relation.hpp>
 #include <gqe/types.hpp>
+#include <gqe/utility/helpers.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
@@ -77,41 +76,41 @@ int main(int argc, char* argv[])
                                 {"ss_net_paid_inc_tax", cudf::data_type(cudf::type_id::FLOAT64)},
                                 {"ss_net_profit", cudf::data_type(cudf::type_id::FLOAT64)},
                                 {"ss_sold_date_sk", cudf::data_type(cudf::type_id::FLOAT64)}},
-                               gqe::storage_kind::parquet_file{
-                                 gqe::benchmark::get_file_paths(dataset_location + "/store_sales")},
+                               gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(
+                                 dataset_location + "/store_sales")},
                                gqe::partitioning_schema_kind::automatic{});
-  tpcds_catalog.register_table(
-    "in_date_dim",
-    {{"d_date_sk", cudf::data_type(cudf::type_id::INT32)},
-     {"d_date_id", cudf::data_type(cudf::type_id::STRING)},
-     {"d_date", cudf::data_type(cudf::type_id::INT32)},
-     {"d_month_seq", cudf::data_type(cudf::type_id::INT32)},
-     {"d_week_seq", cudf::data_type(cudf::type_id::INT32)},
-     {"d_quarter_seq", cudf::data_type(cudf::type_id::INT32)},
-     {"d_year", cudf::data_type(cudf::type_id::INT32)},
-     {"d_dow", cudf::data_type(cudf::type_id::INT32)},
-     {"d_moy", cudf::data_type(cudf::type_id::INT32)},
-     {"d_dom", cudf::data_type(cudf::type_id::INT32)},
-     {"d_qoy", cudf::data_type(cudf::type_id::INT32)},
-     {"d_fy_year", cudf::data_type(cudf::type_id::INT32)},
-     {"d_fy_quarter_seq", cudf::data_type(cudf::type_id::INT32)},
-     {"d_fy_week_seq", cudf::data_type(cudf::type_id::INT32)},
-     {"d_day_name", cudf::data_type(cudf::type_id::STRING)},
-     {"d_quarter_name", cudf::data_type(cudf::type_id::STRING)},
-     {"d_holiday", cudf::data_type(cudf::type_id::STRING)},
-     {"d_weekend", cudf::data_type(cudf::type_id::STRING)},
-     {"d_following_holiday", cudf::data_type(cudf::type_id::STRING)},
-     {"d_first_dom", cudf::data_type(cudf::type_id::INT32)},
-     {"d_last_dom", cudf::data_type(cudf::type_id::INT32)},
-     {"d_same_day_ly", cudf::data_type(cudf::type_id::INT32)},
-     {"d_same_day_lq", cudf::data_type(cudf::type_id::INT32)},
-     {"d_current_day", cudf::data_type(cudf::type_id::STRING)},
-     {"d_current_week", cudf::data_type(cudf::type_id::STRING)},
-     {"d_current_month", cudf::data_type(cudf::type_id::STRING)},
-     {"d_current_quarter", cudf::data_type(cudf::type_id::STRING)},
-     {"d_current_year", cudf::data_type(cudf::type_id::STRING)}},
-    gqe::storage_kind::parquet_file{gqe::benchmark::get_file_paths(dataset_location + "/date_dim")},
-    gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table("in_date_dim",
+                               {{"d_date_sk", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_date_id", cudf::data_type(cudf::type_id::STRING)},
+                                {"d_date", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_month_seq", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_week_seq", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_quarter_seq", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_year", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_dow", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_moy", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_dom", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_qoy", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_fy_year", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_fy_quarter_seq", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_fy_week_seq", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_day_name", cudf::data_type(cudf::type_id::STRING)},
+                                {"d_quarter_name", cudf::data_type(cudf::type_id::STRING)},
+                                {"d_holiday", cudf::data_type(cudf::type_id::STRING)},
+                                {"d_weekend", cudf::data_type(cudf::type_id::STRING)},
+                                {"d_following_holiday", cudf::data_type(cudf::type_id::STRING)},
+                                {"d_first_dom", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_last_dom", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_same_day_ly", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_same_day_lq", cudf::data_type(cudf::type_id::INT32)},
+                                {"d_current_day", cudf::data_type(cudf::type_id::STRING)},
+                                {"d_current_week", cudf::data_type(cudf::type_id::STRING)},
+                                {"d_current_month", cudf::data_type(cudf::type_id::STRING)},
+                                {"d_current_quarter", cudf::data_type(cudf::type_id::STRING)},
+                                {"d_current_year", cudf::data_type(cudf::type_id::STRING)}},
+                               gqe::storage_kind::parquet_file{
+                                 gqe::utility::get_parquet_files(dataset_location + "/date_dim")},
+                               gqe::partitioning_schema_kind::automatic{});
   tpcds_catalog.register_table(
     "in_item",
     {{"i_item_sk", cudf::data_type(cudf::type_id::INT32)},
@@ -136,7 +135,7 @@ int main(int argc, char* argv[])
      {"i_container", cudf::data_type(cudf::type_id::STRING)},
      {"i_manager_id", cudf::data_type(cudf::type_id::INT32)},
      {"i_product_name", cudf::data_type(cudf::type_id::STRING)}},
-    gqe::storage_kind::parquet_file{gqe::benchmark::get_file_paths(dataset_location + "/item")},
+    gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(dataset_location + "/item")},
     gqe::partitioning_schema_kind::automatic{});
 
   // Register the GQE tables
@@ -278,7 +277,7 @@ int main(int argc, char* argv[])
     [&](auto const& phyiscal_plan) { return graph_builder.build(phyiscal_plan.get()); });
 
   // Execute
-  gqe::benchmark::time_function([&]() {
+  gqe::utility::time_function([&]() {
     std::for_each(task_graphs.begin(), task_graphs.end(), [](auto const& task_graph) {
       gqe::execute_task_graph_single_gpu(task_graph.get());
     });

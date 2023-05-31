@@ -10,8 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-#include "../utility.hpp"
-
 #include <gqe/catalog.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/expression/binary_op.hpp>
@@ -26,6 +24,7 @@
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/sort.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
+#include <gqe/utility/helpers.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
@@ -106,20 +105,20 @@ int main(int argc, char* argv[])
                                {{"d_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"d_day_name", cudf::data_type(cudf::type_id::STRING)},
                                 {"d_year", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::benchmark::get_file_paths(dataset_location + "/date_dim"),
+                               gqe::utility::get_parquet_files(dataset_location + "/date_dim"),
                                gqe::file_format_type::parquet);
   tpcds_catalog.register_table("store_sales",
                                {{"ss_sold_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"ss_store_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"ss_sales_price", cudf::data_type(cudf::type_id::FLOAT64)}},
-                               gqe::benchmark::get_file_paths(dataset_location + "/store_sales"),
+                               gqe::utility::get_parquet_files(dataset_location + "/store_sales"),
                                gqe::file_format_type::parquet);
   tpcds_catalog.register_table("store",
                                {{"s_store_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"s_store_id", cudf::data_type(cudf::type_id::STRING)},
                                 {"s_store_name", cudf::data_type(cudf::type_id::STRING)},
                                 {"s_gmt_offset", cudf::data_type(cudf::type_id::FLOAT64)}},
-                               gqe::benchmark::get_file_paths(dataset_location + "/store"),
+                               gqe::utility::get_parquet_files(dataset_location + "/store"),
                                gqe::file_format_type::parquet);
 
   // Hand-code the logical plan
@@ -239,7 +238,7 @@ int main(int argc, char* argv[])
   gqe::task_graph_builder graph_builder(&tpcds_catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::benchmark::time_function(gqe::execute_task_graph_single_gpu, task_graph.get());
+  gqe::utility::time_function(gqe::execute_task_graph_single_gpu, task_graph.get());
 
   // Output the result to disk
   assert(task_graph->root_tasks.size() == 1);

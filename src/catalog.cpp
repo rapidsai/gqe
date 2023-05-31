@@ -14,7 +14,7 @@
 #include <gqe/storage/parquet.hpp>
 #include <gqe/storage/writeable_view.hpp>
 #include <gqe/types.hpp>
-#include <gqe/utility.hpp>
+#include <gqe/utility/helpers.hpp>
 
 #include <memory>
 #include <optional>

@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -10,12 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-#include "utility.hpp"
-
 #include <gqe/catalog.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/logical/from_substrait.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
+#include <gqe/utility/helpers.hpp>
 
 #include <cudf/io/parquet.hpp>
 
@@ -81,7 +80,7 @@ int main(int argc, char* argv[])
                                 {"ss_net_paid", decimal_type},
                                 {"ss_net_paid_inc_tax", decimal_type},
                                 {"ss_net_profit", decimal_type}},
-                               gqe::benchmark::get_file_paths(dataset_location + "/store_sales"),
+                               gqe::utility::get_parquet_files(dataset_location + "/store_sales"),
                                gqe::file_format_type::parquet);
 
   tpcds_catalog.register_table("date_dim",
@@ -113,7 +112,7 @@ int main(int argc, char* argv[])
                                 {"d_current_month", string_type},
                                 {"d_current_quarter", string_type},
                                 {"d_current_year", string_type}},
-                               gqe::benchmark::get_file_paths(dataset_location + "/date_dim"),
+                               gqe::utility::get_parquet_files(dataset_location + "/date_dim"),
                                gqe::file_format_type::parquet);
 
   tpcds_catalog.register_table(
@@ -129,7 +128,7 @@ int main(int argc, char* argv[])
      {"i_formulation", string_type},     {"i_color", string_type},
      {"i_units", string_type},           {"i_container", string_type},
      {"i_manager_id", integer_type},     {"i_product_name", string_type}},
-    gqe::benchmark::get_file_paths(dataset_location + "/item"),
+    gqe::utility::get_parquet_files(dataset_location + "/item"),
     gqe::file_format_type::parquet);
 
   tpcds_catalog.register_table(
@@ -143,7 +142,7 @@ int main(int argc, char* argv[])
      {"cd_dep_count", integer_type},
      {"cd_dep_employed_count", integer_type},
      {"cd_dep_college_count", integer_type}},
-    gqe::benchmark::get_file_paths(dataset_location + "/customer_demographics"),
+    gqe::utility::get_parquet_files(dataset_location + "/customer_demographics"),
     gqe::file_format_type::parquet);
 
   tpcds_catalog.register_table("promotion",
@@ -166,7 +165,7 @@ int main(int argc, char* argv[])
                                 {"p_channel_details", string_type},
                                 {"p_purpose", string_type},
                                 {"p_discount_active", string_type}},
-                               gqe::benchmark::get_file_paths(dataset_location + "/promotion"),
+                               gqe::utility::get_parquet_files(dataset_location + "/promotion"),
                                gqe::file_format_type::parquet);
 
   tpcds_catalog.register_table("store",
@@ -199,7 +198,7 @@ int main(int argc, char* argv[])
                                 {"s_country", string_type},
                                 {"s_gmt_offset", decimal_type},
                                 {"s_tax_percentage", decimal_type}},
-                               gqe::benchmark::get_file_paths(dataset_location + "/store"),
+                               gqe::utility::get_parquet_files(dataset_location + "/store"),
                                gqe::file_format_type::parquet);
 
   tpcds_catalog.register_table(
@@ -217,7 +216,7 @@ int main(int argc, char* argv[])
      {"ca_country", string_type},
      {"ca_gmt_offset", decimal_type},
      {"ca_location_type", string_type}},
-    gqe::benchmark::get_file_paths(dataset_location + "/customer_address"),
+    gqe::utility::get_parquet_files(dataset_location + "/customer_address"),
     gqe::file_format_type::parquet);
 
   gqe::substrait_parser parser(&tpcds_catalog);
@@ -230,7 +229,7 @@ int main(int argc, char* argv[])
   gqe::task_graph_builder graph_builder(&tpcds_catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::benchmark::time_function(gqe::execute_task_graph_single_gpu, task_graph.get());
+  gqe::utility::time_function(gqe::execute_task_graph_single_gpu, task_graph.get());
 
   assert(task_graph->root_tasks.size() == 1);
   auto destination = cudf::io::sink_info("output.parquet");

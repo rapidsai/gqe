@@ -247,8 +247,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
                                                              concatenated_right_task,
                                                              relation_join_type,
                                                              relation->condition()->clone(),
-                                                             relation->projection_indices(),
-                                                             relation->compare_nulls()));
+                                                             relation->projection_indices()));
       _builder->_current_task_id++;
     }
   } else {
@@ -275,8 +274,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
                                                              std::move(right_task),
                                                              relation_join_type,
                                                              relation->condition()->clone(),
-                                                             relation->projection_indices(),
-                                                             relation->compare_nulls()));
+                                                             relation->projection_indices()));
       _builder->_current_task_id++;
     }
   }

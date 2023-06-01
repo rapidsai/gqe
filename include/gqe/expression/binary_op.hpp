@@ -298,6 +298,42 @@ class equal_expression : public binary_op_expression {
   }
 };
 
+// Returns true when both operands are null; false when one is null; the result of equality when
+// both are non-null
+class nulls_equal_expression : public binary_op_expression {
+ public:
+  nulls_equal_expression(std::shared_ptr<expression> lhs, std::shared_ptr<expression> rhs)
+    : binary_op_expression(cudf::binary_operator::NULL_EQUALS, std::move(lhs), std::move(rhs))
+  {
+  }
+
+  /**
+   * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
+   */
+  [[nodiscard]] cudf::data_type data_type(std::vector<cudf::data_type> const&) const final
+  {
+    return cudf::data_type(cudf::type_id::BOOL8);
+  }
+
+  /**
+   * @copydoc gqe::expression::to_string()
+   */
+  [[nodiscard]] std::string to_string() const noexcept final
+  {
+    auto child_exprs = children();
+    assert(child_exprs.size() == 2);
+    return child_exprs[0]->to_string() + " is_not_distinct_from " + child_exprs[1]->to_string();
+  }
+
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<nulls_equal_expression>(*this);
+  }
+};
+
 // operator !=
 class not_equal_expression : public binary_op_expression {
  public:

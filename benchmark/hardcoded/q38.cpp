@@ -244,14 +244,15 @@ int main(int argc, char* argv[])
   // intersections. Note that SQL considers NULL keys to be equal in set operations.
   auto intersect_condition = std::make_unique<gqe::logical_and_expression>(
     std::make_shared<gqe::logical_and_expression>(
-      std::make_shared<gqe::equal_expression>(
+      std::make_shared<gqe::nulls_equal_expression>(
         std::make_shared<gqe::column_reference_expression>(0),
         std::make_shared<gqe::column_reference_expression>(3)),
-      std::make_shared<gqe::equal_expression>(
+      std::make_shared<gqe::nulls_equal_expression>(
         std::make_shared<gqe::column_reference_expression>(1),
         std::make_shared<gqe::column_reference_expression>(4))),
-    std::make_shared<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(2),
-                                            std::make_shared<gqe::column_reference_expression>(5)));
+    std::make_shared<gqe::nulls_equal_expression>(
+      std::make_shared<gqe::column_reference_expression>(2),
+      std::make_shared<gqe::column_reference_expression>(5)));
 
   auto catalog_web_intersection = std::make_shared<gqe::logical::join_relation>(
     std::move(catalog_sales_table),
@@ -259,8 +260,7 @@ int main(int argc, char* argv[])
     std::vector<std::shared_ptr<gqe::logical::relation>>(),
     intersect_condition->clone(),
     gqe::join_type_type::inner,
-    std::vector<cudf::size_type>({0, 1, 2}),
-    cudf::null_equality::EQUAL);
+    std::vector<cudf::size_type>({0, 1, 2}));
 
   auto logical_plan = std::make_shared<gqe::logical::join_relation>(
     std::move(store_sales_table),
@@ -268,8 +268,7 @@ int main(int argc, char* argv[])
     std::vector<std::shared_ptr<gqe::logical::relation>>(),
     intersect_condition->clone(),
     gqe::join_type_type::inner,
-    std::vector<cudf::size_type>({0, 1, 2}),
-    cudf::null_equality::EQUAL);
+    std::vector<cudf::size_type>({0, 1, 2}));
 
   gqe::physical_plan_builder plan_builder(&tpcds_catalog);
   auto physical_plan = plan_builder.build(logical_plan.get());

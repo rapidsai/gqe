@@ -287,6 +287,8 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::_parse_scalar_function_e
       return std::make_unique<gqe::greater_equal_expression>(std::move(lhs), std::move(rhs));
     else if (function_name == "lte" || function_name == "lte:any_any")
       return std::make_unique<gqe::less_equal_expression>(std::move(lhs), std::move(rhs));
+    else if (function_name == "is_not_distinct_from")
+      return std::make_unique<gqe::nulls_equal_expression>(std::move(lhs), std::move(rhs));
     else
       throw std::runtime_error("SubstraitParser cannot parse binary scalar function \"" +
                                function_name + "\"");
@@ -587,8 +589,13 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_join_relati
     case substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_SINGLE:
       join_type = join_type_type::single;
       break;
-    // TODO: Add left_semi, left_anti
-    default: throw std::runtime_error("SubstraitParser: unsupported join type");
+    case substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_SEMI:
+      join_type = join_type_type::left_semi;
+      break;
+    // TODO: Add left_anti
+    default:
+      throw std::runtime_error("SubstraitParser: unsupported join type " +
+                               std::to_string(join_relation.type()));
   }
 
   // Construct and return join relation

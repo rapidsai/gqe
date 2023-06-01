@@ -42,20 +42,17 @@ class join_relation_base : public relation {
    * tuple.
    * @param[in] projection_indices Column indices to materialize after the join. The rest of columns
    * are discarded.
-   * @param[in] compare_nulls Whether NULL keys should match or not.
    */
   join_relation_base(std::shared_ptr<relation> left,
                      std::shared_ptr<relation> right,
                      std::vector<std::shared_ptr<relation>> subquery_relations,
                      join_type_type join_type,
                      std::unique_ptr<expression> condition,
-                     std::vector<cudf::size_type> projection_indices,
-                     cudf::null_equality compare_nulls)
+                     std::vector<cudf::size_type> projection_indices)
     : relation({std::move(left), std::move(right)}, std::move(subquery_relations)),
       _join_type(join_type),
       _condition(std::move(condition)),
-      _projection_indices(std::move(projection_indices)),
-      _compare_nulls(compare_nulls)
+      _projection_indices(std::move(projection_indices))
   {
   }
 
@@ -80,16 +77,10 @@ class join_relation_base : public relation {
     return _projection_indices;
   }
 
-  /**
-   * @brief Return whether NULL keys should match or not.
-   */
-  [[nodiscard]] cudf::null_equality compare_nulls() const noexcept { return _compare_nulls; }
-
  private:
   join_type_type _join_type;
   std::unique_ptr<expression> _condition;
   std::vector<cudf::size_type> _projection_indices;
-  cudf::null_equality _compare_nulls;
 };
 
 /**
@@ -114,7 +105,6 @@ class broadcast_join_relation : public join_relation_base {
    * tuple.
    * @param[in] projection_indices Column indices to materialize after the join. The rest of columns
    * are discarded.
-   * @param[in] compare_nulls Whether NULL keys should match or not.
    * @param[in] policy Whether to broadcast the right relation or the left relation.
    */
   broadcast_join_relation(std::shared_ptr<relation> left,
@@ -123,15 +113,13 @@ class broadcast_join_relation : public join_relation_base {
                           join_type_type join_type,
                           std::unique_ptr<expression> condition,
                           std::vector<cudf::size_type> projection_indices,
-                          cudf::null_equality compare_nulls,
                           broadcast_policy policy)
     : join_relation_base(std::move(left),
                          std::move(right),
                          std::move(subquery_relations),
                          join_type,
                          std::move(condition),
-                         std::move(projection_indices),
-                         compare_nulls),
+                         std::move(projection_indices)),
       _policy(policy)
   {
   }

@@ -34,13 +34,11 @@ join_task::join_task(int32_t task_id,
                      std::shared_ptr<task> right,
                      join_type_type join_type,
                      std::unique_ptr<expression> condition,
-                     std::vector<cudf::size_type> projection_indices,
-                     cudf::null_equality compare_nulls)
+                     std::vector<cudf::size_type> projection_indices)
   : task(task_id, stage_id, {std::move(left), std::move(right)}, {}),
     _join_type(join_type),
     _condition(std::move(condition)),
-    _projection_indices(std::move(projection_indices)),
-    _compare_nulls(compare_nulls)
+    _projection_indices(std::move(projection_indices))
 {
 }
 
@@ -60,6 +58,15 @@ class join_keys_container {
   join_keys_container(cudf::table_view left, cudf::table_view right)
     : _left(std::move(left)), _right(std::move(right))
   {
+  }
+
+  void update_null_equality(cudf::null_equality policy)
+  {
+    if (_compare_nulls.has_value() && _compare_nulls.value() != policy)
+      throw std::runtime_error(
+        "Mixed null equalities in a single join expression is not supported");
+    else
+      _compare_nulls = policy;
   }
 
   /**
@@ -87,6 +94,12 @@ class join_keys_container {
       case cudf::binary_operator::EQUAL:
         left_keys_expr.push_back(child_exprs[0]);
         right_keys_expr.push_back(child_exprs[1]);
+        update_null_equality(cudf::null_equality::UNEQUAL);
+        break;
+      case cudf::binary_operator::NULL_EQUALS:
+        left_keys_expr.push_back(child_exprs[0]);
+        right_keys_expr.push_back(child_exprs[1]);
+        update_null_equality(cudf::null_equality::EQUAL);
         break;
       case cudf::binary_operator::LOGICAL_AND:
         // If the top-level expression is AND, we recursively parse the two children expressions
@@ -152,12 +165,24 @@ class join_keys_container {
    */
   std::vector<cudf::column_view> const& right_keys() { return _right_keys; }
 
+  /**
+   * @brief Return the parsed null equality policy.
+   */
+  cudf::null_equality compare_nulls()
+  {
+    if (_compare_nulls.has_value())
+      return _compare_nulls.value();
+    else
+      throw std::runtime_error("Invalid access of uninitialized null equality policy");
+  }
+
  private:
   cudf::table_view _left;
   cudf::table_view _right;
   std::vector<cudf::column_view> _left_keys;
   std::vector<cudf::column_view> _right_keys;
   std::vector<std::unique_ptr<cudf::column>> _column_cache;
+  std::optional<cudf::null_equality> _compare_nulls;
 };
 
 /**
@@ -223,6 +248,7 @@ void join_task::execute()
   join_keys.add_join_condition(_condition.get());
   cudf::table_view left_keys(join_keys.left_keys());
   cudf::table_view right_keys(join_keys.right_keys());
+  cudf::null_equality compare_nulls(join_keys.compare_nulls());
 
   // Execute the join and get the result indicies
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_indices;
@@ -231,21 +257,19 @@ void join_task::execute()
   switch (_join_type) {
     case join_type_type::inner:
       std::tie(left_indices, right_indices) =
-        cudf::inner_join(left_keys, right_keys, _compare_nulls);
+        cudf::inner_join(left_keys, right_keys, compare_nulls);
       break;
     case join_type_type::left:
-      std::tie(left_indices, right_indices) =
-        cudf::left_join(left_keys, right_keys, _compare_nulls);
+      std::tie(left_indices, right_indices) = cudf::left_join(left_keys, right_keys, compare_nulls);
       break;
     case join_type_type::left_semi:
-      left_indices = cudf::left_semi_join(left_keys, right_keys, _compare_nulls);
+      left_indices = cudf::left_semi_join(left_keys, right_keys, compare_nulls);
       break;
     case join_type_type::left_anti:
-      left_indices = cudf::left_anti_join(left_keys, right_keys, _compare_nulls);
+      left_indices = cudf::left_anti_join(left_keys, right_keys, compare_nulls);
       break;
     case join_type_type::full:
-      std::tie(left_indices, right_indices) =
-        cudf::full_join(left_keys, right_keys, _compare_nulls);
+      std::tie(left_indices, right_indices) = cudf::full_join(left_keys, right_keys, compare_nulls);
       break;
     default: throw std::logic_error("Unknown join type");
   }

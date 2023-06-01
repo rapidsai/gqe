@@ -122,7 +122,6 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
         logical_join_relation->join_type(),
         logical_join_relation->condition()->clone(),
         logical_join_relation->projection_indices(),
-        logical_join_relation->compare_nulls(),
         policy);
       break;
     }
@@ -273,7 +272,6 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
           join_type_type::inner,
           std::move(join_condition),
           std::move(join_indices),
-          cudf::null_equality::UNEQUAL,
           physical::broadcast_policy::right);
       }
       // Use physical window relation
@@ -329,7 +327,6 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
           join_type_type::inner,
           std::move(join_condition),
           std::move(join_indices),
-          cudf::null_equality::UNEQUAL,
           physical::broadcast_policy::right);
       } else {
         throw std::runtime_error(

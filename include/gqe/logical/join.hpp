@@ -28,16 +28,13 @@ class join_relation : public relation {
    * @param join_type Type of join
    * @param projection_indices Column indices to materialize after the join. The rest of columns
    * are discarded.
-   * @param compare_nulls Whether NULL keys should match or not. By default, a JOIN in SQL treats
-   * NULL keys as not equal, but the set operators like INTERSECT treat NULLs as equal.
    */
   join_relation(std::shared_ptr<relation> left,
                 std::shared_ptr<relation> right,
                 std::vector<std::shared_ptr<relation>> subquery_relations,
                 std::unique_ptr<expression> condition,
                 join_type_type join_type,
-                std::vector<cudf::size_type> projection_indices,
-                cudf::null_equality compare_nulls = cudf::null_equality::UNEQUAL);
+                std::vector<cudf::size_type> projection_indices);
 
   /**
    * @copydoc relation::type()
@@ -83,17 +80,11 @@ class join_relation : public relation {
     return _projection_indices;
   }
 
-  /**
-   * @brief Return whether NULL keys should match or not.
-   */
-  [[nodiscard]] cudf::null_equality compare_nulls() const noexcept { return _compare_nulls; }
-
  private:
   void _init_data_types() const;
   std::unique_ptr<expression> _condition;
   join_type_type _join_type;
   std::vector<cudf::size_type> _projection_indices;
-  cudf::null_equality _compare_nulls;
   mutable std::vector<cudf::data_type> _data_types;
 };
 

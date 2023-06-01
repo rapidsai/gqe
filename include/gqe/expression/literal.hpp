@@ -17,6 +17,7 @@
 #include <cudf/types.hpp>
 #include <cudf/utilities/traits.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
+#include <cudf/wrappers/timestamps.hpp>
 
 #include <string>
 #include <typeinfo>
@@ -83,6 +84,8 @@ class literal_expression : public gqe::expression {
       value_string = "NULL";
     } else if constexpr (std::is_convertible_v<T, std::string>) {
       value_string = _value;
+    } else if constexpr (std::is_convertible_v<T, cudf::timestamp_D>) {
+      value_string = "date";  // TODO: format _value into string
     } else {
       value_string = std::to_string(_value);
     }

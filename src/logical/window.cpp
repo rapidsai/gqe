@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <cudf/aggregation.hpp>
 #include <gqe/logical/utility.hpp>
 #include <gqe/logical/window.hpp>
 
@@ -55,11 +56,15 @@ std::string window_relation::to_string() const
 {
   std::string window_relation_string = "{\"Window\" : {\n";
   window_relation_string +=
-    "\t\"arguments\" : \"" + utility::list_to_string(arguments_unsafe()) + "\",\n";
+    "\t\"cudf::aggregation::Kind\" : " +
+    std::to_string(static_cast<std::underlying_type<cudf::aggregation::Kind>::type>(aggr_func())) +
+    ",\n";
+  window_relation_string +=
+    "\t\"arguments\" : " + utility::list_to_string(arguments_unsafe()) + ",\n";
   window_relation_string +=
     "\t\"order_by\" : " + utility::list_to_string(order_by_unsafe()) + ",\n";
   window_relation_string +=
-    "\t\"partition_by\" : " + utility::list_to_string(partition_by_unsafe()) + "\n";
+    "\t\"partition_by\" : " + utility::list_to_string(partition_by_unsafe()) + ",\n";
   window_relation_string += "\t\"data types\" : " + utility::list_to_string(data_types()) + ",\n";
   // Children
   window_relation_string += "\t\"children\" : " + utility::list_to_string(children_unsafe()) + "\n";

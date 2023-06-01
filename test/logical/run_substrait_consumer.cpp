@@ -35,7 +35,9 @@ int main(int argc, char** argv)
   auto const decimal_type    = cudf::data_type(cudf::type_id::FLOAT64);
   auto const string_type     = cudf::data_type(cudf::type_id::STRING);
   auto const date_type       = cudf::data_type(cudf::type_id::TIMESTAMP_DAYS);
+
   gqe::catalog tpcds_catalog;
+
   tpcds_catalog.register_table("store_sales",
                                {{"ss_sold_date_sk", identifier_type},
                                 {"ss_sold_time_sk", identifier_type},
@@ -198,24 +200,25 @@ int main(int argc, char** argv)
                                gqe::partitioning_schema_kind::automatic{});
 
   tpcds_catalog.register_table("customer",
-                               {{"c_customer_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"c_last_name", cudf::data_type(cudf::type_id::STRING)},
-                                {"c_first_name", cudf::data_type(cudf::type_id::STRING)},
-                                {"c_current_addr_sk", cudf::data_type(cudf::type_id::INT64)}},
+                               {{"c_customer_sk", integer_type},
+                                {"c_last_name", string_type},
+                                {"c_first_name", string_type},
+                                {"c_current_addr_sk", integer_type}},
                                gqe::storage_kind::parquet_file{{"/customer"}},
                                gqe::partitioning_schema_kind::automatic{});
-  tpcds_catalog.register_table("catalog_sales",
-                               {{"cs_sold_date_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"cs_bill_customer_sk", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::storage_kind::parquet_file{{"/catalog_sales"}},
-                               gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table(
+    "catalog_sales",
+    {{"cs_sold_date_sk", integer_type}, {"cs_bill_customer_sk", integer_type}},
+    gqe::storage_kind::parquet_file{{"/catalog_sales"}},
+    gqe::partitioning_schema_kind::automatic{});
 
   tpcds_catalog.register_table("web_sales",
-                               {{"ws_sold_date_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"ws_bill_customer_sk", cudf::data_type(cudf::type_id::INT64)}},
+                               {{"ws_sold_date_sk", integer_type},
+                                {"ws_bill_customer_sk", integer_type},
+                                {"ws_item_sk", integer_type},
+                                {"ws_ext_sales_price", decimal_type}},
                                gqe::storage_kind::parquet_file{{"/web_sales"}},
                                gqe::partitioning_schema_kind::automatic{});
-
   // Read and parse substrait file
   gqe::substrait_parser parser(&tpcds_catalog);
   std::vector<std::shared_ptr<gqe::logical::relation>> query_plan =

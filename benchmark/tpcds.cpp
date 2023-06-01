@@ -171,6 +171,13 @@ int main(int argc, char* argv[])
                                  gqe::utility::get_parquet_files(dataset_location + "/promotion")},
                                gqe::partitioning_schema_kind::automatic{});
 
+  tpcds_catalog.register_table("web_sales",
+                               {{"ws_sold_date_sk", identifier_type},
+                                {"ws_item_sk", identifier_type},
+                                {"ws_ext_sales_price", decimal_type}},
+                               gqe::utility::get_parquet_files(dataset_location + "/web_sales"),
+                               gqe::file_format_type::parquet);
+
   tpcds_catalog.register_table(
     "store",
     {{"s_store_sk", identifier_type},

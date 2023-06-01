@@ -17,6 +17,7 @@
 #include <gqe/expression/expression.hpp>
 #include <gqe/logical/relation.hpp>
 
+#include <memory>
 #include <substrait/algebra.pb.h>
 #include <substrait/plan.pb.h>
 
@@ -151,6 +152,34 @@ class substrait_parser {
    */
   std::unique_ptr<gqe::expression> parse_subquery_expression(
     substrait::Expression_Subquery const& subquery_expression,
+    std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const;
+
+  /**
+   * @brief Parse Substrait SortFields into `expressions`, `columns_orders` and `null_precedences`
+   *
+   * @param sorts List of Substrait SortFields
+   * @param expressions Parsed sort expressions
+   * @param column_orders Parsed sort directions for all sort fields
+   * @param null_precedences Parsed null orders for all sort fields
+   * @param subquery_relations Vector reference to store subquery relations
+   */
+  void parse_sorts(google::protobuf::RepeatedPtrField<substrait::SortField> const& sorts,
+                   std::vector<std::unique_ptr<gqe::expression>>& expressions,
+                   std::vector<cudf::order>& column_orders,
+                   std::vector<cudf::null_order>& null_precedences,
+                   std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const;
+
+  /**
+   * @brief Parse Substrait WindowFunction expression into gqe window function relation
+   *
+   * @param window_function_expression Substrait WindowFunction to parse
+   * @param input_relation Input relation for the parsed window function relation
+   * @param subquery_relations Vector reference to store subquery relations
+   * @return The parsed window function relation
+   */
+  std::unique_ptr<gqe::logical::relation> parse_window_function_expression(
+    substrait::Expression::WindowFunction const& window_function_expression,
+    std::unique_ptr<gqe::logical::relation> input_relation,
     std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const;
 
   // TODO: Add more expressions

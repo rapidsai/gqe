@@ -24,9 +24,8 @@
 #include <gqe/logical/project.hpp>
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/sort.hpp>
+#include <gqe/logical/window.hpp>
 
-#include <optional>
-#include <string>
 #include <substrait/algebra.pb.h>
 
 #include <cassert>
@@ -153,8 +152,6 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression
   substrait::Expression_Literal const& literal_expression) const
 {
   // TODO:
-  // - Support
-  //  - substrait::Expression_Literal::LiteralTypeCase::kDate
   // - Add unit test for all cases. For now, only i32, decimal, and NULL has been validated with
   // real plan
   switch (literal_expression.literal_type_case()) {
@@ -177,6 +174,11 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression
     case substrait::Expression_Literal::LiteralTypeCase::kFixedChar:
       return std::make_unique<gqe::literal_expression<std::string>>(
         literal_expression.fixed_char());
+    case substrait::Expression_Literal::LiteralTypeCase::kDate: {
+      cudf::duration_D duration(literal_expression.date());
+      cudf::timestamp_D date(duration);
+      return std::make_unique<gqe::literal_expression<cudf::timestamp_D>>(date);
+    }
     case substrait::Expression_Literal::LiteralTypeCase::kDecimal: {
       // For now, always parse a decimal into a floating point number
       auto fixed_point_value = from_substrait_decimal(literal_expression.decimal());
@@ -226,6 +228,7 @@ cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
     case substrait::Type::kFp64: return cudf::data_type(cudf::type_id::FLOAT64);
     case substrait::Type::kString:
     case substrait::Type::kVarchar: return cudf::data_type(cudf::type_id::STRING);
+    case substrait::Type::kDate: return cudf::data_type(cudf::type_id::DURATION_DAYS);
     case substrait::Type::kDecimal:
       // Decimal is encoded as 16-byte little-endian
       // source: https://substrait.io/types/type_classes/#compound-types
@@ -289,6 +292,14 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::_parse_scalar_function_e
       return std::make_unique<gqe::less_equal_expression>(std::move(lhs), std::move(rhs));
     else if (function_name == "is_not_distinct_from")
       return std::make_unique<gqe::nulls_equal_expression>(std::move(lhs), std::move(rhs));
+    else if (function_name == "add")
+      return std::make_unique<gqe::add_expression>(std::move(lhs), std::move(rhs));
+    else if (function_name == "substract")
+      return std::make_unique<gqe::subtract_expression>(std::move(lhs), std::move(rhs));
+    else if (function_name == "multiply")
+      return std::make_unique<gqe::multiply_expression>(std::move(lhs), std::move(rhs));
+    else if (function_name == "divide")
+      return std::make_unique<gqe::divide_expression>(std::move(lhs), std::move(rhs));
     else
       throw std::runtime_error("SubstraitParser cannot parse binary scalar function \"" +
                                function_name + "\"");
@@ -358,6 +369,117 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_relation(
     return parse_aggregate_relation(relation.aggregate());
   else
     throw std::runtime_error("Unsupported relation type");
+}
+
+namespace {
+gqe::window_frame_bound::type parse_window_bound(
+  substrait::Expression_WindowFunction_Bound const& bound)
+{
+  if (bound.has_unbounded()) {
+    return gqe::window_frame_bound::unbounded{};
+  } else if (bound.has_preceding()) {
+    auto offset = bound.preceding().offset();
+    return gqe::window_frame_bound::bounded{-1 * offset};
+  } else if (bound.has_following()) {
+    auto offset = bound.following().offset();
+    return gqe::window_frame_bound::bounded{offset};
+  } else if (bound.has_current_row()) {
+    return gqe::window_frame_bound::bounded{0};
+  } else {
+    throw std::runtime_error("Unsupported bound type " + std::to_string(bound.kind_case()));
+  }
+}
+}  // namespace
+
+void gqe::substrait_parser::parse_sorts(
+  google::protobuf::RepeatedPtrField<substrait::SortField> const& sorts,
+  std::vector<std::unique_ptr<gqe::expression>>& expressions,
+  std::vector<cudf::order>& column_orders,
+  std::vector<cudf::null_order>& null_precedences,
+  std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
+{
+  for (auto const& sort_order : sorts) {
+    if (!sort_order.has_direction())
+      throw std::runtime_error("Does not support sort with comparison function reference");
+
+    expressions.push_back(parse_expression(sort_order.expr(), subquery_relations));
+
+    switch (sort_order.direction()) {
+      case substrait::SortField_SortDirection::
+        SortField_SortDirection_SORT_DIRECTION_ASC_NULLS_FIRST:
+        column_orders.push_back(cudf::order::ASCENDING);
+        null_precedences.push_back(cudf::null_order::BEFORE);
+        break;
+      case substrait::SortField_SortDirection::
+        SortField_SortDirection_SORT_DIRECTION_ASC_NULLS_LAST:
+        column_orders.push_back(cudf::order::ASCENDING);
+        null_precedences.push_back(cudf::null_order::AFTER);
+        break;
+      case substrait::SortField_SortDirection::
+        SortField_SortDirection_SORT_DIRECTION_DESC_NULLS_FIRST:
+        column_orders.push_back(cudf::order::DESCENDING);
+        null_precedences.push_back(cudf::null_order::BEFORE);
+        break;
+      case substrait::SortField_SortDirection::
+        SortField_SortDirection_SORT_DIRECTION_DESC_NULLS_LAST:
+        column_orders.push_back(cudf::order::DESCENDING);
+        null_precedences.push_back(cudf::null_order::AFTER);
+        break;
+      default: throw std::runtime_error("Unsupported SortField_SortDirection");
+    }
+  }
+}
+
+std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_window_function_expression(
+  substrait::Expression::WindowFunction const& window_function_expression,
+  std::unique_ptr<gqe::logical::relation> input_relation,
+  std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
+{
+  auto function_name         = get_function_name(window_function_expression.function_reference());
+  [[maybe_unused]] int nargs = window_function_expression.arguments_size();
+  cudf::aggregation::Kind aggr_func;
+  std::vector<std::unique_ptr<expression>> arguments;
+  std::vector<std::unique_ptr<expression>> order_by;
+  std::vector<std::unique_ptr<expression>> partition_by;
+  std::vector<cudf::order> order_dirs;
+  // NULL precedences are currently set but not used
+  // TODO: Add to window relation
+  [[maybe_unused]] std::vector<cudf::null_order> null_precedences;
+
+  window_frame_bound::type window_lower_bound =
+    parse_window_bound(window_function_expression.lower_bound());
+  window_frame_bound::type window_upper_bound =
+    parse_window_bound(window_function_expression.upper_bound());
+
+  if (function_name == "rank") {
+    assert(nargs == 0);
+    aggr_func = cudf::aggregation::Kind::RANK;
+  } else if (function_name == "sum") {
+    assert(nargs == 1);
+    aggr_func = cudf::aggregation::Kind::SUM;
+    arguments.push_back(
+      parse_expression(window_function_expression.arguments().Get(0).value(), subquery_relations));
+  } else {
+    throw std::runtime_error("SubstraitParser cannot parse aggr/window function \"" +
+                             function_name + "\"");
+  }
+
+  for (auto partition_expr : window_function_expression.partitions()) {
+    partition_by.push_back(parse_expression(partition_expr, subquery_relations));
+  }
+
+  parse_sorts(
+    window_function_expression.sorts(), order_by, order_dirs, null_precedences, subquery_relations);
+
+  return std::make_unique<gqe::logical::window_relation>(std::move(input_relation),
+                                                         std::move(subquery_relations),
+                                                         aggr_func,
+                                                         std::move(arguments),
+                                                         std::move(order_by),
+                                                         std::move(partition_by),
+                                                         std::move(order_dirs),
+                                                         window_lower_bound,
+                                                         window_upper_bound);
 }
 
 std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_filter_relation(
@@ -489,36 +611,9 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_sort_relati
   null_precedences.reserve(num_sorts);
   expressions.reserve(num_sorts);
 
-  for (auto const& sort_order : sort_relation.sorts()) {
-    if (!sort_order.has_direction())
-      throw std::runtime_error("Does not support sort with comparison function reference");
+  parse_sorts(
+    sort_relation.sorts(), expressions, column_orders, null_precedences, subquery_relations);
 
-    expressions.push_back(parse_expression(sort_order.expr(), subquery_relations));
-
-    switch (sort_order.direction()) {
-      case substrait::SortField_SortDirection::
-        SortField_SortDirection_SORT_DIRECTION_ASC_NULLS_FIRST:
-        column_orders.push_back(cudf::order::ASCENDING);
-        null_precedences.push_back(cudf::null_order::BEFORE);
-        break;
-      case substrait::SortField_SortDirection::
-        SortField_SortDirection_SORT_DIRECTION_ASC_NULLS_LAST:
-        column_orders.push_back(cudf::order::ASCENDING);
-        null_precedences.push_back(cudf::null_order::AFTER);
-        break;
-      case substrait::SortField_SortDirection::
-        SortField_SortDirection_SORT_DIRECTION_DESC_NULLS_FIRST:
-        column_orders.push_back(cudf::order::DESCENDING);
-        null_precedences.push_back(cudf::null_order::BEFORE);
-        break;
-      case substrait::SortField_SortDirection::
-        SortField_SortDirection_SORT_DIRECTION_DESC_NULLS_LAST:
-        column_orders.push_back(cudf::order::DESCENDING);
-        null_precedences.push_back(cudf::null_order::AFTER);
-        break;
-      default: throw std::runtime_error("Unsupported SortField_SortDirection");
-    }
-  }
   return std::make_unique<gqe::logical::sort_relation>(std::move(input_relation),
                                                        std::move(subquery_relations),
                                                        std::move(column_orders),
@@ -536,7 +631,22 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_project_rel
   std::vector<std::unique_ptr<gqe::expression>> output_expressions;
   std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
   for (auto& expression : project_relation.expressions()) {
-    output_expressions.push_back(parse_expression(expression, subquery_relations));
+    // If the expression is WindowFunction, turn into a Window relation before returning and replace
+    // the window expression with a column reference in this Projection's expression list.
+    // Otherwise, add expression to the Projection's expression list.
+    // TODO: Handle window functions nested in other expressions.
+    //       For example, if the Substrait plan contains an expression in the form of `f(window0,
+    //       window1)`. To handle relation nested in expression, we can most likely use the same
+    //       logic as subquery relations.
+    if (expression.has_window_function()) {
+      input_relation = parse_window_function_expression(
+        expression.window_function(), std::move(input_relation), subquery_relations);
+      // Replace window function expression with column reference
+      output_expressions.push_back(std::make_unique<gqe::column_reference_expression>(
+        input_relation->data_types().size() - 1));
+    } else {
+      output_expressions.push_back(parse_expression(expression, subquery_relations));
+    }
   }
 
   return std::make_unique<gqe::logical::project_relation>(

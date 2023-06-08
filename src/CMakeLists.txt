@@ -55,6 +55,7 @@ add_library(
     optimizer/estimator.cpp
     storage/parquet.cpp
     catalog.cpp
+    utility/tpcds.cpp
 )
 
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)

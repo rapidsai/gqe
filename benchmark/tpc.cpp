@@ -16,6 +16,7 @@
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/tpcds.hpp>
+#include <gqe/utility/tpch.hpp>
 
 #include <cudf/io/parquet.hpp>
 
@@ -29,19 +30,25 @@
 
 void print_usage()
 {
-  std::cout << "Run TPC-DS benchmark" << std::endl
-            << "./tpcds <path-to-substrait-plan> <path-to-dataset>" << std::endl;
+  std::cout << "Run TPC benchmark" << std::endl
+            << "./tpc <{ds, h}> <path-to-substrait-plan> <path-to-dataset>" << std::endl;
 }
 
 int main(int argc, char* argv[])
 {
-  if (argc != 3) {
+  if (argc != 4) {
     print_usage();
     return 0;
   }
 
-  std::string const substrait_plan_file(argv[1]);
-  std::string const dataset_location(argv[2]);
+  std::string const tpc_type(argv[1]);
+  if (tpc_type != "ds" && tpc_type != "h") {
+    print_usage();
+    return 0;
+  }
+
+  std::string const substrait_plan_file(argv[2]);
+  std::string const dataset_location(argv[3]);
 
   // Configure the memory pool
   // FIXME: For multi-GPU, we need to construct a memory pool for each device
@@ -49,25 +56,27 @@ int main(int argc, char* argv[])
   rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource> pool_mr{&cuda_mr};
   rmm::mr::set_current_device_resource(&pool_mr);
 
-  gqe::catalog tpcds_catalog;
+  gqe::catalog catalog;
 
   // register all tables
-  for (auto const& [name, definition] : gqe::utility::tpcds::table_definitions()) {
-    tpcds_catalog.register_table(name,
-                                 definition,
-                                 gqe::storage_kind::parquet_file{
-                                   gqe::utility::get_parquet_files(dataset_location + "/" + name)},
-                                 gqe::partitioning_schema_kind::automatic{});
+  auto const& table_definitions = (tpc_type == "ds") ? gqe::utility::tpcds::table_definitions()
+                                                     : gqe::utility::tpch::table_definitions();
+  for (auto const& [name, definition] : table_definitions) {
+    catalog.register_table(name,
+                           definition,
+                           gqe::storage_kind::parquet_file{
+                             gqe::utility::get_parquet_files(dataset_location + "/" + name)},
+                           gqe::partitioning_schema_kind::automatic{});
   }
 
-  gqe::substrait_parser parser(&tpcds_catalog);
+  gqe::substrait_parser parser(&catalog);
   auto logical_plan = parser.from_file(substrait_plan_file);
   assert(logical_plan.size() == 1);
 
-  gqe::physical_plan_builder plan_builder(&tpcds_catalog);
+  gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(logical_plan[0].get());
 
-  gqe::task_graph_builder graph_builder(&tpcds_catalog);
+  gqe::task_graph_builder graph_builder(&catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
   gqe::utility::time_function(gqe::execute_task_graph_single_gpu, task_graph.get());

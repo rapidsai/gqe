@@ -56,6 +56,7 @@ add_library(
     storage/parquet.cpp
     catalog.cpp
     utility/tpcds.cpp
+    utility/tpch.cpp
 )
 
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)

@@ -104,6 +104,8 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_expression(
     return parse_subquery_expression(expression.subquery(), subqueries);
   else if (expression.has_if_then())
     return parse_if_then_expression(expression.if_then(), subqueries);
+  else if (expression.has_singular_or_list())
+    return parse_in_list_expression(expression.singular_or_list(), subqueries);
   else if (expression.has_cast())
     return parse_cast_expression(expression.cast(), subqueries);
   else
@@ -130,6 +132,22 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_if_then_expression
 }
 
 namespace {
+// Helper function for constructing an expression tree that OR() together EQUAL(value_expr,
+// options[i]) expressions
+std::unique_ptr<gqe::expression> construct_or_eq_list_expression(
+  std::unique_ptr<gqe::expression> value_expr,
+  std::vector<std::unique_ptr<gqe::expression>>& options)
+{
+  auto equal_expr =
+    std::make_unique<gqe::equal_expression>(value_expr->clone(), std::move(options.back()));
+  options.pop_back();
+  // No more element to compare
+  if (options.size() == 0) { return equal_expr; }
+  // More element(s) to construct comparison(s) against
+  return std::make_unique<gqe::logical_or_expression>(
+    std::move(equal_expr), construct_or_eq_list_expression(std::move(value_expr), options));
+}
+
 // Helper function for translating Substrait decimal to C++ decimal
 // Substrait encodes decimal value as 16-byte little-endian array
 // source: https://substrait.io/types/type_classes/#compound-types
@@ -147,6 +165,23 @@ numeric::decimal128 from_substrait_decimal(substrait::Expression_Literal_Decimal
   return fixed_point_value;
 }
 }  // namespace
+
+std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_in_list_expression(
+  substrait::Expression_SingularOrList const& singular_or_list,
+  std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
+{
+  auto value = parse_expression(singular_or_list.value(), subquery_relations);
+  std::vector<std::unique_ptr<expression>> options;
+  options.reserve(singular_or_list.options_size());
+  std::transform(singular_or_list.options().begin(),
+                 singular_or_list.options().end(),
+                 std::back_inserter(options),
+                 [this, &subquery_relations](substrait::Expression option) {
+                   return parse_expression(option, subquery_relations);
+                 });
+  // Make OR(value = options[0], value = options[1], ..., value = options[n-1])
+  return construct_or_eq_list_expression(std::move(value), options);
+}
 
 std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression(
   substrait::Expression_Literal const& literal_expression) const

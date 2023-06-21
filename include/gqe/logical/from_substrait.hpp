@@ -100,6 +100,17 @@ class substrait_parser {
     std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const;
 
   /**
+   * @brief Parse Substrait SingularOrList expression message into gqe expression
+   *
+   * @param singular_or_list Substrait SingularOrList expression
+   * @param subquery_relations reference to store subquery relations
+   * @return The parsed expression consisting of `logical_or_expression`s and `equal_expression`s
+   */
+  std::unique_ptr<expression> parse_in_list_expression(
+    substrait::Expression_SingularOrList const& singular_or_list,
+    std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const;
+
+  /**
    * @brief Parse Substrait Literal expression message into `gqe::literal_expression`
    *
    * @param literal_expression Substrait literal expression

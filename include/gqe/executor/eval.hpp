@@ -24,6 +24,7 @@
 #include <cudf/column/column_view.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf/types.hpp>
+#include <cudf/wrappers/timestamps.hpp>
 
 #include <memory>
 #include <string>
@@ -91,6 +92,11 @@ class expression_evaluator : public expression_visitor {
    * @copydoc gqe::expression_visitor::visit(literal_expression<T> const*)
    */
   void visit(literal_expression<std::string> const* expression) override;
+
+  /**
+   * @copydoc gqe::expression_visitor::visit(literal_expression<T> const*)
+   */
+  void visit(literal_expression<cudf::timestamp_D> const* expression) override;
 
   /**
    * @copydoc gqe::expression_visitor::visit(binary_op_expression const*)

@@ -221,6 +221,15 @@ void expression_evaluator::visit(literal_expression<std::string> const* expressi
   _converted_expressions.emplace_back(expression->clone());
 }
 
+void expression_evaluator::visit(literal_expression<cudf::timestamp_D> const* expression)
+{
+  _converted_scalars.push_back(std::make_unique<cudf::timestamp_scalar<cudf::timestamp_D>>(
+    expression->value(), !expression->is_null()));
+  auto const value =
+    dynamic_cast<cudf::timestamp_scalar<cudf::timestamp_D>*>(_converted_scalars.back().get());
+  _converted_expressions.emplace_back(std::make_shared<cudf::ast::literal>(*(value)));
+}
+
 void expression_evaluator::visit(binary_op_expression const* expression)
 {
   // compute AST for the lhs child

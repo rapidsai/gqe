@@ -15,6 +15,7 @@
 #include <gqe/utility/helpers.hpp>
 
 #include <cudf/types.hpp>
+#include <cudf/wrappers/timestamps.hpp>
 
 #include <memory>
 #include <stdexcept>
@@ -94,6 +95,11 @@ struct expression_visitor {
   virtual void visit(cast_expression const* expression)
   {
     throw std::logic_error("Visiting cast_expression is not implemented");
+  }
+
+  virtual void visit(literal_expression<cudf::timestamp_D> const* expression)
+  {
+    throw std::logic_error("Visiting literal_expression<cudf::timestamp_D> is not implemented");
   }
 };
 

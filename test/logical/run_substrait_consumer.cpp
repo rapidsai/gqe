@@ -14,6 +14,7 @@
 #include <gqe/catalog.hpp>
 #include <gqe/logical/from_substrait.hpp>
 #include <gqe/utility/tpcds.hpp>
+#include <gqe/utility/tpch.hpp>
 
 #include <cudf/types.hpp>
 
@@ -23,25 +24,43 @@
 #include <stdexcept>
 #include <vector>
 
+void print_usage()
+{
+  std::cout << "Run GQE Substrait consumer" << std::endl
+            << "./run_substrait_consumer <{ds, h}> <path-to-substrait-plan>" << std::endl;
+}
+
 int main(int argc, char** argv)
 {
-  if (argc != 2) throw std::runtime_error("Accept exactly 1 positional arguments");
-  std::string substrait_file = argv[1];
+  if (argc != 3) {
+    print_usage();
+    return 0;
+  }
+
+  std::string const tpc_type(argv[1]);
+  if (tpc_type != "ds" && tpc_type != "h") {
+    print_usage();
+    return 0;
+  }
+
+  std::string substrait_file = argv[2];
 
   std::cout << "Converting Substrait plan into logical plan" << std::endl;
 
-  gqe::catalog tpcds_catalog;
+  gqe::catalog catalog;
 
   // Register all tables
-  for (auto const& [name, definition] : gqe::utility::tpcds::table_definitions()) {
-    tpcds_catalog.register_table(name,
-                                 definition,
-                                 gqe::storage_kind::parquet_file{{"/" + name}},
-                                 gqe::partitioning_schema_kind::automatic{});
+  auto const& table_definitions = (tpc_type == "ds") ? gqe::utility::tpcds::table_definitions()
+                                                     : gqe::utility::tpch::table_definitions();
+  for (auto const& [name, definition] : table_definitions) {
+    catalog.register_table(name,
+                           definition,
+                           gqe::storage_kind::parquet_file{{"/" + name}},
+                           gqe::partitioning_schema_kind::automatic{});
   }
 
   // Read and parse substrait file
-  gqe::substrait_parser parser(&tpcds_catalog);
+  gqe::substrait_parser parser(&catalog);
   std::vector<std::shared_ptr<gqe::logical::relation>> query_plan =
     parser.from_file(substrait_file);
   // Print gqe logical relation in json format

@@ -535,9 +535,11 @@ gqe::substrait_parser::parse_aggregate_function(
 {
   auto function_name = get_function_name(aggregate_function.function_reference());
   int nargs          = aggregate_function.arguments_size();
-
-  if (function_name == "count" || function_name == "count:opt" ||
-      function_name == "count:opt_any") {
+  // We use DataFusion aggregate function naming standard for producer/consumer compatibility.
+  // The producer uses the lowercase version of `Expr::AggregateFunction::to_string` in the file
+  // https://github.com/apache/arrow-datafusion/blob/main/datafusion/expr/src/aggregate_function.rs
+  // If in the future, other producer is used, we can add more naming options.
+  if (function_name == "count") {
     // Different Substrait producer encode `count(*)` differently. Cases encountered so far:
     // - DataFusion encodes `count(*)` as `count(1)` in Substrait plan
     // - Isthmus encodes `count(*)` as `count()` in Susbtrait plan
@@ -574,21 +576,33 @@ gqe::substrait_parser::parse_aggregate_function(
       throw std::runtime_error("SubstraitParser cannot parse aggregate function \"count\" with " +
                                std::to_string(nargs) + " arguments. Must have 0 or 1 argument.");
     }
-  } else {  // Aggregate functions with strictly 1 argument
-    assert(nargs == 1);
-    if (function_name == "sum" || function_name == "sum:opt_dec" ||
-        function_name == "sum:opt_i32") {  // TODO: Look into substrait function naming standards
-      return std::make_pair(
-        cudf::aggregation::SUM,
-        parse_expression(aggregate_function.arguments().Get(0).value(), subquery_relations));
-    } else if (function_name == "avg") {
-      return std::make_pair(
-        cudf::aggregation::MEAN,
-        parse_expression(aggregate_function.arguments().Get(0).value(), subquery_relations));
+  } else if (nargs == 1) {  // Aggregate functions with strictly 1 argument
+    cudf::aggregation::Kind agg_kind;
+    if (function_name == "avg") {
+      agg_kind = cudf::aggregation::MEAN;
+    } else if (function_name == "max") {
+      agg_kind = cudf::aggregation::MAX;
+    } else if (function_name == "median") {
+      agg_kind = cudf::aggregation::MEDIAN;
+    } else if (function_name == "min") {
+      agg_kind = cudf::aggregation::MIN;
+    } else if (function_name == "stddev") {
+      agg_kind = cudf::aggregation::STD;
+    } else if (function_name == "sum") {
+      agg_kind = cudf::aggregation::SUM;
+    } else if (function_name == "variance") {
+      agg_kind = cudf::aggregation::VARIANCE;
     } else {
       throw std::runtime_error("SubstraitParser cannot parse aggregate function \"" +
                                function_name + "\"");
     }
+    return std::make_pair(
+      agg_kind,
+      parse_expression(aggregate_function.arguments().Get(0).value(), subquery_relations));
+  } else {  // Aggregate functions with more than 1 arguments
+    throw std::runtime_error(
+      "Aggregated function with more than 1 arguments is not yet supported. " +
+      std::to_string(nargs) + " arguments were passed.");
   }
 }
 

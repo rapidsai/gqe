@@ -107,11 +107,16 @@ inline std::ostream& operator<<(std::ostream& os, cudf::null_order prec)
 inline std::ostream& operator<<(std::ostream& os, cudf::aggregation::Kind k)
 {
   switch (k) {
-    case cudf::aggregation::SUM: os << "SUM"; break;
-    case cudf::aggregation::MEAN: os << "MEAN"; break;
     case cudf::aggregation::COUNT_ALL: os << "COUNT_ALL"; break;
     case cudf::aggregation::COUNT_VALID: os << "COUNT_VALID"; break;
-    default: os << "Unsupported aggregation kind: " + std::to_string(k);
+    case cudf::aggregation::MAX: os << "MAX"; break;
+    case cudf::aggregation::MEAN: os << "MEAN"; break;
+    case cudf::aggregation::MEDIAN: os << "MEDIAN"; break;
+    case cudf::aggregation::MIN: os << "MIN"; break;
+    case cudf::aggregation::STD: os << "STDDEV"; break;
+    case cudf::aggregation::SUM: os << "SUM"; break;
+    case cudf::aggregation::VARIANCE: os << "VARIANCE"; break;
+    default: os << "Unsupported aggregation kind to string: " + std::to_string(k);
   }
   return os;
 }

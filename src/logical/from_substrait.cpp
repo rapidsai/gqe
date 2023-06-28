@@ -313,6 +313,8 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::_parse_scalar_function_e
 
     if (function_name == "equal" || function_name == "equal:any_any")
       return std::make_unique<gqe::equal_expression>(std::move(lhs), std::move(rhs));
+    else if (function_name == "not_equal")
+      return std::make_unique<gqe::not_equal_expression>(std::move(lhs), std::move(rhs));
     else if (function_name == "and" || function_name == "and:bool")
       return std::make_unique<gqe::logical_and_expression>(std::move(lhs), std::move(rhs));
     else if (function_name == "or" || function_name == "or:bool")

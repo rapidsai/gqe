@@ -16,6 +16,7 @@
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/if_then_else.hpp>
 #include <gqe/expression/literal.hpp>
+#include <gqe/expression/scalar_function.hpp>
 #include <gqe/logical/aggregate.hpp>
 #include <gqe/logical/fetch.hpp>
 #include <gqe/logical/filter.hpp>
@@ -35,6 +36,7 @@
 #include <memory>
 #include <numeric>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -273,6 +275,55 @@ cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
                                std::to_string(substrait_type.kind_case()) + " to cuDF type");
   }
 }
+
+// Helper function for extracting integral literal value
+template <typename T = std::int64_t>
+T try_get_integral_value(std::shared_ptr<gqe::expression> expr)
+{
+  auto expr_type = expr->type();
+  auto data_type = expr->data_type({});
+  if (expr_type == gqe::expression::expression_type::literal) {
+    if (cudf::is_integral(data_type)) {
+      auto lit = dynamic_cast<gqe::literal_expression<T>*>(expr.get());
+      return lit->value();
+    } else {
+      throw std::invalid_argument(
+        "try_get_integral_value() expects literal expresion of integer type, but got " +
+        cudf::type_to_name(data_type));
+    }
+  } else {
+    throw std::invalid_argument(
+      "try_get_integral_value() expects literal expresion, but got expression type " +
+      std::to_string(static_cast<int32_t>(expr_type)));
+  }
+}
+
+// Helper function to maintain the mapping between function names in Substrait (DataFusion) and GQE
+// scalar function kinds
+std::unordered_map<std::string, gqe::scalar_function_expression::function_kind>&
+name_to_fkind_map() noexcept
+{
+  static std::unordered_map<std::string, gqe::scalar_function_expression::function_kind> map = {
+    {"round", gqe::scalar_function_expression::function_kind::round},
+    {"substr", gqe::scalar_function_expression::function_kind::substr}};
+  return map;
+}
+
+// Return whether `function_name` has a corresponding `function_kind` supported by GQE
+bool is_scalar_function(std::string function_name) noexcept
+{
+  auto map = name_to_fkind_map();
+  return map.find(function_name) != map.end();
+}
+
+// Return scalar function kind enum from function name string
+gqe::scalar_function_expression::function_kind fn_kind_from_str(std::string s)
+{
+  if (is_scalar_function(s)) return name_to_fkind_map()[s];
+  throw std::runtime_error(
+    "Cannot find a corresponding supported scalar function for function name \"" + s + "\"");
+}
+
 }  // namespace
 
 std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_cast_expression(
@@ -307,60 +358,92 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::_parse_scalar_function_e
   std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
 {
   int nargs = arg_expressions.size();
-  if (nargs == 2) {  // Binary function base case
-    auto lhs = parse_expression(arg_expressions[0], subquery_relations);
-    auto rhs = parse_expression(arg_expressions[1], subquery_relations);
-
-    if (function_name == "equal" || function_name == "equal:any_any")
-      return std::make_unique<gqe::equal_expression>(std::move(lhs), std::move(rhs));
-    else if (function_name == "not_equal")
-      return std::make_unique<gqe::not_equal_expression>(std::move(lhs), std::move(rhs));
-    else if (function_name == "and" || function_name == "and:bool")
-      return std::make_unique<gqe::logical_and_expression>(std::move(lhs), std::move(rhs));
-    else if (function_name == "or" || function_name == "or:bool")
-      return std::make_unique<gqe::logical_or_expression>(std::move(lhs), std::move(rhs));
-    else if (function_name == "gt" || function_name == "gt:any_any")
-      return std::make_unique<gqe::greater_expression>(std::move(lhs), std::move(rhs));
-    else if (function_name == "lt" || function_name == "lt:any_any")
-      return std::make_unique<gqe::less_expression>(std::move(lhs), std::move(rhs));
-    else if (function_name == "gte" || function_name == "gte:any_any")
-      return std::make_unique<gqe::greater_equal_expression>(std::move(lhs), std::move(rhs));
-    else if (function_name == "lte" || function_name == "lte:any_any")
-      return std::make_unique<gqe::less_equal_expression>(std::move(lhs), std::move(rhs));
-    else if (function_name == "is_not_distinct_from")
-      return std::make_unique<gqe::nulls_equal_expression>(std::move(lhs), std::move(rhs));
-    else if (function_name == "add")
-      return std::make_unique<gqe::add_expression>(std::move(lhs), std::move(rhs));
-    else if (function_name == "substract")
-      return std::make_unique<gqe::subtract_expression>(std::move(lhs), std::move(rhs));
-    else if (function_name == "multiply")
-      return std::make_unique<gqe::multiply_expression>(std::move(lhs), std::move(rhs));
-    else if (function_name == "divide")
-      return std::make_unique<gqe::divide_expression>(std::move(lhs), std::move(rhs));
-    else
-      throw std::runtime_error("SubstraitParser cannot parse binary scalar function \"" +
-                               function_name + "\"");
-  } else if (nargs > 2) {  // Multi-argument function recursive case
-    // Only associative functions are implemented here
-    auto output_expr = parse_expression(arg_expressions[0], subquery_relations);
-    std::for_each(arg_expressions.begin() + 1,
-                  arg_expressions.end(),
-                  [&](substrait::Expression const& input_expr) {
-                    auto rhs = parse_expression(input_expr, subquery_relations);
-                    if (function_name == "and" || function_name == "and:bool")
-                      output_expr = std::make_unique<gqe::logical_and_expression>(
-                        std::move(output_expr), std::move(rhs));
-                    else if (function_name == "or" || function_name == "or:bool")
-                      output_expr = std::make_unique<gqe::logical_or_expression>(
-                        std::move(output_expr), std::move(rhs));
-                    else
-                      throw std::runtime_error(
-                        "SubstraitParser cannot parse multi-argument scalar function \"" +
-                        function_name + "\"");
-                  });
-    return output_expr;
+  if (is_scalar_function(function_name)) {
+    // Get function kind and parse arguments
+    gqe::scalar_function_expression::function_kind fn_kind = fn_kind_from_str(function_name);
+    std::vector<std::shared_ptr<expression>> parsed_arguments;
+    parsed_arguments.reserve(nargs);
+    for (auto arg_expr : arg_expressions) {
+      parsed_arguments.push_back(parse_expression(arg_expr, subquery_relations));
+    }
+    // Parse function
+    switch (fn_kind) {
+      case gqe::scalar_function_expression::function_kind::round: {
+        if (nargs != 2)
+          throw std::runtime_error("round() currently only supports 2 arguments. Got " +
+                                   std::to_string(nargs) + " arguments");
+        auto input          = parsed_arguments[0];
+        auto decimal_places = try_get_integral_value(parsed_arguments[1]);
+        return std::make_unique<gqe::round_expression>(std::move(input), decimal_places);
+      }
+      case gqe::scalar_function_expression::function_kind::substr: {
+        assert(nargs == 3);
+        auto input  = parsed_arguments[0];
+        auto start  = try_get_integral_value(parsed_arguments[1]);
+        auto length = try_get_integral_value(parsed_arguments[2]);
+        return std::make_unique<gqe::substr_expression>(std::move(input), start, length);
+      }
+      default: throw std::runtime_error("ScalarFunction " + function_name + "() is not supported");
+    }
   } else {
-    throw std::runtime_error("ScalarFunction with less than 2 arguments is not supported");
+    // If the function is not part of the supported scalar_function::function_kind types,
+    // attempt to parse as a cudf supported operation
+    if (nargs == 2) {  // Binary function base case
+      auto lhs = parse_expression(arg_expressions[0], subquery_relations);
+      auto rhs = parse_expression(arg_expressions[1], subquery_relations);
+
+      if (function_name == "equal" || function_name == "equal:any_any")
+        return std::make_unique<gqe::equal_expression>(std::move(lhs), std::move(rhs));
+      else if (function_name == "not_equal")
+        return std::make_unique<gqe::not_equal_expression>(std::move(lhs), std::move(rhs));
+      else if (function_name == "and" || function_name == "and:bool")
+        return std::make_unique<gqe::logical_and_expression>(std::move(lhs), std::move(rhs));
+      else if (function_name == "or" || function_name == "or:bool")
+        return std::make_unique<gqe::logical_or_expression>(std::move(lhs), std::move(rhs));
+      else if (function_name == "gt" || function_name == "gt:any_any")
+        return std::make_unique<gqe::greater_expression>(std::move(lhs), std::move(rhs));
+      else if (function_name == "lt" || function_name == "lt:any_any")
+        return std::make_unique<gqe::less_expression>(std::move(lhs), std::move(rhs));
+      else if (function_name == "gte" || function_name == "gte:any_any")
+        return std::make_unique<gqe::greater_equal_expression>(std::move(lhs), std::move(rhs));
+      else if (function_name == "lte" || function_name == "lte:any_any")
+        return std::make_unique<gqe::less_equal_expression>(std::move(lhs), std::move(rhs));
+      else if (function_name == "is_not_distinct_from")
+        return std::make_unique<gqe::nulls_equal_expression>(std::move(lhs), std::move(rhs));
+      else if (function_name == "add")
+        return std::make_unique<gqe::add_expression>(std::move(lhs), std::move(rhs));
+      else if (function_name == "substract")
+        return std::make_unique<gqe::subtract_expression>(std::move(lhs), std::move(rhs));
+      else if (function_name == "multiply")
+        return std::make_unique<gqe::multiply_expression>(std::move(lhs), std::move(rhs));
+      else if (function_name == "divide")
+        return std::make_unique<gqe::divide_expression>(std::move(lhs), std::move(rhs));
+      else
+        throw std::runtime_error("SubstraitParser cannot parse binary scalar function \"" +
+                                 function_name + "\"");
+    } else if (nargs > 2) {  // Multi-argument function recursive case
+      // Only associative functions are implemented here
+      auto output_expr = parse_expression(arg_expressions[0], subquery_relations);
+      std::for_each(
+        arg_expressions.begin() + 1,
+        arg_expressions.end(),
+        [&](substrait::Expression const& input_expr) {
+          auto rhs = parse_expression(input_expr, subquery_relations);
+          if (function_name == "and" || function_name == "and:bool")
+            output_expr =
+              std::make_unique<gqe::logical_and_expression>(std::move(output_expr), std::move(rhs));
+          else if (function_name == "or" || function_name == "or:bool")
+            output_expr =
+              std::make_unique<gqe::logical_or_expression>(std::move(output_expr), std::move(rhs));
+          else
+            throw std::runtime_error("Cannot find matching multi-argument scalar function \"" +
+                                     function_name + "\"");
+        });
+      return output_expr;
+    } else {
+      throw std::runtime_error("Cannot find matching ScalarFunction with less than 2 arguments: " +
+                               function_name);
+    }
   }
 }
 
@@ -544,7 +627,7 @@ gqe::substrait_parser::parse_aggregate_function(
   if (function_name == "count") {
     // Different Substrait producer encode `count(*)` differently. Cases encountered so far:
     // - DataFusion encodes `count(*)` as `count(1)` in Substrait plan
-    // - Isthmus encodes `count(*)` as `count()` in Susbtrait plan
+    // - Isthmus encodes `count(*)` as `count()` in Substrait plan
     // According to https://www.postgresql.org/docs/current/functions-aggregate.html, `count("any")`
     // "computes the number of input rows which the input value is not null."
     //

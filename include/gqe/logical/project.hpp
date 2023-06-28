@@ -58,7 +58,7 @@ class project_relation : public relation {
    */
   std::vector<expression*> output_expressions_unsafe() const
   {
-    return utility::to_raw_ptrs(_output_expressions);
+    return gqe::utility::to_raw_ptrs(_output_expressions);
   }
 
  private:

@@ -30,6 +30,7 @@ class column_reference_expression;
 class if_then_else_expression;
 template <typename T>
 class literal_expression;
+class scalar_function_expression;
 class subquery_expression;
 
 /**
@@ -101,6 +102,11 @@ struct expression_visitor {
   {
     throw std::logic_error("Visiting literal_expression<cudf::timestamp_D> is not implemented");
   }
+
+  virtual void visit(scalar_function_expression const* expression)
+  {
+    throw std::logic_error("Visiting scalar_function_expression is not implemented");
+  }
 };
 
 /**
@@ -140,6 +146,8 @@ class expression {
     unary_op,
     // A cuDF binary operator
     binary_op,
+    // Scalar function,
+    scalar_function,
     // Subquery
     subquery,
     // Create row ID column for window function

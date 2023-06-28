@@ -61,7 +61,7 @@ class sort_relation : public relation {
    */
   [[nodiscard]] std::vector<expression*> expressions_unsafe() const noexcept
   {
-    return utility::to_raw_ptrs(_expressions);
+    return gqe::utility::to_raw_ptrs(_expressions);
   }
 
   /**

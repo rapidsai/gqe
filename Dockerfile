@@ -32,7 +32,7 @@ SHELL ["/bin/bash", "-c"]
 # Compile libcudf from source
 RUN git clone https://github.com/rapidsai/cudf.git /cudf \
     && cd /cudf \
-    && git checkout branch-23.04 \
+    && git checkout branch-23.06 \
     && git submodule update --init --remote --recursive \
     && mamba env create -q --name gqe --file conda/environments/all_cuda-118_arch-x86_64.yaml \
     && source activate gqe \

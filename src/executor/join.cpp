@@ -275,11 +275,13 @@ void join_task::execute()
   }
 
   // Convert the result indices into libcudf columns
-  auto left_indices_column = std::make_unique<cudf::column>(std::move(*left_indices));
+  auto left_indices_column =
+    std::make_unique<cudf::column>(std::move(*left_indices), rmm::device_buffer{}, 0);
 
   std::unique_ptr<cudf::column> right_indices_column;
   if (right_indices) {
-    right_indices_column = std::make_unique<cudf::column>(std::move(*right_indices));
+    right_indices_column =
+      std::make_unique<cudf::column>(std::move(*right_indices), rmm::device_buffer{}, 0);
     assert(left_indices_column->size() == right_indices_column->size());
   } else {
     // If the program reaches here, the join does not need to materialize the right table

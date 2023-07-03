@@ -131,7 +131,7 @@ std::unique_ptr<cudf::table> window_partition_and_order(
                             host_offsets.data(),
                             host_offsets.size() * sizeof(cudf::size_type),
                             cudaMemcpyDefault));
-    auto const offsets_col = cudf::column{std::move(device_offsets)};
+    auto const offsets_col = cudf::column{std::move(device_offsets), rmm::device_buffer{}, 0};
 
     auto [order_table_cols, order_table_cols_cache] =
       evaluate_expressions(groups.values.get()->view(), utility::to_const_raw_ptrs(order_by));

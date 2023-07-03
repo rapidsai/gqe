@@ -326,10 +326,12 @@ void custom_task::execute()
   rmm::cuda_stream_default.synchronize();
 
   // Convert indices from vectors to columns
-  auto item_indices_column = std::make_unique<cudf::column>(std::move(compact_item_indices));
+  auto item_indices_column =
+    std::make_unique<cudf::column>(std::move(compact_item_indices), rmm::device_buffer{}, 0);
   auto date_dim_indices_column =
-    std::make_unique<cudf::column>(std::move(compact_date_dim_indices));
-  auto ss_indices_column = std::make_unique<cudf::column>(std::move(compact_ss_indices));
+    std::make_unique<cudf::column>(std::move(compact_date_dim_indices), rmm::device_buffer{}, 0);
+  auto ss_indices_column =
+    std::make_unique<cudf::column>(std::move(compact_ss_indices), rmm::device_buffer{}, 0);
 
   // Materialize the join output
   auto materialize_column =

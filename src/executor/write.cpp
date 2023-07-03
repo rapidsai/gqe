@@ -70,9 +70,7 @@ void parquet_write_task::execute()
   auto sink    = cudf::io::sink_info(std::move(_file_paths));
   auto builder = cudf::io::chunked_parquet_writer_options::builder(sink).metadata(&metadata);
 
-  cudf::io::parquet_chunked_writer(builder, rmm::mr::get_current_device_resource())
-    .write(input_table)
-    .close();
+  cudf::io::parquet_chunked_writer(builder).write(input_table).close();
 
   remove_dependencies();
 }

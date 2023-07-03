@@ -44,7 +44,7 @@ void gen_ident_col_task::execute()
                    row_id_vec.data() + input_table.num_rows(),
                    static_cast<uint64_t>(task_id()) << 32);
 
-  auto row_id_col = std::make_unique<cudf::column>(std::move(row_id_vec));
+  auto row_id_col = std::make_unique<cudf::column>(std::move(row_id_vec), rmm::device_buffer{}, 0);
 
   cudf::table initial_table(input_table);
   auto result_cols = initial_table.release();

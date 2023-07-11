@@ -36,6 +36,9 @@ add_library(
     logical/user_defined.cpp
     logical/write.cpp
     logical/from_substrait.cpp
+    memory_resource/numa_memory_resource.cpp
+    memory_resource/pinned_memory_resource.cpp
+    memory_resource/system_memory_resource.cpp
     executor/aggregate.cpp
     executor/concatenate.cpp
     executor/eval.cpp
@@ -53,14 +56,19 @@ add_library(
     expression/binary_op.cpp
     optimizer/physical_transformation.cpp
     optimizer/estimator.cpp
+    storage/in_memory.cpp
     storage/parquet.cpp
-    catalog.cpp
+    utility/cuda.cpp
+    utility/linux.cpp
     utility/tpcds.cpp
     utility/tpch.cpp
+    catalog.cpp
+    types.cpp
 )
 
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(gqe PUBLIC cudf::cudf)
+target_link_libraries(gqe PUBLIC numa)
 target_link_libraries(gqe PUBLIC spdlog::spdlog)
 target_link_libraries(gqe PRIVATE Threads::Threads)
 target_link_libraries(gqe PUBLIC substrait)

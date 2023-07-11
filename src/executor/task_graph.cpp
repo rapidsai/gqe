@@ -36,6 +36,8 @@
 #include <gqe/physical/user_defined.hpp>
 #include <gqe/physical/window.hpp>
 #include <gqe/physical/write.hpp>
+#include <gqe/storage/readable_view.hpp>
+#include <gqe/storage/writeable_view.hpp>
 #include <gqe/utility/logger.hpp>
 
 #include <cstdlib>
@@ -126,7 +128,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::read_relat
   auto const table_name     = relation->table_name();
   auto const column_names   = relation->column_names();
   auto const partial_filter = relation->partial_filter_unsafe();
-  std::shared_ptr<task> concatenated_subquery_task;
+  std::vector<std::shared_ptr<task>> concatenated_subquery_task;
 
   if (partial_filter && (partial_filter->type() == expression::expression_type::subquery)) {
     // If it's a subquery, we know it's an in-predicate
@@ -137,7 +139,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::read_relat
 
     auto const subquery_tasks =
       _builder->generate_tasks(subquery_relations[subquery->relation_index()]);
-    concatenated_subquery_task = _builder->concatenate(subquery_tasks);
+    concatenated_subquery_task = {_builder->concatenate(subquery_tasks)};
   }
 
   std::vector<cudf::data_type> data_types;
@@ -149,20 +151,25 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::read_relat
     _builder->_catalog->readable_view(table_name);
   if (!readable_view) { throw std::logic_error("table \"" + table_name + "\" is not readable"); }
 
-  auto num_partitions = _builder->_catalog->num_partitions(table_name);
-  for (decltype(num_partitions) partition_idx = 0; partition_idx < num_partitions;
-       ++partition_idx) {
-    _generated_tasks.push_back(
-      readable_view->get_read_task(_builder->_current_task_id,
-                                   _builder->_current_stage_id,
-                                   num_partitions,
-                                   partition_idx,
-                                   column_names,
-                                   data_types,
-                                   partial_filter ? partial_filter->clone() : nullptr,
-                                   std::vector<std::shared_ptr<task>>{concatenated_subquery_task}));
-    _builder->_current_task_id++;
-  }
+  const auto npartitions = _builder->_catalog->num_partitions(table_name);
+
+  std::vector<storage::readable_view::task_parameters> task_parameters(npartitions);
+  std::generate(task_parameters.begin(),
+                task_parameters.end(),
+                [&]() -> storage::readable_view::task_parameters {
+                  std::vector<std::shared_ptr<gqe::task>> subqueries;
+                  return {_builder->_current_task_id++,
+                          partial_filter ? partial_filter->clone() : nullptr,
+                          concatenated_subquery_task};
+                });
+
+  auto tasks = readable_view->get_read_tasks(std::move(task_parameters),
+                                             _builder->_current_stage_id,
+                                             std::move(column_names),
+                                             std::move(data_types));
+
+  _generated_tasks.reserve(_generated_tasks.size() + tasks.size());
+  std::move(tasks.begin(), tasks.end(), std::back_inserter(_generated_tasks));
 
   update_cache(relation);
 }
@@ -196,18 +203,21 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::write_rela
     _builder->_catalog->writeable_view(table_name);
   if (!writeable_view) { throw std::logic_error("Table \"" + table_name + "\" is not writeable"); }
 
-  auto parallelism = input_tasks.size();
-  for (decltype(parallelism) instance_idx = 0; instance_idx < parallelism; ++instance_idx) {
-    _generated_tasks.push_back(
-      writeable_view->get_write_task(_builder->_current_task_id,
-                                     _builder->_current_stage_id,
-                                     parallelism,
-                                     instance_idx,
-                                     column_names,
-                                     data_types,
-                                     std::move(input_tasks[instance_idx])));
-    _builder->_current_task_id++;
-  }
+  std::vector<storage::writeable_view::task_parameters> task_parameters(input_tasks.size());
+  std::generate(
+    task_parameters.begin(),
+    task_parameters.end(),
+    [this, it = input_tasks.begin()]() mutable -> storage::writeable_view::task_parameters {
+      return {_builder->_current_task_id++, std::move(*it++)};
+    });
+
+  auto tasks = writeable_view->get_write_tasks(std::move(task_parameters),
+                                               _builder->_current_stage_id,
+                                               std::move(column_names),
+                                               std::move(data_types));
+
+  _generated_tasks.reserve(_generated_tasks.size() + tasks.size());
+  std::move(tasks.begin(), tasks.end(), std::back_inserter(_generated_tasks));
 
   update_cache(relation);
 }

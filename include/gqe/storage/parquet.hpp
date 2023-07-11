@@ -77,17 +77,13 @@ class parquet_readable_view : public readable_view {
 
  public:
   /**
-   * @copydoc gqe::storage::readable_view::get_read_task()
+   * @copydoc gqe::storage::readable_view::get_read_tasks()
    */
-  std::unique_ptr<read_task_base> get_read_task(
-    int32_t task_id,
+  std::vector<std::unique_ptr<read_task_base>> get_read_tasks(
+    std::vector<readable_view::task_parameters>&& task_parameters,
     int32_t stage_id,
-    int32_t parallelism,
-    int32_t instance_id,
     std::vector<std::string> column_names,
-    std::vector<cudf::data_type> data_types,
-    std::unique_ptr<gqe::expression> partial_filter   = nullptr,
-    std::vector<std::shared_ptr<task>> subquery_tasks = {}) override;
+    std::vector<cudf::data_type> data_types) override;
 
  private:
   parquet_readable_view(std::vector<std::string>* non_owning_file_paths);
@@ -104,15 +100,13 @@ class parquet_writeable_view : public writeable_view {
 
  public:
   /**
-   * @copydoc gqe::storage::writeable_view::get_write_task()
+   * @copydoc gqe::storage::writeable_view::get_write_tasks()
    */
-  std::unique_ptr<write_task_base> get_write_task(int32_t task_id,
-                                                  int32_t stage_id,
-                                                  int32_t parallelism,
-                                                  int32_t instance_id,
-                                                  std::vector<std::string> column_names,
-                                                  std::vector<cudf::data_type> data_types,
-                                                  std::shared_ptr<task> input) override;
+  std::vector<std::unique_ptr<write_task_base>> get_write_tasks(
+    std::vector<writeable_view::task_parameters>&& task_parameters,
+    int32_t stage_id,
+    std::vector<std::string> column_names,
+    std::vector<cudf::data_type> data_types) override;
 
  private:
   parquet_writeable_view(std::vector<std::string>* non_owning_file_paths);

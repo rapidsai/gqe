@@ -13,6 +13,8 @@
 #pragma once
 
 #include <gqe/executor/read.hpp>
+#include <gqe/executor/task.hpp>
+#include <gqe/expression/expression.hpp>
 
 #include <memory>
 
@@ -28,36 +30,46 @@ namespace storage {
  */
 class readable_view {
  public:
+  /**
+   * @brief Parameters forwarded to exactly one read task constructor.
+   */
+  struct task_parameters {
+    int32_t task_id; /**< Globally unique identifier of the task. */
+    std::unique_ptr<gqe::expression> partial_filter =
+      nullptr; /**< Used to support predicate pushdown. Note that a row that satisfies
+                * the predicate is guaranteed to be included in the loaded table, but a row that
+                * does not satisfy the predicate may or may not be excluded. If such exclusion needs
+                * to be guaranteed, an extra filter task is needed. If this argument is nullptr, no
+                * rows will be filtered out.
+                */
+    std::vector<std::shared_ptr<gqe::task>> subquery_tasks =
+      {}; /**< Subquery tasks that may be referenced by a subquery expression. A
+           * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
+           */
+  };
+
   virtual ~readable_view() = default;
 
   /**
-   * @brief Return a read task for the table kind.
+   * @brief Return multiple read tasks for the table kind.
    *
-   * @param[in] task_id Globally unique identifier of the task.
+   * @param[in] task_parameters The parameters per read task.
    * @param[in] stage_id Stage of the current task.
-   * @param[in] parallelism The number of parallel read task instances that will
-   * be instantiated.
-   * @param[in] instance_id The unique identifier of this parallel instance.
    * @param[in] column_names Columns to be loaded.
    * @param[in] data_types Expected data types of each column. If the actual data type of a loaded
    * column is different from expected, the column will be casted to the data type specified. Must
    * have the same length as `column_names`.
-   * @param[in] partial_filter Used to support predicate pushdown. Note that a row that satisfies
-   * the predicate is guaranteed to be included in the loaded table, but a row that does not satisfy
-   * the predicate may or may not be excluded. If such exclusion needs to be guaranteed, an extra
-   * filter task is needed. If this argument is nullptr, no rows will be filtered out.
-   * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
-   * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
+   *
+   * == Thread Safety ==
+   *
+   * Implementations guarantee thread safety while writes to the table occur. In particular,
+   * repeated reads of the table size may be inconsistent while table appends are underway.
    */
-  virtual std::unique_ptr<read_task_base> get_read_task(
-    int32_t task_id,
+  virtual std::vector<std::unique_ptr<read_task_base>> get_read_tasks(
+    std::vector<task_parameters>&& task_parameters,
     int32_t stage_id,
-    int32_t parallelism,
-    int32_t instance_id,
     std::vector<std::string> column_names,
-    std::vector<cudf::data_type> data_types,
-    std::unique_ptr<gqe::expression> partial_filter   = nullptr,
-    std::vector<std::shared_ptr<task>> subquery_tasks = {}) = 0;
+    std::vector<cudf::data_type> data_types) = 0;
 };
 
 };  // namespace storage

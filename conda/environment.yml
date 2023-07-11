@@ -5,6 +5,7 @@ channels:
   - nvidia
 dependencies:
   - libcudf=23.06
+  - libnuma
   - python=3.10
   - cudatoolkit=11.8
   - cmake

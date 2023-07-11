@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/executor/task.hpp>
 #include <gqe/executor/write.hpp>
 
 #include <memory>
@@ -27,29 +28,35 @@ namespace storage {
  */
 class writeable_view {
  public:
+  /**
+   * @brief Parameters forwarded to exactly one write task constructor.
+   */
+  struct task_parameters {
+    int32_t task_id;                  /**< Globally unique identifier of the task. */
+    std::shared_ptr<gqe::task> input; /** The input table to be written. */
+  };
+
   virtual ~writeable_view() = default;
 
   /**
-   * @brief Return a write task for the table kind.
+   * @brief Return multiple write tasks for the table kind.
    *
-   * @param[in] task_id Globally unique identifier of the task.
+   * @param[in] task_parameters The parameters per write task.
    * @param[in] stage_id Stage of the current task.
-   * @param[in] parallelism The number of parallel read task instances that will
-   * be instantiated.
-   * @param[in] instance_id The unique identifier of this parallel instance.
    * @param[in] column_names Columns to be stored.
    * @param[in] data_types Expected data types of each column. If the actual data type of a stored
    * column is different from expected, a `std::invalid_argument` exception will
    * be thrown at runtime. Must have the same length as `column_names`.
-   * @param[in] input The input table to be written.
+   *
+   * == Thread Safety ==
+   *
+   * Implementations guarantee thread safety while writes to the table occur.
    */
-  virtual std::unique_ptr<write_task_base> get_write_task(int32_t task_id,
-                                                          int32_t stage_id,
-                                                          int32_t parallelism,
-                                                          int32_t instance_id,
-                                                          std::vector<std::string> column_names,
-                                                          std::vector<cudf::data_type> data_types,
-                                                          std::shared_ptr<task> input) = 0;
+  virtual std::vector<std::unique_ptr<write_task_base>> get_write_tasks(
+    std::vector<task_parameters>&& task_parameters,
+    int32_t stage_id,
+    std::vector<std::string> column_names,
+    std::vector<cudf::data_type> data_types) = 0;
 };
 
 };  // namespace storage

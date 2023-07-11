@@ -55,8 +55,14 @@ if(PROJECT_IS_TOP_LEVEL)
 endif()
 
 rapids_find_package(cudf CONFIG REQUIRED COMPONENTS testing)
-rapids_find_package(Protobuf REQUIRED CONFIG)
 rapids_find_package(Threads REQUIRED)
+
+# Prefer to use the config mode for Protobuf, but if the config file is not present, we fallback to
+# use the module mode.
+rapids_find_package(Protobuf QUIET CONFIG)
+if (NOT Protobuf_FOUND)
+  rapids_find_package(Protobuf REQUIRED MODULE)
+endif()
 
 add_subdirectory(src)
 if(PROJECT_IS_TOP_LEVEL)

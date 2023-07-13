@@ -276,20 +276,42 @@ cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
   }
 }
 
-// Helper function for extracting integral literal value
-template <typename T = std::int64_t>
-T try_get_integral_value(std::shared_ptr<gqe::expression> expr)
+// Helper function to translate datetime component string into
+// gqe::date_part_expression::datetime_component
+gqe::datepart_expression::datetime_component datetime_component_from_str(std::string s)
+{
+  std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+  if (s == "year") return gqe::datepart_expression::datetime_component::year;
+  if (s == "month") return gqe::datepart_expression::datetime_component::month;
+  if (s == "day") return gqe::datepart_expression::datetime_component::day;
+  if (s == "weekday") return gqe::datepart_expression::datetime_component::weekday;
+  if (s == "hour") return gqe::datepart_expression::datetime_component::hour;
+  if (s == "minute") return gqe::datepart_expression::datetime_component::minute;
+  if (s == "second") return gqe::datepart_expression::datetime_component::second;
+  if (s == "millisecond") return gqe::datepart_expression::datetime_component::millisecond;
+  if (s == "nanosecond")
+    return gqe::datepart_expression::datetime_component::nanosecond;
+  else
+    throw std::runtime_error("Unsupported datetime component string: " + s);
+}
+
+// Helper function for extracting literal value
+template <typename T>
+T try_get_literal_value(std::shared_ptr<gqe::expression> expr)
 {
   auto expr_type = expr->type();
   auto data_type = expr->data_type({});
+
   if (expr_type == gqe::expression::expression_type::literal) {
-    if (cudf::is_integral(data_type)) {
+    if ((std::is_integral_v<T> && cudf::is_integral(data_type)) ||
+        (std::is_convertible_v<T, std::string> && (data_type.id() == cudf::type_id::STRING))) {
       auto lit = dynamic_cast<gqe::literal_expression<T>*>(expr.get());
       return lit->value();
     } else {
       throw std::invalid_argument(
-        "try_get_integral_value() expects literal expresion of integer type, but got " +
-        cudf::type_to_name(data_type));
+        "Either the expression output data type (" + cudf::type_to_name(data_type) +
+        ") is not suported by try_get_literal_value(), or the type " +
+        cudf::type_to_name(data_type) + " is incompatible with the template type");
     }
   } else {
     throw std::invalid_argument(
@@ -304,6 +326,7 @@ std::unordered_map<std::string, gqe::scalar_function_expression::function_kind>&
 name_to_fkind_map() noexcept
 {
   static std::unordered_map<std::string, gqe::scalar_function_expression::function_kind> map = {
+    {"date_part", gqe::scalar_function_expression::function_kind::datepart},
     {"round", gqe::scalar_function_expression::function_kind::round},
     {"substr", gqe::scalar_function_expression::function_kind::substr}};
   return map;
@@ -368,19 +391,26 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::_parse_scalar_function_e
     }
     // Parse function
     switch (fn_kind) {
+      case gqe::scalar_function_expression::function_kind::datepart: {
+        assert(nargs == 2);
+        auto component_str = try_get_literal_value<std::string>(parsed_arguments[0]);
+        auto input         = parsed_arguments[1];
+        return std::make_unique<gqe::datepart_expression>(
+          std::move(input), datetime_component_from_str(component_str));
+      }
       case gqe::scalar_function_expression::function_kind::round: {
         if (nargs != 2)
           throw std::runtime_error("round() currently only supports 2 arguments. Got " +
                                    std::to_string(nargs) + " arguments");
         auto input          = parsed_arguments[0];
-        auto decimal_places = try_get_integral_value(parsed_arguments[1]);
+        auto decimal_places = try_get_literal_value<std::int64_t>(parsed_arguments[1]);
         return std::make_unique<gqe::round_expression>(std::move(input), decimal_places);
       }
       case gqe::scalar_function_expression::function_kind::substr: {
         assert(nargs == 3);
         auto input  = parsed_arguments[0];
-        auto start  = try_get_integral_value(parsed_arguments[1]);
-        auto length = try_get_integral_value(parsed_arguments[2]);
+        auto start  = try_get_literal_value<std::int64_t>(parsed_arguments[1]);
+        auto length = try_get_literal_value<std::int64_t>(parsed_arguments[2]);
         return std::make_unique<gqe::substr_expression>(std::move(input), start, length);
       }
       default: throw std::runtime_error("ScalarFunction " + function_name + "() is not supported");

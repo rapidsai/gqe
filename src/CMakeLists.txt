@@ -54,6 +54,7 @@ add_library(
     executor/write.cpp
     executor/task_graph.cpp
     expression/binary_op.cpp
+    expression/scalar_function.cpp
     optimizer/physical_transformation.cpp
     optimizer/estimator.cpp
     storage/in_memory.cpp

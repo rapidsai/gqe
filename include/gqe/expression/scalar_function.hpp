@@ -36,6 +36,9 @@ namespace gqe {
 class scalar_function_expression : public expression {
  public:
   enum class function_kind {
+    // date_part(input, component): return the `component` part of timestamp `input`. For example
+    // date_part(timestamp_D(2023-02-04), "year") returns 2023
+    datepart,
     // substr(size_type start, size_type length): return a substring of input starting from the
     // character at the `start` index to `start+length-1`
     substr,
@@ -77,8 +80,71 @@ class scalar_function_expression : public expression {
   function_kind _fn_kind;
 };
 
+class datepart_expression : public scalar_function_expression {
+ public:
+  enum class datetime_component {
+    year,
+    month,
+    day,
+    weekday,
+    hour,
+    minute,
+    second,
+    millisecond,
+    nanosecond
+  };
+
+  /**
+   * @brief Construct a new datepart expression object
+   *
+   * @param input Expression to extract date part from
+   * @param component Type of date part to extract
+   */
+  datepart_expression(std::shared_ptr<expression> input, datetime_component component)
+    : scalar_function_expression(function_kind::datepart, {std::move(input)}), _component(component)
+  {
+  }
+
+  /**
+   * @brief Returns the component type of the input timestamp to extract
+   */
+  [[nodiscard]] datetime_component component() const noexcept { return _component; }
+
+  /**
+   * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
+   */
+  [[nodiscard]] cudf::data_type data_type(
+    std::vector<cudf::data_type> const& column_types) const final
+  {
+    // All `extract_<datatime_component>()` functions in cudf (v23.06) return INT16
+    return cudf::data_type(cudf::type_id::INT16);
+  }
+
+  /**
+   * @copydoc gqe::expression::to_string()
+   */
+  [[nodiscard]] std::string to_string() const noexcept final;
+
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<datepart_expression>(*this);
+  }
+
+ private:
+  datetime_component _component;
+};
+
 class round_expression : public scalar_function_expression {
  public:
+  /**
+   * @brief Construct a new round expression object
+   *
+   * @param input Expression to round
+   * @param decimal_places Number of decimal places to round the `input` to
+   */
   round_expression(std::shared_ptr<expression> input, cudf::size_type decimal_places)
     : scalar_function_expression(function_kind::round, {std::move(input)}),
       _decimal_places(decimal_places)
@@ -86,7 +152,7 @@ class round_expression : public scalar_function_expression {
   }
 
   /**
-   * @brief Returns numder of decimal places to round the input to
+   * @brief Returns number of decimal places to round the input to
    */
   [[nodiscard]] cudf::size_type decimal_places() const noexcept { return _decimal_places; }
 
@@ -125,6 +191,13 @@ class round_expression : public scalar_function_expression {
 
 class substr_expression : public scalar_function_expression {
  public:
+  /**
+   * @brief Construct a new substr expression object
+   *
+   * @param input Expression to extract the susbtraing from
+   * @param start Start index in `input` as the first character of the result substring
+   * @param length The length of the result substring
+   */
   substr_expression(std::shared_ptr<expression> input,
                     cudf::size_type start,
                     cudf::size_type length)

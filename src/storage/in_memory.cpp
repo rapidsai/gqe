@@ -202,8 +202,6 @@ void in_memory_read_task::execute()
 
   // Allocate result columns and copy input data to result
   for (auto const& idx : _column_indexes) {
-    auto view = dynamic_cast<contiguous_column&>(_row_groups.front()->get_column(idx)).view();
-
     std::vector<cudf::column_view> src_views;
     src_views.reserve(_row_groups.size());
     for (auto const& row_group : _row_groups) {
@@ -268,11 +266,14 @@ void in_memory_write_task::execute()
   // the input_table columns have the same memory type as the result columns.
   // This would require us to destroy the result cache here, but that should be
   // ok because `write` is the root task.
-  std::vector<std::unique_ptr<column_base>> new_columns;
-  new_columns.reserve(input_table.num_columns());
-  for (auto const& input_column : input_table) {
-    auto cudf_column = cudf::column(input_column, stream, _non_owned_memory_resource);
-    new_columns.push_back(std::make_unique<contiguous_column>(std::move(cudf_column)));
+  std::vector<std::unique_ptr<column_base>> new_columns(_column_indexes.size());
+  for (decltype(input_table.num_columns()) column_idx = 0; column_idx < input_table.num_columns();
+       ++column_idx) {
+    auto const& input_column = input_table.column(column_idx);
+    auto cudf_column         = cudf::column(input_column, stream, _non_owned_memory_resource);
+
+    new_columns[_column_indexes[column_idx]] =
+      std::make_unique<contiguous_column>(std::move(cudf_column));
   }
 
   // Create row group from columns

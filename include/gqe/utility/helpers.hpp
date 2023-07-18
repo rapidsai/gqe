@@ -103,4 +103,16 @@ inline void time_function(Func func, Args&&... args)
   GQE_LOG_INFO("Query execution time: {} ms.", duration.count());
 }
 
+/**
+ * @brief Parse a boolean environment variable.
+ *
+ * Acceptable values are on/off, true/false and yes/no.
+ *
+ * @param[in] env_variable Name of the environment variable.
+ * @param[in] default_val Default value if the environment variable is not found.
+ *
+ * @return Value of the environment variable. If not found, `default_val` is returned.
+ */
+bool parse_boolean_env_variable(std::string const& env_variable, bool default_val);
+
 }  // namespace gqe::utility

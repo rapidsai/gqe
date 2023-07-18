@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -19,7 +19,6 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/copying.hpp>
-#include <cudf/join.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
@@ -28,17 +27,27 @@
 
 namespace gqe {
 
+cudf::hash_join const* join_hash_map_cache::hash_map(cudf::table_view build_keys,
+                                                     cudf::null_equality compare_nulls) const
+{
+  if (!_hash_map) { _hash_map = std::make_unique<cudf::hash_join>(build_keys, compare_nulls); }
+
+  return _hash_map.get();
+}
+
 join_task::join_task(int32_t task_id,
                      int32_t stage_id,
                      std::shared_ptr<task> left,
                      std::shared_ptr<task> right,
                      join_type_type join_type,
                      std::unique_ptr<expression> condition,
-                     std::vector<cudf::size_type> projection_indices)
+                     std::vector<cudf::size_type> projection_indices,
+                     std::shared_ptr<join_hash_map_cache> hash_map_cache)
   : task(task_id, stage_id, {std::move(left), std::move(right)}, {}),
     _join_type(join_type),
     _condition(std::move(condition)),
-    _projection_indices(std::move(projection_indices))
+    _projection_indices(std::move(projection_indices)),
+    _hash_map_cache(std::move(hash_map_cache))
 {
 }
 
@@ -233,6 +242,15 @@ std::unique_ptr<cudf::table> materialize(cudf::table_view const& left,
   return std::make_unique<cudf::table>(std::move(result_columns));
 }
 
+/**
+ * @brief Returns whether libcudf supports building the hash map separately.
+ */
+bool is_separate_hash_map_supported(join_type_type join_type)
+{
+  return join_type == join_type_type::inner || join_type == join_type_type::left ||
+         join_type == join_type_type::full;
+}
+
 }  // namespace
 
 void join_task::execute()
@@ -254,24 +272,71 @@ void join_task::execute()
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_indices;
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> right_indices;
 
-  switch (_join_type) {
-    case join_type_type::inner:
-      std::tie(left_indices, right_indices) =
-        cudf::inner_join(left_keys, right_keys, compare_nulls);
-      break;
-    case join_type_type::left:
-      std::tie(left_indices, right_indices) = cudf::left_join(left_keys, right_keys, compare_nulls);
-      break;
-    case join_type_type::left_semi:
-      left_indices = cudf::left_semi_join(left_keys, right_keys, compare_nulls);
-      break;
-    case join_type_type::left_anti:
-      left_indices = cudf::left_anti_join(left_keys, right_keys, compare_nulls);
-      break;
-    case join_type_type::full:
-      std::tie(left_indices, right_indices) = cudf::full_join(left_keys, right_keys, compare_nulls);
-      break;
-    default: throw std::logic_error("Unknown join type");
+  if (_hash_map_cache && is_separate_hash_map_supported(_join_type)) {
+    // Fast path: use the cached hash map
+    cudf::table_view build_keys;
+    cudf::table_view probe_keys;
+    switch (_hash_map_cache->build_side()) {
+      case join_hash_map_cache::build_location::left:
+        build_keys = left_keys;
+        probe_keys = right_keys;
+        break;
+      case join_hash_map_cache::build_location::right:
+        build_keys = right_keys;
+        probe_keys = left_keys;
+        break;
+    }
+
+    auto const hash_map = _hash_map_cache->hash_map(build_keys, compare_nulls);
+    std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_indices;
+    std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_indices;
+
+    switch (_join_type) {
+      case join_type_type::inner:
+        std::tie(probe_indices, build_indices) = hash_map->inner_join(probe_keys);
+        break;
+      case join_type_type::left:
+        std::tie(probe_indices, build_indices) = hash_map->left_join(probe_keys);
+        break;
+      case join_type_type::full:
+        std::tie(probe_indices, build_indices) = hash_map->full_join(probe_keys);
+        break;
+      default: throw std::logic_error("Unsupported join type for the cached hash map");
+    }
+
+    switch (_hash_map_cache->build_side()) {
+      case join_hash_map_cache::build_location::left:
+        left_indices  = std::move(build_indices);
+        right_indices = std::move(probe_indices);
+        break;
+      case join_hash_map_cache::build_location::right:
+        left_indices  = std::move(probe_indices);
+        right_indices = std::move(build_indices);
+        break;
+    }
+  } else {
+    // Fallback path: reconstruct hash map from scratch
+    switch (_join_type) {
+      case join_type_type::inner:
+        std::tie(left_indices, right_indices) =
+          cudf::inner_join(left_keys, right_keys, compare_nulls);
+        break;
+      case join_type_type::left:
+        std::tie(left_indices, right_indices) =
+          cudf::left_join(left_keys, right_keys, compare_nulls);
+        break;
+      case join_type_type::left_semi:
+        left_indices = cudf::left_semi_join(left_keys, right_keys, compare_nulls);
+        break;
+      case join_type_type::left_anti:
+        left_indices = cudf::left_anti_join(left_keys, right_keys, compare_nulls);
+        break;
+      case join_type_type::full:
+        std::tie(left_indices, right_indices) =
+          cudf::full_join(left_keys, right_keys, compare_nulls);
+        break;
+      default: throw std::logic_error("Unknown join type");
+    }
   }
 
   // Convert the result indices into libcudf columns

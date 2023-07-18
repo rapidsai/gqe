@@ -38,6 +38,7 @@
 #include <gqe/physical/write.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/writeable_view.hpp>
+#include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
 
 #include <cstdlib>
@@ -233,6 +234,20 @@ void task_graph_builder::generate_task_graph_visitor::visit(
 
   auto const children = relation->children_unsafe();
 
+  // Broadcast join can leverage the hash map cache since the broadcasted table is the same across
+  // all join tasks.
+  bool join_use_hash_map_cache = gqe::utility::parse_boolean_env_variable(
+    "GQE_JOIN_USE_HASH_MAP_CACHE", true);  // By default, use the hash map cache.
+
+  // If MAX_NUM_WORKERS is set to more than 1, we disable the use of join cache because `pair_count`
+  // in cuCollection is not thread safe.
+  auto const num_workers_str = std::getenv("MAX_NUM_WORKERS");
+  if (num_workers_str != nullptr && std::strtoul(num_workers_str, nullptr, 10) > 1) {
+    join_use_hash_map_cache = false;
+  }
+
+  std::shared_ptr<gqe::join_hash_map_cache> hash_map_cache = nullptr;
+
   if (relation->policy() == physical::broadcast_policy::right) {
     // Generate the right children tasks
     auto right_tasks = _builder->generate_tasks(children[1]);
@@ -249,6 +264,11 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     // instead of being executed on a single GPU.
     auto concatenated_right_task = _builder->concatenate(std::move(right_tasks), false);
 
+    if (join_use_hash_map_cache) {
+      hash_map_cache =
+        std::make_shared<gqe::join_hash_map_cache>(gqe::join_hash_map_cache::build_location::right);
+    }
+
     // Generate the join tasks
     for (auto& left_task : left_tasks) {
       _generated_tasks.push_back(std::make_shared<join_task>(_builder->_current_task_id,
@@ -257,7 +277,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
                                                              concatenated_right_task,
                                                              relation_join_type,
                                                              relation->condition()->clone(),
-                                                             relation->projection_indices()));
+                                                             relation->projection_indices(),
+                                                             hash_map_cache));
       _builder->_current_task_id++;
     }
   } else {
@@ -276,6 +297,11 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     // Concatenate the left child tasks
     auto concatenated_left_task = _builder->concatenate(std::move(left_tasks), false);
 
+    if (join_use_hash_map_cache) {
+      hash_map_cache =
+        std::make_shared<gqe::join_hash_map_cache>(gqe::join_hash_map_cache::build_location::left);
+    }
+
     // Generate the join tasks
     for (auto& right_task : right_tasks) {
       _generated_tasks.push_back(std::make_shared<join_task>(_builder->_current_task_id,
@@ -284,7 +310,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
                                                              std::move(right_task),
                                                              relation_join_type,
                                                              relation->condition()->clone(),
-                                                             relation->projection_indices()));
+                                                             relation->projection_indices(),
+                                                             hash_map_cache));
       _builder->_current_task_id++;
     }
   }

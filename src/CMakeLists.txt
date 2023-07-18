@@ -60,6 +60,7 @@ add_library(
     storage/in_memory.cpp
     storage/parquet.cpp
     utility/cuda.cpp
+    utility/helpers.cpp
     utility/linux.cpp
     utility/tpcds.cpp
     utility/tpch.cpp

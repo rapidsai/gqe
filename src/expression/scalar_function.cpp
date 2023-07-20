@@ -41,3 +41,12 @@ std::string datetime_component_str(gqe::datepart_expression::datetime_component 
   return "date_part(" + child_exprs[0]->to_string() + ", " + datetime_component_str(_component) +
          ")";
 }
+
+[[nodiscard]] std::string gqe::like_expression::to_string() const noexcept
+{
+  auto child_exprs = children();
+  assert(child_exprs.size() == 1);
+  std::string fn_name = _ignore_case ? "ilike" : "like";
+  return fn_name + "(" + child_exprs[0]->to_string() + ", '" + _pattern + "', '" +
+         _escape_character + "')";
+}

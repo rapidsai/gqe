@@ -17,6 +17,7 @@
 #include <gqe/expression/if_then_else.hpp>
 #include <gqe/expression/literal.hpp>
 #include <gqe/expression/scalar_function.hpp>
+#include <gqe/expression/unary_op.hpp>
 #include <gqe/logical/aggregate.hpp>
 #include <gqe/logical/fetch.hpp>
 #include <gqe/logical/filter.hpp>
@@ -240,6 +241,8 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression
         null_literal = std::make_unique<gqe::literal_expression<double>>(0, true);
       else if (literal_expression.null().has_fp64())
         null_literal = std::make_unique<gqe::literal_expression<double>>(0, true);
+      else if (literal_expression.null().has_string())
+        null_literal = std::make_unique<gqe::literal_expression<std::string>>("", true);
       else
         throw std::runtime_error("SubstraitParser cannot parse null literal expression with type " +
                                  std::to_string(literal_expression.null().kind_case()));
@@ -328,6 +331,8 @@ name_to_fkind_map() noexcept
 {
   static std::unordered_map<std::string, gqe::scalar_function_expression::function_kind> map = {
     {"date_part", gqe::scalar_function_expression::function_kind::datepart},
+    {"ilike", gqe::scalar_function_expression::function_kind::like},
+    {"like", gqe::scalar_function_expression::function_kind::like},
     {"round", gqe::scalar_function_expression::function_kind::round},
     {"substr", gqe::scalar_function_expression::function_kind::substr}};
   return map;
@@ -399,6 +404,16 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::_parse_scalar_function_e
         return std::make_unique<gqe::datepart_expression>(
           std::move(input), datetime_component_from_str(component_str));
       }
+      case gqe::scalar_function_expression::function_kind::like: {
+        if (nargs < 2 || nargs > 3)
+          throw std::runtime_error("like/ilike() expects 2 or 3 arguments. Got " +
+                                   std::to_string(nargs) + " arguments");
+        auto input       = parsed_arguments[0];
+        auto pattern     = try_get_literal_value<std::string>(parsed_arguments[1]);
+        auto escape_char = try_get_literal_value<std::string>(parsed_arguments[2]);
+        return std::make_unique<gqe::like_expression>(
+          std::move(input), pattern, escape_char, function_name == "ilike" ? true : false);
+      }
       case gqe::scalar_function_expression::function_kind::round: {
         if (nargs != 2)
           throw std::runtime_error("round() currently only supports 2 arguments. Got " +
@@ -419,7 +434,14 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::_parse_scalar_function_e
   } else {
     // If the function is not part of the supported scalar_function::function_kind types,
     // attempt to parse as a cudf supported operation
-    if (nargs == 2) {  // Binary function base case
+    if (nargs == 1) {
+      auto input = parse_expression(arg_expressions[0], subquery_relations);
+      if (function_name == "not")
+        return std::make_unique<gqe::not_expression>(std::move(input));
+      else
+        throw std::runtime_error("SubstraitParser cannot parse unary scalar function \"" +
+                                 function_name + "\"");
+    } else if (nargs == 2) {  // Binary function base case
       auto lhs = parse_expression(arg_expressions[0], subquery_relations);
       auto rhs = parse_expression(arg_expressions[1], subquery_relations);
 
@@ -468,11 +490,12 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::_parse_scalar_function_e
               std::make_unique<gqe::logical_or_expression>(std::move(output_expr), std::move(rhs));
           else
             throw std::runtime_error("Cannot find matching multi-argument scalar function \"" +
-                                     function_name + "\"");
+                                     function_name + "\"" + " with " + std::to_string(nargs) +
+                                     " arguments");
         });
       return output_expr;
     } else {
-      throw std::runtime_error("Cannot find matching ScalarFunction with less than 2 arguments: " +
+      throw std::runtime_error("Cannot find matching ScalarFunction with less than 1 arguments: " +
                                function_name);
     }
   }

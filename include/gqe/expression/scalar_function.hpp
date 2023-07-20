@@ -39,10 +39,13 @@ class scalar_function_expression : public expression {
     // date_part(input, component): return the `component` part of timestamp `input`. For example
     // date_part(timestamp_D(2023-02-04), "year") returns 2023
     datepart,
-    // substr(size_type start, size_type length): return a substring of input starting from the
+    // like(input, pattern, escape_character, ignore_case): returns a boolean column identifying
+    // rows which match the given pattern
+    like,
+    // substr(size_type start, size_type length): returns a substring of input starting from the
     // character at the `start` index to `start+length-1`
     substr,
-    // round(input, decimal_places): round the input to the specified number of decimal places
+    // round(input, decimal_places): rounds the input to the specified number of decimal places
     round
   };
 
@@ -135,6 +138,64 @@ class datepart_expression : public scalar_function_expression {
 
  private:
   datetime_component _component;
+};
+
+class like_expression : public scalar_function_expression {
+ public:
+  like_expression(std::shared_ptr<expression> input,
+                  std::string pattern,
+                  std::string escape_character,
+                  bool ignore_case = false)
+    : scalar_function_expression(function_kind::like, {std::move(input)}),
+      _pattern(std::move(pattern)),
+      _escape_character(std::move(escape_character)),
+      _ignore_case(ignore_case)
+  {
+  }
+
+  /**
+   * @brief Return the pattern wildcard that is used to check matches to entries in the input.
+   */
+  [[nodiscard]] std::string pattern() const noexcept { return _pattern; }
+
+  /**
+   * @brief Return the character to use as escape for each input charater. If more than one
+   * charaters are passed, only the first is used.
+   */
+  [[nodiscard]] std::string escape_character() const noexcept { return _escape_character; }
+
+  /**
+   * @brief Return whether the evaluator should ignore the input case. This is `true` for `ILIKE`
+   * and `false for `LIKE`.
+   */
+  [[nodiscard]] bool ignore_case() const noexcept { return _ignore_case; }
+
+  /**
+   * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
+   */
+  [[nodiscard]] cudf::data_type data_type(
+    std::vector<cudf::data_type> const& column_types) const final
+  {
+    return cudf::data_type(cudf::type_id::BOOL8);
+  }
+
+  /**
+   * @copydoc gqe::expression::to_string()
+   */
+  [[nodiscard]] std::string to_string() const noexcept final;
+
+  /**
+   * @copydoc gqe::expression::clone()
+   */
+  [[nodiscard]] std::unique_ptr<expression> clone() const override
+  {
+    return std::make_unique<like_expression>(*this);
+  }
+
+ private:
+  std::string _pattern;
+  std::string _escape_character;
+  bool _ignore_case;
 };
 
 class round_expression : public scalar_function_expression {

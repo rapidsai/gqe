@@ -32,6 +32,7 @@ template <typename T>
 class literal_expression;
 class scalar_function_expression;
 class subquery_expression;
+class unary_op_expression;
 
 /**
  * @brief Base interface for an expression visitor.
@@ -106,6 +107,11 @@ struct expression_visitor {
   virtual void visit(scalar_function_expression const* expression)
   {
     throw std::logic_error("Visiting scalar_function_expression is not implemented");
+  }
+
+  virtual void visit(unary_op_expression const* expression)
+  {
+    throw std::logic_error("Visiting unary_op_expression is not implemented");
   }
 };
 

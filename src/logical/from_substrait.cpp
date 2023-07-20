@@ -26,6 +26,7 @@
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/sort.hpp>
 #include <gqe/logical/window.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <substrait/algebra.pb.h>
 
@@ -844,10 +845,6 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_join_relati
   auto left_relation  = parse_relation(join_relation.left());
   auto right_relation = parse_relation(join_relation.right());
 
-  // Parse join condition
-  std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
-  auto condition = parse_expression(join_relation.expression(), subquery_relations);
-
   // Parse the join relation for the join type
   join_type_type join_type;
   switch (join_relation.type()) {
@@ -866,26 +863,55 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_join_relati
     case substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_SEMI:
       join_type = join_type_type::left_semi;
       break;
-    // TODO: Add left_anti
+    case substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_ANTI:
+      join_type = join_type_type::left_anti;
+      break;
     default:
       throw std::runtime_error("SubstraitParser: unsupported join type " +
                                std::to_string(join_relation.type()));
   }
 
-  // Construct and return join relation
+  // Check that the join relation has either join expression or join filter or both
+  // Note that this check does not apply to cross join, however cross joins are not yet supported in
+  // datafusion-substrait
+  assert(join_relation.has_expression() || join_relation.has_post_join_filter());
+  // Parse equi-join expression if exsits
+  std::unique_ptr<gqe::expression> join_condition;
+  std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
+  if (join_relation.has_expression()) {
+    join_condition = parse_expression(join_relation.expression(), subquery_relations);
+  } else {
+    join_condition = std::make_unique<gqe::literal_expression<bool>>(true);
+  }
+  GQE_LOG_DEBUG("substrait parser: join condition: " + join_condition->to_string());
+  // Construct projection indices
   // TODO: Configure projection indices from parent projection relation. For now,
   //       we'll return all columns and handle projection in a separate relation.
   auto const num_output_columns =
     num_columns_join_result(left_relation->num_columns(), right_relation->num_columns(), join_type);
   std::vector<cudf::size_type> projection_indices(num_output_columns);
   std::iota(projection_indices.begin(), projection_indices.end(), 0);
+  // Construct join relation
+  auto join = std::make_unique<gqe::logical::join_relation>(std::move(left_relation),
+                                                            std::move(right_relation),
+                                                            std::move(subquery_relations),
+                                                            std::move(join_condition),
+                                                            join_type,
+                                                            std::move(projection_indices));
+  // Wrap `join` in a filter relation if `post_join_filter` is not empty
+  // As of Datafusion version 27.0.0 and Substrait version 0.31.0, there is no projection pushdown
+  // field in join relations. Thus, the input column indices of the join relation and
+  // `post_join_filter` correspond to the same list of fields. Note: Once projection pushdown (from
+  // parent relation) is implemented, the field indices used in `post_join_filter`
+  //       will need to reflect the changes
+  if (join_relation.has_post_join_filter()) {
+    auto join_filter = parse_expression(join_relation.post_join_filter(), subquery_relations);
+    GQE_LOG_DEBUG("substrait parser: join filter: " + join_filter->to_string());
+    return std::make_unique<gqe::logical::filter_relation>(
+      std::move(join), std::move(subquery_relations), std::move(join_filter));
+  }
 
-  return std::make_unique<gqe::logical::join_relation>(std::move(left_relation),
-                                                       std::move(right_relation),
-                                                       std::move(subquery_relations),
-                                                       std::move(condition),
-                                                       join_type,
-                                                       std::move(projection_indices));
+  return join;
 }
 
 std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_read_relation(

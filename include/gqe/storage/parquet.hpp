@@ -13,6 +13,7 @@
 #pragma once
 
 #include <gqe/executor/read.hpp>
+#include <gqe/executor/write.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/table.hpp>
 #include <gqe/storage/writeable_view.hpp>
@@ -67,6 +68,79 @@ class parquet_table : public table {
 
  private:
   std::shared_ptr<std::vector<std::string>> _file_paths;
+};
+
+class parquet_read_task : public read_task_base {
+ public:
+  /**
+   * @brief Construct a Parquet read task.
+   *
+   * A read task is used for loading a table from a file.
+   *
+   * @param[in] task_id Globally unique identifier of the task.
+   * @param[in] stage_id Stage of the current task.
+   * @param[in] file_paths Paths of the files to be read.
+   * @param[in] file_format Format of the file.
+   * @param[in] column_names Columns to be loaded.
+   * @param[in] data_types Expected data types of each column. If the actual data type of a loaded
+   * column is different from expected, the column will be casted to the data type specified. Must
+   * have the same length as `column_names`.
+   * @param[in] partial_filter Used to support predicate pushdown. Note that a row that satisfies
+   * the predicate is guaranteed to be included in the loaded table, but a row that does not satisfy
+   * the predicate may or may not be excluded. If such exclusion needs to be guaranteed, an extra
+   * filter task is needed. If this argument is nullptr, no rows will be filtered out.
+   * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
+   * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
+   */
+  parquet_read_task(int32_t task_id,
+                    int32_t stage_id,
+                    std::vector<std::string> file_paths,
+                    std::vector<std::string> column_names,
+                    std::vector<cudf::data_type> data_types,
+                    std::unique_ptr<gqe::expression> partial_filter   = nullptr,
+                    std::vector<std::shared_ptr<task>> subquery_tasks = {});
+
+  parquet_read_task(const parquet_read_task&) = delete;
+  parquet_read_task& operator=(const parquet_read_task&) = delete;
+
+  /**
+   * @copydoc gqe::task::execute()
+   */
+  void execute() override;
+
+ private:
+  [[nodiscard]] std::unique_ptr<cudf::table> table_from_parquet(
+    std::vector<std::string> const& file_paths) const;
+
+  [[nodiscard]] std::string print_column_names() const;
+
+  std::vector<std::string> _file_paths;
+  std::vector<std::string> _column_names;
+  std::vector<cudf::data_type> _data_types;
+  std::unique_ptr<gqe::expression> _partial_filter;
+};
+
+class parquet_write_task : public write_task_base {
+ public:
+  parquet_write_task(int32_t task_id,
+                     int32_t stage_id,
+                     std::shared_ptr<task> input,
+                     std::vector<std::string> file_paths,
+                     std::vector<std::string> column_names,
+                     std::vector<cudf::data_type> data_types);
+
+  parquet_write_task(const parquet_write_task&) = delete;
+  parquet_write_task& operator=(const parquet_write_task&) = delete;
+
+  /**
+   * @copydoc gqe::task::execute()
+   */
+  void execute() override;
+
+ private:
+  std::vector<std::string> _file_paths;
+  std::vector<std::string> _column_names;
+  std::vector<cudf::data_type> _data_types;
 };
 
 /**

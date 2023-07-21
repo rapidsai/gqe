@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -12,6 +12,7 @@
 
 #include <gqe/executor/read.hpp>
 #include <gqe/expression/column_reference.hpp>
+#include <gqe/storage/parquet.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/io/parquet.hpp>
@@ -70,7 +71,7 @@ TEST(FixedDataReadTaskTest, MixTypes)
                                                cudf::data_type(cudf::type_id::STRING)};
 
   auto read_task =
-    std::make_unique<gqe::parquet_read_task>(0, 0, filepaths, column_names, column_types);
+    std::make_unique<gqe::storage::parquet_read_task>(0, 0, filepaths, column_names, column_types);
   read_task->execute();
   auto result = read_task->result();
 
@@ -154,7 +155,7 @@ TEST(FixedDataReadTaskTestMultiTask, MixTypes)
                                                cudf::data_type(cudf::type_id::STRING)};
 
   auto read_task =
-    std::make_unique<gqe::parquet_read_task>(0, 0, filepaths, column_names, column_types);
+    std::make_unique<gqe::storage::parquet_read_task>(0, 0, filepaths, column_names, column_types);
   read_task->execute();
   auto result = read_task->result();
 
@@ -245,7 +246,7 @@ TEST(FixedDataReadTaskTestPartialFilter, MixTypes)
   // Load the haystack table from disk
   std::vector<cudf::data_type> haystack_column_types = {cudf::data_type(cudf::type_id::INT32)};
   std::vector<std::string> haystack_filepaths{haystack_filepath};
-  auto haystack_task = std::make_shared<gqe::parquet_read_task>(
+  auto haystack_task = std::make_shared<gqe::storage::parquet_read_task>(
     0, 0, haystack_filepaths, haystack_column_names, haystack_column_types);
 
   // Load the test table from disk using a read task
@@ -253,7 +254,7 @@ TEST(FixedDataReadTaskTestPartialFilter, MixTypes)
                                                cudf::data_type(cudf::type_id::INT32),
                                                cudf::data_type(cudf::type_id::STRING)};
 
-  auto read_task = std::make_unique<gqe::parquet_read_task>(
+  auto read_task = std::make_unique<gqe::storage::parquet_read_task>(
     0,
     0,
     filepaths,

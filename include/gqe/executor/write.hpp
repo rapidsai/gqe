@@ -27,27 +27,4 @@ class write_task_base : public task {
   write_task_base& operator=(const write_task_base&) = delete;
 };
 
-class parquet_write_task : public write_task_base {
- public:
-  parquet_write_task(int32_t task_id,
-                     int32_t stage_id,
-                     std::shared_ptr<task> input,
-                     std::vector<std::string> file_paths,
-                     std::vector<std::string> column_names,
-                     std::vector<cudf::data_type> data_types);
-
-  parquet_write_task(const parquet_write_task&) = delete;
-  parquet_write_task& operator=(const parquet_write_task&) = delete;
-
-  /**
-   * @copydoc gqe::task::execute()
-   */
-  void execute() override;
-
- private:
-  std::vector<std::string> _file_paths;
-  std::vector<std::string> _column_names;
-  std::vector<cudf::data_type> _data_types;
-};
-
 }  // namespace gqe

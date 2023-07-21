@@ -187,9 +187,17 @@ TEST(LogicalToExecution, ApplyConcatApply)
     nullptr  // partial_filter
   );
 
+  std::vector<std::pair<cudf::aggregation::Kind, double>> tests = {{cudf::aggregation::MEAN, 3.0},
+                                                                   {cudf::aggregation::SUM, 15.0},
+                                                                   {cudf::aggregation::MIN, 1.0},
+                                                                   {cudf::aggregation::MAX, 5.0}};
   std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<gqe::expression>>> measures;
-  measures.emplace_back(cudf::aggregation::MEAN,
-                        std::make_unique<gqe::column_reference_expression>(0));
+  std::vector<std::unique_ptr<cudf::column>> ref_columns;
+
+  for (auto [measure, result] : tests) {
+    measures.emplace_back(measure, std::make_unique<gqe::column_reference_expression>(0));
+    ref_columns.push_back(cudf::test::fixed_width_column_wrapper<double>({result}).release());
+  }
 
   auto aggregate_relation = std::make_shared<gqe::logical::aggregate_relation>(
     std::move(read_relation),
@@ -206,9 +214,6 @@ TEST(LogicalToExecution, ApplyConcatApply)
   gqe::execute_task_graph_single_gpu(task_graph.get());
 
   // Compare against reference result
-  cudf::test::fixed_width_column_wrapper<double> ref_results({3.0});
-  std::vector<std::unique_ptr<cudf::column>> ref_columns;
-  ref_columns.push_back(ref_results.release());
   auto ref_table = std::make_unique<cudf::table>(std::move(ref_columns));
 
   ASSERT_EQ(task_graph->root_tasks.size(), 1);

@@ -18,6 +18,7 @@
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/if_then_else.hpp>
 #include <gqe/expression/literal.hpp>
+#include <gqe/expression/unary_op.hpp>
 
 #include <cudf/ast/expressions.hpp>
 #include <cudf/column/column.hpp>
@@ -113,6 +114,11 @@ class expression_evaluator : public expression_visitor {
    */
   void visit(cast_expression const* expression) override;
 
+  /**
+   * @copydoc gqe::expression_visitor::visit(unary_op_expression const*)
+   */
+  void visit(unary_op_expression const* expression) override;
+
  private:
   /**
    * @brief Helper function for convertion a variant of `shared_ptr`to a variant of raw pointers.
@@ -159,7 +165,8 @@ class expression_evaluator : public expression_visitor {
   cudf::size_type
     _next_intermediate;  // Counter for intermediate result columns needed during execution.
 
-  static inline const std::unordered_map<cudf::binary_operator, cudf::ast::ast_operator>
+  static inline const std::unordered_map<std::variant<cudf::binary_operator, cudf::unary_operator>,
+                                         cudf::ast::ast_operator>
     _operator_map = {
       {cudf::binary_operator::ADD, cudf::ast::ast_operator::ADD},
       {cudf::binary_operator::SUB, cudf::ast::ast_operator::SUB},
@@ -172,8 +179,8 @@ class expression_evaluator : public expression_visitor {
       {cudf::binary_operator::LESS, cudf::ast::ast_operator::LESS},
       {cudf::binary_operator::GREATER, cudf::ast::ast_operator::GREATER},
       {cudf::binary_operator::LESS_EQUAL, cudf::ast::ast_operator::LESS_EQUAL},
-      {cudf::binary_operator::GREATER_EQUAL,
-       cudf::ast::ast_operator::GREATER_EQUAL}  // TODO add more operators
+      {cudf::binary_operator::GREATER_EQUAL, cudf::ast::ast_operator::GREATER_EQUAL},
+      {cudf::unary_operator::NOT, cudf::ast::ast_operator::NOT}  // TODO add more operators
     };  ///> Emum mapper between cudf::binary_op and cudf::ast::ast_operator.
 };
 

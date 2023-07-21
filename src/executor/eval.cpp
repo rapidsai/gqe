@@ -132,6 +132,21 @@ expression_evaluator::evaluate() const
           if (!lhs_ref && !rhs_ref) { throw std::logic_error("Not implemented"); }
           break;
         }
+        case gqe::expression::expression_type::unary_op: {
+          auto op      = dynamic_cast<gqe::unary_op_expression*>(task_ptr);
+          auto col_ref = dynamic_cast<gqe::column_reference_expression*>(children[0]);
+
+          if (!col_ref) {
+            throw std::logic_error(
+              "Input of `cudf::unary_operation` must be a column reference but is " +
+              children[0]->to_string());
+          }
+
+          auto result =
+            cudf::unary_operation(table.column(col_ref->column_idx()), op->unary_operator());
+          intermediate_results.push_back(std::move(result));
+          break;
+        }
         case gqe::expression::expression_type::if_then_else: {
           auto if_ref   = dynamic_cast<gqe::column_reference_expression*>(children[0]);
           auto then_ref = dynamic_cast<gqe::column_reference_expression*>(children[1]);
@@ -230,6 +245,73 @@ void expression_evaluator::visit(literal_expression<cudf::timestamp_D> const* ex
   _converted_expressions.emplace_back(std::make_shared<cudf::ast::literal>(*(value)));
 }
 
+void expression_evaluator::visit(unary_op_expression const* expression)
+{
+  // compute AST for the child expression
+  expression->_children[0]->accept(*this);
+
+  // child has been created at the back of `_converted_expressions`
+  auto child_index = _converted_expressions.size() - 1;
+
+  // does child use fallback eval strategy?
+  bool const child_needs_fallback =
+    std::holds_alternative<std::shared_ptr<gqe::expression>>(_converted_expressions[child_index]);
+
+  if (child_needs_fallback ||
+      // `cudf::ast` cannot handle non-fixed width output columns
+      !cudf::is_fixed_width(expression->data_type(extract_column_types(_table)))) {
+    if (!child_needs_fallback) {
+      auto child =
+        std::get<cudf::ast::expression*>(to_raw_expr_ptr(_converted_expressions[child_index]));
+
+      // if the child expression is a `cudf::ast:literal` or `cudf::ast::column_reference`
+      // replace it with their `gqe::expression` equivalent
+      if (dynamic_cast<cudf::ast::literal*>(child) ||
+          dynamic_cast<cudf::ast::column_reference*>(child)) {
+        _converted_expressions[child_index] = expression->_children[0];
+      } else {  // child expression is a `cudf::ast` sub-expression (needs to be evaluated
+                // separately)
+        // mark the `cudf::ast` sub-expression as to be evaluated
+        _sub_tasks.emplace_back(to_raw_expr_ptr(_converted_expressions[child_index]));
+
+        // child expression is executed as a separate task; the current expression needs to pick up
+        // its result
+        _converted_expressions.emplace_back(
+          std::make_shared<gqe::column_reference_expression>(_next_intermediate++));
+
+        // index of new child (reference to intermediate result)
+        child_index = _converted_expressions.size() - 1;
+      }
+    }
+
+    // make a copy of the current expression but with the new child expressions
+    auto new_expr       = expression->clone();
+    new_expr->_children = {
+      std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[child_index])};
+
+    _converted_expressions.emplace_back(std::move(new_expr));
+
+    // mark the new expression as to be evaluated
+    if (expression != _root_expression) {
+      _sub_tasks.emplace_back(to_raw_expr_ptr(_converted_expressions.back()));
+      // parent expression picks up the reference to the intermediate result for its child
+      _converted_expressions.emplace_back(
+        std::make_shared<cudf::ast::column_reference>(_next_intermediate++));
+    }
+  } else {  // no fallback strategy needed
+    // find the `cudf::ast` equivalent of the given operation type
+    auto converted_op = _operator_map.find(expression->unary_operator());
+    if (converted_op == _operator_map.end()) {
+      throw std::logic_error("Unable to convert " + expression->to_string() +
+                             " to cudf::ast operator");
+    }
+
+    _converted_expressions.emplace_back(std::make_shared<cudf::ast::operation>(
+      converted_op->second,
+      *std::get<cudf::ast::expression*>(to_raw_expr_ptr(_converted_expressions[child_index]))));
+  }
+}
+
 void expression_evaluator::visit(binary_op_expression const* expression)
 {
   // compute AST for the lhs child
@@ -314,7 +396,8 @@ void expression_evaluator::visit(binary_op_expression const* expression)
     // find the `cudf::ast` equivalent of the given operation type
     auto converted_op = _operator_map.find(expression->binary_operator());
     if (converted_op == _operator_map.end()) {
-      throw std::logic_error("Cannot convert " + expression->to_string());
+      throw std::logic_error("Unable to convert " + expression->to_string() +
+                             " to cudf::ast operator");
     }
 
     _converted_expressions.emplace_back(std::make_shared<cudf::ast::operation>(

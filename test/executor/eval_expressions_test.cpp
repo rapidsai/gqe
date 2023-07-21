@@ -392,3 +392,17 @@ TEST(EvalExpressionsTest, EmptyInput)
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
+
+TEST(EvalExpressionTest, SimpleUnaryNot)
+{
+  auto c_0   = column_wrapper<bool>{false, true, true, false};
+  auto table = cudf::table_view{{c_0}};
+
+  auto not_expr = gqe::not_expression(std::make_shared<gqe::column_reference_expression>(0));
+  std::vector<gqe::expression const*> expressions = {&not_expr};
+
+  auto expected                          = column_wrapper<bool>{true, false, false, true};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}

@@ -110,32 +110,36 @@ int main(int argc, char* argv[])
                                 {"ss_item_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"ss_cdemo_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"ss_promo_sk", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/store_sales"),
-                               gqe::file_format_type::parquet);
-  tpcds_catalog.register_table(
-    "customer_demographics",
-    {{"cd_demo_sk", cudf::data_type(cudf::type_id::INT64)},
-     {"cd_gender", cudf::data_type(cudf::type_id::STRING)},
-     {"cd_marital_status", cudf::data_type(cudf::type_id::STRING)},
-     {"cd_education_status", cudf::data_type(cudf::type_id::STRING)}},
-    gqe::utility::get_parquet_files(dataset_location + "/customer_demographics"),
-    gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(
+                                 dataset_location + "/store_sales")},
+                               gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table("customer_demographics",
+                               {{"cd_demo_sk", cudf::data_type(cudf::type_id::INT64)},
+                                {"cd_gender", cudf::data_type(cudf::type_id::STRING)},
+                                {"cd_marital_status", cudf::data_type(cudf::type_id::STRING)},
+                                {"cd_education_status", cudf::data_type(cudf::type_id::STRING)}},
+                               gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(
+                                 dataset_location + "/customer_demographics")},
+                               gqe::partitioning_schema_kind::automatic{});
   tpcds_catalog.register_table("date_dim",
                                {{"d_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"d_year", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/date_dim"),
-                               gqe::file_format_type::parquet);
-  tpcds_catalog.register_table("item",
-                               {{"i_item_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"i_item_id", cudf::data_type(cudf::type_id::STRING)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/item"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{
+                                 gqe::utility::get_parquet_files(dataset_location + "/date_dim")},
+                               gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table(
+    "item",
+    {{"i_item_sk", cudf::data_type(cudf::type_id::INT64)},
+     {"i_item_id", cudf::data_type(cudf::type_id::STRING)}},
+    gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(dataset_location + "/item")},
+    gqe::partitioning_schema_kind::automatic{});
   tpcds_catalog.register_table("promotion",
                                {{"p_promo_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"p_channel_email", cudf::data_type(cudf::type_id::STRING)},
                                 {"p_channel_event", cudf::data_type(cudf::type_id::STRING)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/promotion"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{
+                                 gqe::utility::get_parquet_files(dataset_location + "/promotion")},
+                               gqe::partitioning_schema_kind::automatic{});
 
   std::shared_ptr<gqe::logical::relation> date_dim_table =
     read_table("date_dim", {"d_date_sk", "d_year"}, &tpcds_catalog);

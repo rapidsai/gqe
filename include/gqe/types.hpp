@@ -31,11 +31,6 @@ namespace gqe {
 enum class join_type_type { inner, left, left_semi, left_anti, full, single };
 
 /**
- * @brief List of input file formats.
- */
-enum class file_format_type { parquet };
-
-/**
  * @brief Representation of a set of CPUs.
  *
  * C++ wrapper class for the Linux `CPU_SET` type. It can also be used to represent other resource

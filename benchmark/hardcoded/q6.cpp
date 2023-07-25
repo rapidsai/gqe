@@ -87,32 +87,36 @@ int main(int argc, char* argv[])
                                {{"ss_item_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"ss_sold_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"ss_customer_sk", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/store_sales"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(
+                                 dataset_location + "/store_sales")},
+                               gqe::partitioning_schema_kind::automatic{});
   tpcds_catalog.register_table("date_dim",
                                {{"d_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"d_year", cudf::data_type(cudf::type_id::INT64)},
                                 {"d_moy", cudf::data_type(cudf::type_id::INT64)},
                                 {"d_month_seq", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/date_dim"),
-                               gqe::file_format_type::parquet);
-  tpcds_catalog.register_table("item",
-                               {{"i_item_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"i_current_price", cudf::data_type(cudf::type_id::FLOAT64)},
-                                {"i_category", cudf::data_type(cudf::type_id::STRING)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/item"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{
+                                 gqe::utility::get_parquet_files(dataset_location + "/date_dim")},
+                               gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table(
+    "item",
+    {{"i_item_sk", cudf::data_type(cudf::type_id::INT64)},
+     {"i_current_price", cudf::data_type(cudf::type_id::FLOAT64)},
+     {"i_category", cudf::data_type(cudf::type_id::STRING)}},
+    gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(dataset_location + "/item")},
+    gqe::partitioning_schema_kind::automatic{});
   tpcds_catalog.register_table("customer",
                                {{"c_customer_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"c_current_addr_sk", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/customer"),
-                               gqe::file_format_type::parquet);
-  tpcds_catalog.register_table(
-    "customer_address",
-    {{"ca_address_sk", cudf::data_type(cudf::type_id::INT64)},
-     {"ca_state", cudf::data_type(cudf::type_id::STRING)}},
-    gqe::utility::get_parquet_files(dataset_location + "/customer_address"),
-    gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{
+                                 gqe::utility::get_parquet_files(dataset_location + "/customer")},
+                               gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table("customer_address",
+                               {{"ca_address_sk", cudf::data_type(cudf::type_id::INT64)},
+                                {"ca_state", cudf::data_type(cudf::type_id::STRING)}},
+                               gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(
+                                 dataset_location + "/customer_address")},
+                               gqe::partitioning_schema_kind::automatic{});
 
   // Hand-code the logical plan
   std::shared_ptr<gqe::logical::relation> date_dim_table =

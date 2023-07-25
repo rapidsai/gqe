@@ -50,21 +50,6 @@ class catalog {
                       partitioning_schema_kind::type partitioning_schema);
 
   /**
-   * @brief Register a new table into the catalog.
-   *
-   * @throw std::logic_error if `table_name` is already registered.
-   *
-   * @param[in] table_name Name of the table to register.
-   * @param[in] columns A collection of (column name, column data type) pairs.
-   * @param[in] file_paths List of files for containing data of `table_name`.
-   * @param[in] file_format Format of files in `file_paths`.
-   */
-  void register_table(std::string table_name,
-                      std::vector<std::pair<std::string, cudf::data_type>> const& columns,
-                      std::vector<std::string> const& file_paths,
-                      file_format_type file_format);
-
-  /**
    * @brief Return the data type of a column in the catalog.
    *
    * @throw std::logic_error if the table or the column is not found in the catalog.

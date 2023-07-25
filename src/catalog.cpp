@@ -108,17 +108,6 @@ void catalog::register_table(std::string table_name,
   _table_entries[table_name] = std::move(entry);
 }
 
-void catalog::register_table(std::string table_name,
-                             std::vector<std::pair<std::string, cudf::data_type>> const& columns,
-                             std::vector<std::string> const& file_paths,
-                             file_format_type file_format)
-{
-  catalog::register_table(std::move(table_name),
-                          std::move(columns),
-                          storage_kind::parquet_file{std::move(file_paths)},
-                          partitioning_schema_kind::automatic{});
-}
-
 cudf::data_type catalog::column_type(std::string const& table_name,
                                      std::string const& column_name) const
 {

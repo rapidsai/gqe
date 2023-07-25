@@ -24,6 +24,7 @@
 #include <gqe/logical/set.hpp>
 #include <gqe/logical/sort.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
+#include <gqe/types.hpp>
 #include <gqe/utility/helpers.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>
@@ -87,21 +88,24 @@ int main(int argc, char* argv[])
                                {{"inv_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"inv_item_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"inv_quantity_on_hand", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/inventory"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{
+                                 gqe::utility::get_parquet_files(dataset_location + "/inventory")},
+                               gqe::partitioning_schema_kind::automatic{});
   tpcds_catalog.register_table("date_dim",
                                {{"d_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"d_month_seq", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/date_dim"),
-                               gqe::file_format_type::parquet);
-  tpcds_catalog.register_table("item",
-                               {{"i_item_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"i_product_name", cudf::data_type(cudf::type_id::STRING)},
-                                {"i_brand", cudf::data_type(cudf::type_id::STRING)},
-                                {"i_class", cudf::data_type(cudf::type_id::STRING)},
-                                {"i_category", cudf::data_type(cudf::type_id::STRING)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/item"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{
+                                 gqe::utility::get_parquet_files(dataset_location + "/date_dim")},
+                               gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table(
+    "item",
+    {{"i_item_sk", cudf::data_type(cudf::type_id::INT64)},
+     {"i_product_name", cudf::data_type(cudf::type_id::STRING)},
+     {"i_brand", cudf::data_type(cudf::type_id::STRING)},
+     {"i_class", cudf::data_type(cudf::type_id::STRING)},
+     {"i_category", cudf::data_type(cudf::type_id::STRING)}},
+    gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(dataset_location + "/item")},
+    gqe::partitioning_schema_kind::automatic{});
 
   // Hand-code the logical plan
   std::shared_ptr<gqe::logical::relation> date_dim_table =

@@ -83,13 +83,13 @@ TEST(LogicalToExecution, HardcodePlanAndData)
   catalog.register_table("table_0",
                          {{"table_0_col_0", cudf::data_type(cudf::type_id::STRING)},
                           {"table_0_col_1", cudf::data_type(cudf::type_id::INT64)}},
-                         {table_0_filepath},
-                         gqe::file_format_type::parquet);
+                         gqe::storage_kind::parquet_file{{table_0_filepath}},
+                         gqe::partitioning_schema_kind::automatic{});
   catalog.register_table("table_1",
                          {{"table_1_col_0", cudf::data_type(cudf::type_id::STRING)},
                           {"table_1_col_1", cudf::data_type(cudf::type_id::INT32)}},
-                         {table_1_filepath},
-                         gqe::file_format_type::parquet);
+                         gqe::storage_kind::parquet_file{{table_1_filepath}},
+                         gqe::partitioning_schema_kind::automatic{});
 
   // Hand-code the logical plan
   auto read_relation_0 = std::make_shared<gqe::logical::read_relation>(
@@ -172,11 +172,12 @@ TEST(LogicalToExecution, ApplyConcatApply)
 
   // Register the input tables
   gqe::catalog catalog;
-  catalog.register_table("input",
-                         {{"values", cudf::data_type(cudf::type_id::FLOAT64)}},
-                         {temp_env->get_temp_filepath("partition_0.parquet"),
-                          temp_env->get_temp_filepath("partition_1.parquet")},
-                         gqe::file_format_type::parquet);
+  catalog.register_table(
+    "input",
+    {{"values", cudf::data_type(cudf::type_id::FLOAT64)}},
+    gqe::storage_kind::parquet_file{{temp_env->get_temp_filepath("partition_0.parquet"),
+                                     temp_env->get_temp_filepath("partition_1.parquet")}},
+    gqe::partitioning_schema_kind::automatic{});
 
   // Hand-code the logical plan
   auto read_relation = std::make_shared<gqe::logical::read_relation>(
@@ -257,12 +258,13 @@ TEST(LogicalToExecution, Window)
 
   // Register the input tables
   gqe::catalog catalog;
-  catalog.register_table("input",
-                         {{"keys0", cudf::data_type(cudf::type_id::INT32)},
-                          {"keys1", cudf::data_type(cudf::type_id::INT32)},
-                          {"values", cudf::data_type(cudf::type_id::INT32)}},
-                         {temp_env->get_temp_filepath("partition_0.parquet")},
-                         gqe::file_format_type::parquet);
+  catalog.register_table(
+    "input",
+    {{"keys0", cudf::data_type(cudf::type_id::INT32)},
+     {"keys1", cudf::data_type(cudf::type_id::INT32)},
+     {"values", cudf::data_type(cudf::type_id::INT32)}},
+    gqe::storage_kind::parquet_file{{temp_env->get_temp_filepath("partition_0.parquet")}},
+    gqe::partitioning_schema_kind::automatic{});
 
   // Hand-code the logical plan
   auto read_relation = std::make_shared<gqe::logical::read_relation>(
@@ -356,12 +358,13 @@ TEST(LogicalToExecution, WindowWithOrderBy)
 
   // Register the input tables
   gqe::catalog catalog;
-  catalog.register_table("input",
-                         {{"keys0", cudf::data_type(cudf::type_id::INT32)},
-                          {"keys1", cudf::data_type(cudf::type_id::INT32)},
-                          {"values", cudf::data_type(cudf::type_id::INT32)}},
-                         {temp_env->get_temp_filepath("partition_0.parquet")},
-                         gqe::file_format_type::parquet);
+  catalog.register_table(
+    "input",
+    {{"keys0", cudf::data_type(cudf::type_id::INT32)},
+     {"keys1", cudf::data_type(cudf::type_id::INT32)},
+     {"values", cudf::data_type(cudf::type_id::INT32)}},
+    gqe::storage_kind::parquet_file{{temp_env->get_temp_filepath("partition_0.parquet")}},
+    gqe::partitioning_schema_kind::automatic{});
 
   // Hand-code the logical plan
   auto read_relation = std::make_shared<gqe::logical::read_relation>(

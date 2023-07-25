@@ -171,34 +171,39 @@ int main(int argc, char* argv[])
   tpcds_catalog.register_table("store_sales",
                                {{"ss_sold_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"ss_customer_sk", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/store_sales"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(
+                                 dataset_location + "/store_sales")},
+                               gqe::partitioning_schema_kind::automatic{});
 
   tpcds_catalog.register_table("catalog_sales",
                                {{"cs_sold_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"cs_bill_customer_sk", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/catalog_sales"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(
+                                 dataset_location + "/catalog_sales")},
+                               gqe::partitioning_schema_kind::automatic{});
 
   tpcds_catalog.register_table("web_sales",
                                {{"ws_sold_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"ws_bill_customer_sk", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/web_sales"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{
+                                 gqe::utility::get_parquet_files(dataset_location + "/web_sales")},
+                               gqe::partitioning_schema_kind::automatic{});
 
   tpcds_catalog.register_table("date_dim",
                                {{"d_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"d_month_seq", cudf::data_type(cudf::type_id::INT64)},
                                 {"d_date", cudf::data_type(cudf::type_id::TIMESTAMP_DAYS)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/date_dim"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{
+                                 gqe::utility::get_parquet_files(dataset_location + "/date_dim")},
+                               gqe::partitioning_schema_kind::automatic{});
 
   tpcds_catalog.register_table("customer",
                                {{"c_customer_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"c_last_name", cudf::data_type(cudf::type_id::STRING)},
                                 {"c_first_name", cudf::data_type(cudf::type_id::STRING)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/customer"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{
+                                 gqe::utility::get_parquet_files(dataset_location + "/customer")},
+                               gqe::partitioning_schema_kind::automatic{});
 
   // Hand-code the logical plan
 

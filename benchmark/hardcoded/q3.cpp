@@ -84,21 +84,24 @@ int main(int argc, char* argv[])
                                {{"ss_item_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"ss_sold_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"ss_ext_sales_price", cudf::data_type(cudf::type_id::FLOAT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/store_sales"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(
+                                 dataset_location + "/store_sales")},
+                               gqe::partitioning_schema_kind::automatic{});
   tpcds_catalog.register_table("date_dim",
                                {{"d_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"d_year", cudf::data_type(cudf::type_id::INT64)},
                                 {"d_moy", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/date_dim"),
-                               gqe::file_format_type::parquet);
-  tpcds_catalog.register_table("item",
-                               {{"i_item_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"i_brand_id", cudf::data_type(cudf::type_id::INT64)},
-                                {"i_brand", cudf::data_type(cudf::type_id::STRING)},
-                                {"i_manufact_id", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::utility::get_parquet_files(dataset_location + "/item"),
-                               gqe::file_format_type::parquet);
+                               gqe::storage_kind::parquet_file{
+                                 gqe::utility::get_parquet_files(dataset_location + "/date_dim")},
+                               gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table(
+    "item",
+    {{"i_item_sk", cudf::data_type(cudf::type_id::INT64)},
+     {"i_brand_id", cudf::data_type(cudf::type_id::INT64)},
+     {"i_brand", cudf::data_type(cudf::type_id::STRING)},
+     {"i_manufact_id", cudf::data_type(cudf::type_id::INT64)}},
+    gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(dataset_location + "/item")},
+    gqe::partitioning_schema_kind::automatic{});
 
   // Hand-code the logical plan
   std::shared_ptr<gqe::logical::relation> date_dim_table =

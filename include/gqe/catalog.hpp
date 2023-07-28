@@ -50,6 +50,13 @@ class catalog {
                       partitioning_schema_kind::type partitioning_schema);
 
   /**
+   * @brief Return the names of all columns in the table in the user-defined order.
+   *
+   * @throw std::logic_error if the table is not found in the catalog.
+   */
+  std::vector<std::string> column_names(std::string const& table_name) const;
+
+  /**
    * @brief Return the data type of a column in the catalog.
    *
    * @throw std::logic_error if the table or the column is not found in the catalog.
@@ -117,6 +124,7 @@ class catalog {
 
  private:
   struct table_info_type {
+    std::vector<std::string> _column_names;  ///< column names in the user-defined order
     std::unordered_map<std::string, cudf::data_type>
       _column_name_to_type;  ///< map from column names to their data types
     storage_kind::type _storage;

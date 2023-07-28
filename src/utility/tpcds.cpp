@@ -182,7 +182,8 @@ table_definitions() noexcept
       {"wr_return_amt", decimal_type},
       {"wr_return_tax", decimal_type},
       {"wr_return_amt_inc_tax", decimal_type},
-      {"wr_fee wr_return_ship_cost", decimal_type},
+      {"wr_fee", decimal_type},
+      {"wr_return_ship_cost", decimal_type},
       {"wr_refunded_cash", decimal_type},
       {"wr_reversed_charge", decimal_type},
       {"wr_account_credit", decimal_type},
@@ -193,35 +194,39 @@ table_definitions() noexcept
       {"inv_warehouse_sk", identifier_type},
       {"inv_quantity_on_hand", integer_type}}},
     {"store",
-     {{"s_store_sk", identifier_type},
-      {"s_store_id", string_type},  // char(16)
-      {"s_rec_start_date", date_type},
-      {"s_rec_end_date", date_type},
-      {"s_closed_date_sk", identifier_type},
-      {"s_store_name", string_type},  // varchar(50)
-      {"s_number_employees", integer_type},
-      {"s_floor_space", integer_type},
-      {"s_hours", string_type},    // char(20)
-      {"s_manager", string_type},  // varchar(40)
-      {"s_market_id", integer_type},
-      {"s_geography_class", string_type},  // varchar(100)
-      {"s_market_desc", string_type},      // varchar(100)
-      {"s_market_manager", string_type},   // varchar(40)
-      {"s_division_id", integer_type},
-      {"s_division_name", string_type},  // varchar(50)
-      {"s_company_id", integer_type},
-      {"s_company_name", string_type},   // varchar(50)
-      {"s_street_number", string_type},  // varchar(10)
-      {"s_street_name", string_type},    // varchar(60)
-      {"s_street_type", string_type},    // char(15)
-      {"s_suite_number", string_type},   // char(10)
-      {"s_city", string_type},           // varchar(60)
-      {"s_county", string_type},         // varchar(30)
-      {"s_state", string_type},          // char(2)
-      {"s_zip", string_type},            // char(10)
-      {"s_country", string_type},        // varchar(20)
-      {"s_gmt_offset", decimal_type},
-      {"s_tax_percentage", decimal_type}}},
+     {
+       {"s_store_sk", identifier_type},
+       {"s_store_id", string_type},  // char(16)
+       {"s_rec_start_date", date_type},
+       {"s_rec_end_date", date_type},
+       {"s_closed_date_sk", identifier_type},
+       {"s_store_name", string_type},  // varchar(50)
+       {"s_number_employees", integer_type},
+       {"s_floor_space", integer_type},
+       {"s_hours", string_type},    // char(20)
+       {"s_manager", string_type},  // varchar(40)
+       {"s_market_id", integer_type},
+       {"s_geography_class", string_type},  // varchar(100)
+       {"s_market_desc", string_type},      // varchar(100)
+       {"s_market_manager", string_type},   // varchar(40)
+       {"s_division_id", integer_type},
+       {"s_division_name", string_type},  // varchar(50)
+       {"s_company_id", integer_type},
+       {"s_company_name", string_type},   // varchar(50)
+       {"s_street_number", string_type},  // varchar(10)
+       {"s_street_name", string_type},    // varchar(60)
+       {"s_street_type", string_type},    // char(15)
+       {"s_suite_number", string_type},   // char(10)
+       {"s_city", string_type},           // varchar(60)
+       {"s_county", string_type},         // varchar(30)
+       {"s_state", string_type},          // char(2)
+       {"s_zip", string_type},            // char(10)
+       {"s_country", string_type},        // varchar(20)
+       {"s_gmt_offset", decimal_type},
+       {"s_tax_precentage",
+        decimal_type}  // Note: spelling mistake in upstream data generator. See
+                       // https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/merge_requests/114#note_16418623
+     }},
     {"call_center",
      {{"cc_call_center_sk", identifier_type},
       {"cc_call_center_id", string_type},  // char(16)
@@ -339,7 +344,8 @@ table_definitions() noexcept
       {"c_birth_country", string_type},
       {"c_login", string_type},
       {"c_email_address", string_type},
-      {"c_last_review_date_sk", identifier_type}}},
+      // {"c_last_review_date_sk", identifier_type},
+      {"c_last_review_date_sk", string_type}}},  // FIXME
     {"customer_address",
      {{"ca_address_sk", identifier_type},
       {"ca_address_id", string_type},

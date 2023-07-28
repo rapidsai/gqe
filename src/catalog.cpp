@@ -61,6 +61,7 @@ void catalog::register_table(std::string table_name,
     column_names.push_back(std::move(column_name));
     column_types.push_back(std::move(column_type));
   }
+  table_info._column_names        = column_names;
   table_info._storage             = storage;
   table_info._partitioning_schema = partitioning_schema;
   table_info._num_partitions      = max_num_partitions;
@@ -106,6 +107,16 @@ void catalog::register_table(std::string table_name,
   table_entry entry = {std::move(table_info), std::move(table)};
 
   _table_entries[table_name] = std::move(entry);
+}
+
+std::vector<std::string> catalog::column_names(std::string const& table_name) const
+{
+  auto const table_info_iter = _table_entries.find(table_name);
+
+  if (table_info_iter == _table_entries.end())
+    throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
+
+  return table_info_iter->second.info._column_names;
 }
 
 cudf::data_type catalog::column_type(std::string const& table_name,

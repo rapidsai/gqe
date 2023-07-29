@@ -45,6 +45,7 @@ add_library(
     executor/filter.cpp
     executor/fetch.cpp
     executor/gen_ident_col.cu
+    executor/unique_key_inner_join.cu
     executor/join.cpp
     executor/project.cpp
     executor/read.cpp
@@ -69,6 +70,7 @@ add_library(
 )
 
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(gqe PUBLIC cuco::cuco)
 target_link_libraries(gqe PUBLIC cudf::cudf)
 target_link_libraries(gqe PUBLIC numa)
 target_link_libraries(gqe PUBLIC spdlog::spdlog)

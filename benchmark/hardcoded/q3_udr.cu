@@ -49,7 +49,7 @@
 void print_usage()
 {
   std::cout << "Run TPC-DS Q3 benchmark with customized kernels" << std::endl
-            << "./q3 <path-to-dataset>" << std::endl;
+            << "./q3_udr <path-to-dataset>" << std::endl;
 }
 
 std::shared_ptr<gqe::logical::read_relation> read_table(

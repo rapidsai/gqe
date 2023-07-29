@@ -47,7 +47,16 @@ include(${rapids-cmake-dir}/cpm/spdlog.cmake)
 include(${rapids-cmake-dir}/cpm/cuco.cmake)
 rapids_cpm_gtest()
 rapids_cpm_spdlog()
-rapids_cpm_cuco()
+
+CPMAddPackage(
+  NAME cuco
+  GITHUB_REPOSITORY NVIDIA/cuCollections
+  GIT_TAG 303f134573afa315cf14fca3f7a0b730438497c3
+  OPTIONS
+     "BUILD_TESTS OFF"
+     "BUILD_BENCHMARKS OFF"
+     "BUILD_EXAMPLES OFF"
+)
 
 # Setup CTest
 if(PROJECT_IS_TOP_LEVEL)

@@ -270,10 +270,30 @@ cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
     case substrait::Type::kString:
     case substrait::Type::kVarchar: return cudf::data_type(cudf::type_id::STRING);
     case substrait::Type::kDate: return cudf::data_type(cudf::type_id::DURATION_DAYS);
-    case substrait::Type::kDecimal:
-      // Decimal is encoded as 16-byte little-endian
-      // source: https://substrait.io/types/type_classes/#compound-types
-      return cudf::data_type(cudf::type_id::DECIMAL128, substrait_type.decimal().precision());
+    case substrait::Type::kDecimal: {
+      auto const precision = substrait_type.decimal().precision();
+      auto const scale     = substrait_type.decimal().scale();
+
+      // Precision in radix-10 that can be represented by b bits = floor((b-1)*log_10(2))
+      constexpr decltype(precision) decimal32_precision_threshold  = 9;
+      constexpr decltype(precision) decimal64_precision_threshold  = 18;
+      constexpr decltype(precision) decimal128_precision_threshold = 38;
+
+      if (precision < 1 || precision > decimal128_precision_threshold) {
+        throw std::logic_error("Invalid decimal precision in the substrait plan");
+      }
+
+      // Let's call the integer stored in the decimal `rep`, and the value it represented `value`.
+      // In cuDF, `rep = value / 10^scale` but in Substrait `value = rep / 10^scale`. So, we flip
+      // the sign bit of `scale` here to make them compatible.
+      if (precision <= decimal32_precision_threshold) {
+        return cudf::data_type(cudf::type_id::DECIMAL32, -scale);
+      } else if (precision <= decimal64_precision_threshold) {
+        return cudf::data_type(cudf::type_id::DECIMAL64, -scale);
+      } else {
+        return cudf::data_type(cudf::type_id::DECIMAL128, -scale);
+      }
+    }
     default:
       throw std::runtime_error("SubstraitParser cannot convert substrait type " +
                                std::to_string(substrait_type.kind_case()) + " to cuDF type");

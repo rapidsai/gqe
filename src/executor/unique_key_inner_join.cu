@@ -348,13 +348,6 @@ std::optional<cudf::size_type> build_map_functor::operator()<int64_t>(
     build_keys, build_indices, probe_keys, probe_indices, compare_nulls, load_factor, stream);
 }
 
-/*
- * This performs a specialised join between the left and rights keys,
- * when the left keys have unique values.
- * Here, left keys are used to build hash map,  and right keys are used to probe the hash map.
- * If the keys are not int32_t or int64_t cudf's inner join is invoked.
- */
-
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 unique_key_inner_join(cudf::table_view left_keys,

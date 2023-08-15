@@ -11,6 +11,8 @@
  */
 
 #include <gqe/catalog.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/logical/project.hpp>
 #include <gqe/logical/read.hpp>
@@ -100,11 +102,14 @@ TEST(InMemoryStorage, CopyTable)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(write_relation.get());
 
+  gqe::optimization_parameters opms(true);
+  gqe::query_context qctx(&opms);
+
   // Generate the task graph and execute on a single GPU
-  gqe::task_graph_builder graph_builder(&catalog);
+  gqe::task_graph_builder graph_builder(&qctx, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::execute_task_graph_single_gpu(task_graph.get());
+  gqe::execute_task_graph_single_gpu(&qctx, task_graph.get());
 
   // Read the in-memory table
   auto read_im_relation = std::make_shared<gqe::logical::read_relation>(
@@ -117,9 +122,9 @@ TEST(InMemoryStorage, CopyTable)
 
   gqe::physical_plan_builder plan_builder_check(&catalog);
   auto physical_plan_check = plan_builder_check.build(read_im_relation.get());
-  gqe::task_graph_builder graph_builder_check(&catalog);
+  gqe::task_graph_builder graph_builder_check(&qctx, &catalog);
   auto task_graph_check = graph_builder_check.build(physical_plan_check.get());
-  gqe::execute_task_graph_single_gpu(task_graph_check.get());
+  gqe::execute_task_graph_single_gpu(&qctx, task_graph_check.get());
 
   // Verify the execution result
   auto result_table = task_graph_check->root_tasks.at(0)->result().value();
@@ -204,11 +209,14 @@ TEST(InMemoryStorage, CopyTableParallel)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(write_relation.get());
 
+  gqe::optimization_parameters opms(true);
+  gqe::query_context qctx(&opms);
+
   // Generate the task graph and execute on a single GPU
-  gqe::task_graph_builder graph_builder(&catalog);
+  gqe::task_graph_builder graph_builder(&qctx, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::execute_task_graph_single_gpu(task_graph.get());
+  gqe::execute_task_graph_single_gpu(&qctx, task_graph.get());
 
   // Read the in-memory table
   auto read_im_relation = std::make_shared<gqe::logical::read_relation>(
@@ -221,9 +229,10 @@ TEST(InMemoryStorage, CopyTableParallel)
 
   gqe::physical_plan_builder plan_builder_check(&catalog);
   auto physical_plan_check = plan_builder_check.build(read_im_relation.get());
-  gqe::task_graph_builder graph_builder_check(&catalog);
+
+  gqe::task_graph_builder graph_builder_check(&qctx, &catalog);
   auto task_graph_check = graph_builder_check.build(physical_plan_check.get());
-  gqe::execute_task_graph_single_gpu(task_graph_check.get());
+  gqe::execute_task_graph_single_gpu(&qctx, task_graph_check.get());
 
   // Verify the execution result
   auto result_table_part_0 = task_graph_check->root_tasks.at(0)->result().value();

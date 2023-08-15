@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -20,12 +20,13 @@
 
 namespace gqe {
 
-fetch_task::fetch_task(int32_t task_id,
+fetch_task::fetch_task(query_context* query_context,
+                       int32_t task_id,
                        int32_t stage_id,
                        std::shared_ptr<task> input,
                        cudf::size_type offset,
                        cudf::size_type count)
-  : task(task_id, stage_id, {std::move(input)}, {}), _offset(offset), _count(count)
+  : task(query_context, task_id, stage_id, {std::move(input)}, {}), _offset(offset), _count(count)
 {
 }
 

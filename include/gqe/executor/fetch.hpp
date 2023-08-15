@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
 
@@ -32,13 +33,15 @@ class fetch_task : public task {
    * the resulting table is empty. If the number of rows after `offset` is less than `count`,
    * all rows from `offset` to the end of the table are retrieved.
    *
+   * @param[in] query_context The query context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task
    * @param[in] stage_id Stage of the current task
    * @param[in] input Input table to fetch from
    * @param[in] offset The row index from which the fetch starts
    * @param[in] count The number of rows to retrieve starting from offset
    */
-  fetch_task(int32_t task_id,
+  fetch_task(query_context* query_context,
+             int32_t task_id,
              int32_t stage_id,
              std::shared_ptr<task> input,
              cudf::size_type offset,

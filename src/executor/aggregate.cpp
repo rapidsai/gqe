@@ -87,12 +87,13 @@ std::unique_ptr<cudf::groupby_aggregation> get_groupby_aggregation(
 }  // namespace
 
 aggregate_task::aggregate_task(
+  query_context* query_context,
   int32_t task_id,
   int32_t stage_id,
   std::shared_ptr<task> input,
   std::vector<std::unique_ptr<expression>> keys,
   std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values)
-  : task(task_id, stage_id, {std::move(input)}, {}),
+  : task(query_context, task_id, stage_id, {std::move(input)}, {}),
     _keys(std::move(keys)),
     _values(std::move(values))
 {

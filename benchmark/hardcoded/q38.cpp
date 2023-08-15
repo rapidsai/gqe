@@ -11,6 +11,8 @@
  */
 
 #include <gqe/catalog.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
@@ -278,10 +280,13 @@ int main(int argc, char* argv[])
   gqe::physical_plan_builder plan_builder(&tpcds_catalog);
   auto physical_plan = plan_builder.build(logical_plan.get());
 
-  gqe::task_graph_builder graph_builder(&tpcds_catalog);
+  gqe::optimization_parameters opms{};
+  gqe::query_context qctx(&opms);
+
+  gqe::task_graph_builder graph_builder(&qctx, &tpcds_catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::utility::time_function(gqe::execute_task_graph_single_gpu, task_graph.get());
+  gqe::utility::time_function(gqe::execute_task_graph_single_gpu, &qctx, task_graph.get());
 
   assert(task_graph->root_tasks.size() == 1);
   std::cout << "Result: " << task_graph->root_tasks[0]->result().value().num_rows() << std::endl;

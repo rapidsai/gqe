@@ -33,7 +33,8 @@
 
 namespace gqe {
 
-window_task::window_task(int32_t task_id,
+window_task::window_task(query_context* query_context,
+                         int32_t task_id,
                          int32_t stage_id,
                          std::shared_ptr<task> input,
                          cudf::aggregation::Kind aggr_func,
@@ -44,7 +45,7 @@ window_task::window_task(int32_t task_id,
                          std::vector<cudf::order> order_dirs,
                          window_frame_bound::type window_lower_bound,
                          window_frame_bound::type window_upper_bound)
-  : task(task_id, stage_id, {std::move(input)}, {}),
+  : task(query_context, task_id, stage_id, {std::move(input)}, {}),
     _aggr_func{aggr_func},
     _ident_cols{std::move(ident_cols)},
     _arguments{std::move(arguments)},

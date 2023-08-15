@@ -26,10 +26,6 @@
 
 namespace gqe {
 
-namespace detail {
-constexpr std::size_t DEFAULT_MAX_NUM_PARTITIONS = 8;  // Default max number of partitions
-}
-
 void catalog::register_table(std::string table_name,
                              const std::vector<std::pair<std::string, cudf::data_type>>& columns,
                              storage_kind::type storage,
@@ -37,15 +33,6 @@ void catalog::register_table(std::string table_name,
 {
   if (_table_entries.find(table_name) != _table_entries.end())
     throw std::logic_error("table \"" + table_name + "\" is already registered");
-
-  std::size_t max_num_partitions    = detail::DEFAULT_MAX_NUM_PARTITIONS;
-  auto const max_num_partitions_str = std::getenv("MAX_NUM_PARTITIONS");
-  if (max_num_partitions_str != nullptr) {
-    max_num_partitions = std::strtoul(max_num_partitions_str, nullptr, 10);
-  }
-  if (auto file = std::get_if<storage_kind::parquet_file>(&storage)) {
-    max_num_partitions = std::min(file->file_paths.size(), max_num_partitions);
-  }
 
   table_info_type table_info;
   std::vector<std::string> column_names;
@@ -64,7 +51,6 @@ void catalog::register_table(std::string table_name,
   table_info._column_names        = column_names;
   table_info._storage             = storage;
   table_info._partitioning_schema = partitioning_schema;
-  table_info._num_partitions      = max_num_partitions;
 
   int64_t num_rows = 0;
   if (auto file = std::get_if<storage_kind::parquet_file>(&storage)) {
@@ -156,16 +142,6 @@ table_statistics catalog::statistics(std::string const& table_name) const
   return table_info_iter->second.info._statistics;
 }
 
-size_t catalog::num_partitions(std::string const& table_name) const
-{
-  auto const table_info_iter = _table_entries.find(table_name);
-
-  if (table_info_iter == _table_entries.end())
-    throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
-
-  return table_info_iter->second.info._num_partitions;
-}
-
 bool catalog::is_readable(std::string const& table_name) const
 {
   auto const table_storage_iter = _table_entries.find(table_name);
@@ -186,6 +162,17 @@ bool catalog::is_writeable(std::string const& table_name) const
   }
 
   return table_storage_iter->second.storage->is_writeable();
+}
+
+int32_t catalog::max_concurrent_readers(std::string const& table_name) const
+{
+  auto const table_storage_iter = _table_entries.find(table_name);
+
+  if (table_storage_iter == _table_entries.end()) {
+    throw std::logic_error("Cannot find table \"" + table_name + "\" in the catalog");
+  }
+
+  return table_storage_iter->second.storage->max_concurrent_readers();
 }
 
 int32_t catalog::max_concurrent_writers(std::string const& table_name) const

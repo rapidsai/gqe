@@ -81,13 +81,6 @@ class catalog {
   table_statistics statistics(std::string const& table_name) const;
 
   /**
-   * @brief Return the number of read tasks to be generated for this table
-   *
-   * @throw std::logic_error if the table is not found in the catalog.
-   */
-  size_t num_partitions(std::string const& table_name) const;
-
-  /**
    * @brief Return whether the table is readable or not.
    *
    * @throw std::logic_error if the table is not found in the catalog.
@@ -100,6 +93,13 @@ class catalog {
    * @throw std::logic_error if the table is not found in the catalog.
    */
   bool is_writeable(std::string const& table_name) const;
+
+  /**
+   * @brief Return the maximum number of concurrent readers.
+   *
+   * @throw std::logic_error if the table is not found in the catalog.
+   */
+  int32_t max_concurrent_readers(std::string const& table_name) const;
 
   /**
    * @brief Return the maximum number of concurrent writers.
@@ -130,7 +130,6 @@ class catalog {
     storage_kind::type _storage;
     partitioning_schema_kind::type _partitioning_schema;
     table_statistics _statistics;
-    size_t _num_partitions;  ///< number of read tasks to be generated for this table
   };
 
   struct table_entry {

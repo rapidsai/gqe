@@ -13,6 +13,8 @@
 #pragma once
 
 #include <gqe/catalog.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/physical/relation.hpp>
 
@@ -45,8 +47,13 @@ struct task_graph {
  *
  * After this function call, the result tables of the root tasks in `task_graph_to_execute` are
  * available to the local GPU.
+ *
+ * @param[in] query_context Context object with resources and optimization
+ * parameters for the query. This should usually be the same object as passed to
+ * the task graph builder.
+ * @param[in] task_graph The task graph to execute.
  */
-void execute_task_graph_single_gpu(task_graph const* task_graph_to_execute);
+void execute_task_graph_single_gpu(query_context* query_context, task_graph const* task_graph);
 
 /**
  * @brief A builder for generating a task graph from a physical plan.
@@ -56,9 +63,11 @@ class task_graph_builder {
   /**
    * @brief Construct a task graph builder object.
    *
-   * @param[in] cat Catalog containing file locations and data types of the input tables.
+   * @param[in] query_context Context object containing optimization parameters
+   * and used for establishing resources to be used by the query executor.
+   * @param[in] catalog Catalog containing file locations and data types of the input tables.
    */
-  task_graph_builder(catalog const* cat) : _catalog(cat) {}
+  task_graph_builder(query_context* query_context, catalog const* catalog);
 
   /**
    * @brief Generate a new task graph.
@@ -123,6 +132,7 @@ class task_graph_builder {
     _current_stage_id++;
   }
 
+  query_context* _query_context;
   catalog const* _catalog;
   std::vector<std::vector<task*>> _stage_root_tasks = {};
   int32_t _current_stage_id                         = 0;

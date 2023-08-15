@@ -11,6 +11,8 @@
  */
 
 #include <gqe/catalog.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/write.hpp>
@@ -259,7 +261,11 @@ int main(int argc, char* argv[])
     copy_store_sales, copy_date_dim, copy_item};
 
   gqe::physical_plan_builder plan_builder(&tpcds_catalog);
-  gqe::task_graph_builder graph_builder(&tpcds_catalog);
+
+  gqe::optimization_parameters opms{};
+  gqe::query_context qctx(&opms);
+
+  gqe::task_graph_builder graph_builder(&qctx, &tpcds_catalog);
 
   std::vector<std::shared_ptr<gqe::physical::relation>> physical_plans;
   physical_plans.reserve(logical_plans.size());
@@ -278,8 +284,8 @@ int main(int argc, char* argv[])
 
   // Execute
   gqe::utility::time_function([&]() {
-    std::for_each(task_graphs.begin(), task_graphs.end(), [](auto const& task_graph) {
-      gqe::execute_task_graph_single_gpu(task_graph.get());
+    std::for_each(task_graphs.begin(), task_graphs.end(), [&](auto const& task_graph) {
+      gqe::execute_task_graph_single_gpu(&qctx, task_graph.get());
     });
   });
 }

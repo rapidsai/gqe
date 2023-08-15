@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/read.hpp>
 #include <gqe/executor/write.hpp>
 #include <gqe/storage/readable_view.hpp>
@@ -213,6 +214,11 @@ class in_memory_table : public table {
   [[nodiscard]] bool is_writeable() const override;
 
   /**
+   * @copydoc gqe::storage::table::max_concurrent_readers()
+   */
+  [[nodiscard]] int32_t max_concurrent_readers() const override;
+
+  /**
    * @copydoc gqe::storage::table::max_concurrent_writers()
    */
   [[nodiscard]] int32_t max_concurrent_writers() const override;
@@ -260,6 +266,7 @@ class in_memory_read_task : public read_task_base {
   /**
    * @brief Construct an in-memory read task.
    *
+   * @param[in] query_context The query context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] row_groups The row groups assigned to this task.
@@ -274,7 +281,8 @@ class in_memory_read_task : public read_task_base {
    * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
    * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
    */
-  in_memory_read_task(int32_t task_id,
+  in_memory_read_task(query_context* query_context,
+                      int32_t task_id,
                       int32_t stage_id,
                       std::vector<const row_group*> row_groups,
                       std::vector<cudf::size_type> column_indexes,
@@ -303,6 +311,7 @@ class in_memory_write_task : public write_task_base {
   /**
    * @brief Construct an in-memory write task.
    *
+   * @param[in] query_context The query context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] input The input task emitting new data.
@@ -313,7 +322,8 @@ class in_memory_write_task : public write_task_base {
    * column is different from expected, the column will be casted to the data type specified. Must
    * have the same length as `column_names`.
    */
-  in_memory_write_task(int32_t task_id,
+  in_memory_write_task(query_context* query_context,
+                       int32_t task_id,
                        int32_t stage_id,
                        std::shared_ptr<task> input,
                        rmm::mr::device_memory_resource* non_owned_memory_resource,
@@ -351,6 +361,7 @@ class in_memory_readable_view : public readable_view {
    */
   std::vector<std::unique_ptr<read_task_base>> get_read_tasks(
     std::vector<readable_view::task_parameters>&& task_parameters,
+    query_context* query_context,
     int32_t stage_id,
     std::vector<std::string> column_names,
     std::vector<cudf::data_type> data_types) override;
@@ -373,6 +384,7 @@ class in_memory_writeable_view : public writeable_view {
    */
   std::vector<std::unique_ptr<write_task_base>> get_write_tasks(
     std::vector<writeable_view::task_parameters>&& task_parameters,
+    query_context* query_context,
     int32_t stage_id,
     std::vector<std::string> column_names,
     std::vector<cudf::data_type> data_types) override;

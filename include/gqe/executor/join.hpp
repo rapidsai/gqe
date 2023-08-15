@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/types.hpp>
@@ -91,6 +92,7 @@ class join_task : public task {
    * the example above, `ColumnReference 1` and `ColumnReference 0` would be evaluated on the left
    * table, whereas `ColumnReference 3` and `ColumnReference 5` are evaluated on the right table.
    *
+   * @param[in] query_context The query context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] left Left table to be joined.
@@ -103,7 +105,8 @@ class join_task : public task {
    * @param[in] hash_map_cache If supplied, the hash map used for the join can be loaded from the
    * cache instead of reconstructed.
    */
-  join_task(int32_t task_id,
+  join_task(query_context* query_context,
+            int32_t task_id,
             int32_t stage_id,
             std::shared_ptr<task> left,
             std::shared_ptr<task> right,

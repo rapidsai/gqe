@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/types.hpp>
@@ -30,6 +31,7 @@ class window_task : public task {
   /**
    * @brief Construct a window task. Currently only works on a single partition.
    *
+   * @param[in] query_context The query context in which the current task is running in.
    * @param[in] input Input table containing columns necessary for the window function
    * @param[in] subquery_relations Subquery relations that are referenced within the given
    * expressions.
@@ -47,7 +49,8 @@ class window_task : public task {
    * row index. Has type window_frame_bound::unbounded if the window extends to the boundary of the
    * partition and window_frame_bound::bounded otherwise.
    */
-  window_task(int32_t task_id,
+  window_task(query_context* query_context,
+              int32_t task_id,
               int32_t stage_id,
               std::shared_ptr<task> input,
               cudf::aggregation::Kind aggr_func,

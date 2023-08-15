@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
 
@@ -34,6 +35,7 @@ class aggregate_task : public task {
    * An aggregate task can either represent a reduction (when `keys` are empty) or a groupby (when
    * `keys` are not empty).
    *
+   * @param[in] query_context The query context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] input Input table to be aggregated.
@@ -44,6 +46,7 @@ class aggregate_task : public task {
    * and then rows of the evaluated result in the same group will be combined together using `op`.
    */
   aggregate_task(
+    query_context* query_context,
     int32_t task_id,
     int32_t stage_id,
     std::shared_ptr<task> input,

@@ -48,6 +48,7 @@ parquet_table::parquet_table(std::vector<std::string> file_paths)
 
 bool parquet_table::is_readable() const { return true; }
 bool parquet_table::is_writeable() const { return true; }
+int32_t parquet_table::max_concurrent_readers() const { return _file_paths->size(); }
 int32_t parquet_table::max_concurrent_writers() const { return _file_paths->size(); }
 
 std::unique_ptr<readable_view> parquet_table::readable_view()
@@ -60,14 +61,15 @@ std::unique_ptr<writeable_view> parquet_table::writeable_view()
   return std::unique_ptr<parquet_writeable_view>(new parquet_writeable_view(_file_paths.get()));
 }
 
-parquet_read_task::parquet_read_task(int32_t task_id,
+parquet_read_task::parquet_read_task(query_context* query_context,
+                                     int32_t task_id,
                                      int32_t stage_id,
                                      std::vector<std::string> file_paths,
                                      std::vector<std::string> column_names,
                                      std::vector<cudf::data_type> data_types,
                                      std::unique_ptr<expression> partial_filter,
                                      std::vector<std::shared_ptr<task>> subquery_tasks)
-  : read_task_base(task_id, stage_id, std::move(subquery_tasks)),
+  : read_task_base(query_context, task_id, stage_id, std::move(subquery_tasks)),
     _file_paths(std::move(file_paths)),
     _column_names(std::move(column_names)),
     _data_types(std::move(data_types)),
@@ -254,13 +256,14 @@ void parquet_read_task::execute()
   remove_subqueries();
 }
 
-parquet_write_task::parquet_write_task(int32_t task_id,
+parquet_write_task::parquet_write_task(query_context* query_context,
+                                       int32_t task_id,
                                        int32_t stage_id,
                                        std::shared_ptr<task> input,
                                        std::vector<std::string> file_paths,
                                        std::vector<std::string> column_names,
                                        std::vector<cudf::data_type> data_types)
-  : write_task_base(task_id, stage_id, input),
+  : write_task_base(query_context, task_id, stage_id, input),
     _file_paths(std::move(file_paths)),
     _column_names(std::move(column_names)),
     _data_types(std::move(data_types))
@@ -311,6 +314,7 @@ parquet_readable_view::parquet_readable_view(std::vector<std::string>* non_ownin
 
 std::vector<std::unique_ptr<read_task_base>> parquet_readable_view::get_read_tasks(
   std::vector<readable_view::task_parameters>&& task_parameters,
+  query_context* query_context,
   int32_t stage_id,
   std::vector<std::string> column_names,
   std::vector<cudf::data_type> data_types)
@@ -344,7 +348,8 @@ std::vector<std::unique_ptr<read_task_base>> parquet_readable_view::get_read_tas
       std::vector<std::string> file_paths_task{_non_owning_file_paths->begin() + begin_offset,
                                                _non_owning_file_paths->begin() + end_offset};
 
-      auto read_task = std::make_unique<parquet_read_task>(task->task_id,
+      auto read_task = std::make_unique<parquet_read_task>(query_context,
+                                                           task->task_id,
                                                            stage_id,
                                                            std::move(file_paths_task),
                                                            column_names,
@@ -367,6 +372,7 @@ parquet_writeable_view::parquet_writeable_view(std::vector<std::string>* non_own
 
 std::vector<std::unique_ptr<write_task_base>> parquet_writeable_view::get_write_tasks(
   std::vector<writeable_view::task_parameters>&& task_parameters,
+  query_context* query_context,
   int32_t stage_id,
   std::vector<std::string> column_names,
   std::vector<cudf::data_type> data_types)
@@ -403,7 +409,8 @@ std::vector<std::unique_ptr<write_task_base>> parquet_writeable_view::get_write_
       assert(end_offset >= begin_offset);
       std::vector<std::string> file_paths_task{_non_owning_file_paths->begin() + begin_offset,
                                                _non_owning_file_paths->begin() + end_offset};
-      auto write_task = std::make_unique<parquet_write_task>(task->task_id,
+      auto write_task = std::make_unique<parquet_write_task>(query_context,
+                                                             task->task_id,
                                                              stage_id,
                                                              std::move(task->input),
                                                              std::move(file_paths_task),

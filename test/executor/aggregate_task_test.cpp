@@ -13,6 +13,8 @@
 #include "utilities.hpp"
 
 #include <gqe/executor/aggregate.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/expression/column_reference.hpp>
 
 #include <cudf/column/column.hpp>
@@ -46,11 +48,18 @@ class HandCodedValuesAggregationTest : public ::testing::Test {
     input_columns.push_back(input_col_1.release());
     input_columns.push_back(input_col_2.release());
 
-    auto input_task = std::make_shared<gqe::test::executed_task>(
-      input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+    gqe::optimization_parameters opms(true);
+    gqe::query_context qctx(&opms);
 
-    aggregate_task = std::make_unique<gqe::aggregate_task>(
-      aggregate_task_id, stage_id, std::move(input_task), std::move(keys), std::move(values));
+    auto input_task = std::make_shared<gqe::test::executed_task>(
+      &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+
+    aggregate_task = std::make_unique<gqe::aggregate_task>(&qctx,
+                                                           aggregate_task_id,
+                                                           stage_id,
+                                                           std::move(input_task),
+                                                           std::move(keys),
+                                                           std::move(values));
   }
 
   std::unique_ptr<gqe::aggregate_task> aggregate_task;

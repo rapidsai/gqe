@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
 
@@ -31,12 +32,15 @@ class gen_ident_col_task : public task {
    * integers whose higher 32 bits are the task ID and lower 32 bits are the row index. This
    * provides a unique row/partition identifier for each row. Used for window relation
    * implementation.
-   *
+   * @param[in] query_context The query context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] input Input table to be appended to.
    */
-  gen_ident_col_task(int32_t task_id, int32_t stage_id, std::shared_ptr<task> input);
+  gen_ident_col_task(query_context* query_context,
+                     int32_t task_id,
+                     int32_t stage_id,
+                     std::shared_ptr<task> input);
 
   /**
    * @copydoc gqe::task::execute()

@@ -12,7 +12,9 @@
 
 #include "utilities.hpp"
 
+#include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/project.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/expression/column_reference.hpp>
 
 #include <cudf/column/column.hpp>
@@ -44,8 +46,11 @@ TEST(ProjectTaskTest, ReorderColumns)
                                 input_table_columns[1]->view(),
                                 input_table_columns[2]->view()});
 
+  gqe::optimization_parameters opms(true);
+  gqe::query_context qctx(&opms);
+
   auto input_task = std::make_shared<gqe::test::executed_task>(
-    input_task_id, stage_id, std::make_unique<cudf::table>(input_table));
+    &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(input_table));
 
   std::vector<std::unique_ptr<gqe::expression>> project_expressions;
   project_expressions.push_back(std::make_unique<gqe::column_reference_expression>(2));
@@ -54,7 +59,7 @@ TEST(ProjectTaskTest, ReorderColumns)
   project_expressions.push_back(std::make_unique<gqe::column_reference_expression>(2));
 
   auto project_task = std::make_unique<gqe::project_task>(
-    project_task_id, stage_id, std::move(input_task), std::move(project_expressions));
+    &qctx, project_task_id, stage_id, std::move(input_task), std::move(project_expressions));
 
   project_task->execute();
   auto project_result = project_task->result();

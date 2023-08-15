@@ -12,23 +12,29 @@
 
 #pragma once
 
-#include <gqe/executor/query_context.hpp>
-#include <gqe/executor/task.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
 
 #include <cstdint>
 #include <memory>
 
 namespace gqe {
 
-class write_task_base : public task {
- public:
-  write_task_base(query_context* query_context,
-                  int32_t task_id,
-                  int32_t stage_id,
-                  std::shared_ptr<task> input);
+/**
+ * @brief Query context of the current query.
+ *
+ * The query context centralizes all important resources and parameters that
+ * are relevant for query execution. This enables optimizations that rely on
+ * context, as well as logging and debugging.
+ *
+ * Implementation note: Add a comment for each struct member documenting its purpose.
+ * Each member must have a default setting.
+ */
+struct query_context {
+  query_context() = delete;
 
-  write_task_base(const write_task_base&) = delete;
-  write_task_base& operator=(const write_task_base&) = delete;
+  explicit query_context(optimization_parameters const* parameters) : parameters(parameters) {}
+
+  gqe::optimization_parameters const* parameters;
 };
 
 }  // namespace gqe

@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task.hpp>
 
 #include <memory>
@@ -31,12 +32,16 @@ class concatenate_task : public task {
   /**
    * @brief Construct a concatenate task.
    *
+   * @param[in] query_context The query context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] inputs Input tables to be concatenated.
    */
-  concatenate_task(int32_t task_id, int32_t stage_id, std::vector<std::shared_ptr<task>> inputs)
-    : task(task_id, stage_id, std::move(inputs), {})
+  concatenate_task(query_context* query_context,
+                   int32_t task_id,
+                   int32_t stage_id,
+                   std::vector<std::shared_ptr<task>> inputs)
+    : task(query_context, task_id, stage_id, std::move(inputs), {})
   {
   }
 

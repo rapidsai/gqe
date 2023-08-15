@@ -13,6 +13,8 @@
 #include "utilities.hpp"
 
 #include <gqe/executor/fetch.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/expression/column_reference.hpp>
 
 #include <cudf/column/column.hpp>
@@ -42,11 +44,14 @@ class FetchTest : public ::testing::Test {
     input_columns.push_back(input_col_0.release());
     input_columns.push_back(input_col_1.release());
 
+    gqe::optimization_parameters opms(true);
+    gqe::query_context qctx(&opms);
+
     auto input_task = std::make_shared<gqe::test::executed_task>(
-      input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+      &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
 
     fetch_task = std::make_unique<gqe::fetch_task>(
-      fetch_task_id, stage_id, std::move(input_task), offset, count);
+      &qctx, fetch_task_id, stage_id, std::move(input_task), offset, count);
   }
 
   std::unique_ptr<gqe::fetch_task> fetch_task;

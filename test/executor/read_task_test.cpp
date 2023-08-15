@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/read.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/storage/parquet.hpp>
@@ -70,8 +72,11 @@ TEST(FixedDataReadTaskTest, MixTypes)
                                                cudf::data_type(cudf::type_id::INT32),
                                                cudf::data_type(cudf::type_id::STRING)};
 
-  auto read_task =
-    std::make_unique<gqe::storage::parquet_read_task>(0, 0, filepaths, column_names, column_types);
+  gqe::optimization_parameters opms(true);
+  gqe::query_context qctx(&opms);
+
+  auto read_task = std::make_unique<gqe::storage::parquet_read_task>(
+    &qctx, 0, 0, filepaths, column_names, column_types);
   read_task->execute();
   auto result = read_task->result();
 
@@ -154,8 +159,11 @@ TEST(FixedDataReadTaskTestMultiTask, MixTypes)
                                                cudf::data_type(cudf::type_id::INT32),
                                                cudf::data_type(cudf::type_id::STRING)};
 
-  auto read_task =
-    std::make_unique<gqe::storage::parquet_read_task>(0, 0, filepaths, column_names, column_types);
+  gqe::optimization_parameters opms(true);
+  gqe::query_context qctx(&opms);
+
+  auto read_task = std::make_unique<gqe::storage::parquet_read_task>(
+    &qctx, 0, 0, filepaths, column_names, column_types);
   read_task->execute();
   auto result = read_task->result();
 
@@ -243,11 +251,14 @@ TEST(FixedDataReadTaskTestPartialFilter, MixTypes)
   haystack_options.metadata(&haystack_metadata);
   cudf::io::write_parquet(haystack_options);
 
+  gqe::optimization_parameters opms(true);
+  gqe::query_context qctx(&opms);
+
   // Load the haystack table from disk
   std::vector<cudf::data_type> haystack_column_types = {cudf::data_type(cudf::type_id::INT32)};
   std::vector<std::string> haystack_filepaths{haystack_filepath};
   auto haystack_task = std::make_shared<gqe::storage::parquet_read_task>(
-    0, 0, haystack_filepaths, haystack_column_names, haystack_column_types);
+    &qctx, 0, 0, haystack_filepaths, haystack_column_names, haystack_column_types);
 
   // Load the test table from disk using a read task
   std::vector<cudf::data_type> column_types = {cudf::data_type(cudf::type_id::INT64),
@@ -255,6 +266,7 @@ TEST(FixedDataReadTaskTestPartialFilter, MixTypes)
                                                cudf::data_type(cudf::type_id::STRING)};
 
   auto read_task = std::make_unique<gqe::storage::parquet_read_task>(
+    &qctx,
     0,
     0,
     filepaths,

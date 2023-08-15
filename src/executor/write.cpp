@@ -14,8 +14,11 @@
 
 namespace gqe {
 
-write_task_base::write_task_base(int32_t task_id, int32_t stage_id, std::shared_ptr<task> input)
-  : task(task_id, stage_id, {std::move(input)}, {})
+write_task_base::write_task_base(query_context* query_context,
+                                 int32_t task_id,
+                                 int32_t stage_id,
+                                 std::shared_ptr<task> input)
+  : task(query_context, task_id, stage_id, {std::move(input)}, {})
 {
 }
 

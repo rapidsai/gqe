@@ -13,6 +13,8 @@
 #include <cudf/types.hpp>
 
 #include <gqe/catalog.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/logical/from_substrait.hpp>
 #include <gqe/logical/read.hpp>
@@ -66,7 +68,10 @@ gqe::storage_kind::type parse_storage_kind(const std::string& storage_kind_descr
 
 class copy_plan_builder {
  public:
-  copy_plan_builder(const gqe::catalog* catalog) : _catalog(catalog) {}
+  copy_plan_builder(gqe::query_context* query_context, const gqe::catalog* catalog)
+    : _query_context(query_context), _catalog(catalog)
+  {
+  }
 
   void add_table(const std::string& src_table_name, const std::string& dst_table_name)
   {
@@ -119,7 +124,7 @@ class copy_plan_builder {
     if (_logical_plans.empty()) { return; }
 
     gqe::physical_plan_builder plan_builder(_catalog);
-    gqe::task_graph_builder graph_builder(_catalog);
+    gqe::task_graph_builder graph_builder(_query_context, _catalog);
 
     std::vector<std::shared_ptr<gqe::physical::relation>> physical_plans;
     physical_plans.reserve(_logical_plans.size());
@@ -138,8 +143,8 @@ class copy_plan_builder {
       [&](auto const& phyiscal_plan) { return graph_builder.build(phyiscal_plan.get()); });
 
     // Execute the copies
-    std::for_each(task_graphs.begin(), task_graphs.end(), [](auto const& task_graph) {
-      gqe::execute_task_graph_single_gpu(task_graph.get());
+    std::for_each(task_graphs.begin(), task_graphs.end(), [=](auto const& task_graph) {
+      gqe::execute_task_graph_single_gpu(_query_context, task_graph.get());
     });
 
     // Clear the state
@@ -147,13 +152,17 @@ class copy_plan_builder {
   }
 
  private:
+  gqe::query_context* _query_context;
   const gqe::catalog* _catalog;
   std::vector<std::shared_ptr<gqe::logical::relation>> _logical_plans;
 };
 
 class query_result_writer {
  public:
-  query_result_writer(gqe::catalog* catalog) : _catalog(catalog) {}
+  query_result_writer(gqe::query_context* query_context, gqe::catalog* catalog)
+    : _query_context(query_context), _catalog(catalog)
+  {
+  }
 
   std::shared_ptr<gqe::logical::relation> append_to_plan(
     const std::shared_ptr<gqe::logical::relation> plan,
@@ -192,7 +201,7 @@ class query_result_writer {
                              gqe::storage_kind::parquet_file{{result_path}},
                              gqe::partitioning_schema_kind::none{});
 
-    copy_plan_builder copy_plan(_catalog);
+    copy_plan_builder copy_plan(_query_context, _catalog);
     copy_plan.add_table(_result_table_name, parquet_table_name);
     copy_plan.execute_copy();
 
@@ -201,6 +210,7 @@ class query_result_writer {
   }
 
  private:
+  gqe::query_context* _query_context;
   gqe::catalog* _catalog;
   std::string _result_table_name;
   std::vector<std::pair<std::string, cudf::data_type>> _column_definitions;
@@ -252,12 +262,14 @@ int main(int argc, char* argv[])
   rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource> pool_mr{&cuda_mr};
   rmm::mr::set_current_device_resource(&pool_mr);
 
+  gqe::optimization_parameters opms{};
+  gqe::query_context qctx(&opms);
   gqe::catalog catalog;
 
   // register all tables
   auto const& table_definitions = (tpc_type == "ds") ? gqe::utility::tpcds::table_definitions()
                                                      : gqe::utility::tpch::table_definitions();
-  copy_plan_builder copy_plan(&catalog);
+  copy_plan_builder copy_plan(&qctx, &catalog);
   for (auto const& [name, definition] : table_definitions) {
     const auto file_paths   = gqe::utility::get_parquet_files(dataset_location + "/" + name);
     const auto storage_kind = parse_storage_kind(storage_kind_name, file_paths);
@@ -296,7 +308,7 @@ int main(int argc, char* argv[])
   auto logical_plan = parser.from_file(substrait_plan_file);
   assert(logical_plan.size() == 1);
 
-  query_result_writer result_writer(&catalog);
+  query_result_writer result_writer(&qctx, &catalog);
   const std::string cached_result_name = "query_result";
 
   auto logical_plan_with_result =
@@ -308,11 +320,11 @@ int main(int argc, char* argv[])
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(logical_plan_with_result.get());
 
-  gqe::task_graph_builder graph_builder(&catalog);
+  gqe::task_graph_builder graph_builder(&qctx, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
   GQE_LOG_INFO("Starting query execution.");
-  gqe::utility::time_function(gqe::execute_task_graph_single_gpu, task_graph.get());
+  gqe::utility::time_function(gqe::execute_task_graph_single_gpu, &qctx, task_graph.get());
 
   const std::string result_path = "output.parquet";
   GQE_LOG_INFO("Writing query result to \"" + result_path + "\".");

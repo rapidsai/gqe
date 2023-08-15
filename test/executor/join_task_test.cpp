@@ -13,6 +13,8 @@
 #include "utilities.hpp"
 
 #include <gqe/executor/join.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
@@ -46,6 +48,9 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
     int64_column_wrapper right_key({3, 1, 5, 1, 2});
     int64_column_wrapper right_payload({0, 1, 2, 3, 4});
 
+    gqe::optimization_parameters opms(true);
+    gqe::query_context qctx(&opms);
+
     std::vector<std::unique_ptr<cudf::column>> left_table_columns;
     left_table_columns.push_back(left_key.release());
     left_table_columns.push_back(left_payload.release());
@@ -61,10 +66,10 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
     constexpr int32_t join_task_id  = 2;
     constexpr int32_t stage_id      = 0;
 
-    auto left_task =
-      std::make_shared<gqe::test::executed_task>(left_task_id, stage_id, std::move(left_table));
-    auto right_task =
-      std::make_shared<gqe::test::executed_task>(right_task_id, stage_id, std::move(right_table));
+    auto left_task = std::make_shared<gqe::test::executed_task>(
+      &qctx, left_task_id, stage_id, std::move(left_table));
+    auto right_task = std::make_shared<gqe::test::executed_task>(
+      &qctx, right_task_id, stage_id, std::move(right_table));
     auto join_condition = std::make_unique<gqe::equal_expression>(
       std::make_shared<gqe::column_reference_expression>(0),
       std::make_shared<gqe::column_reference_expression>(2));
@@ -75,7 +80,8 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
         std::make_shared<gqe::join_hash_map_cache>(gqe::join_hash_map_cache::build_location::right);
     }
 
-    join_task = std::make_unique<gqe::join_task>(join_task_id,
+    join_task = std::make_unique<gqe::join_task>(&qctx,
+                                                 join_task_id,
                                                  stage_id,
                                                  left_task,
                                                  right_task,
@@ -296,10 +302,13 @@ class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {
     constexpr int32_t join_task_id  = 2;
     constexpr int32_t stage_id      = 0;
 
-    auto left_task =
-      std::make_shared<gqe::test::executed_task>(left_task_id, stage_id, std::move(left_table));
-    auto right_task =
-      std::make_shared<gqe::test::executed_task>(right_task_id, stage_id, std::move(right_table));
+    gqe::optimization_parameters opms(true);
+    gqe::query_context qctx(&opms);
+
+    auto left_task = std::make_shared<gqe::test::executed_task>(
+      &qctx, left_task_id, stage_id, std::move(left_table));
+    auto right_task = std::make_shared<gqe::test::executed_task>(
+      &qctx, right_task_id, stage_id, std::move(right_table));
     std::unique_ptr<gqe::expression> join_condition;
     if (nulls_equal) {
       join_condition = std::make_unique<gqe::nulls_equal_expression>(
@@ -311,7 +320,8 @@ class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {
         std::make_shared<gqe::column_reference_expression>(2));
     }
 
-    join_task = std::make_unique<gqe::join_task>(join_task_id,
+    join_task = std::make_unique<gqe::join_task>(&qctx,
+                                                 join_task_id,
                                                  stage_id,
                                                  left_task,
                                                  right_task,

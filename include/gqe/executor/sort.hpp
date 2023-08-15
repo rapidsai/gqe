@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
 
@@ -30,6 +31,7 @@ class sort_task : public task {
    * The sort task reorders the rows of `input` according to the lexicographic ordering of the key
    * table, which is produced by evaluating `keys` on `input`.
    *
+   * @param[in] query_context The query context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] input Input table to reorder.
@@ -39,7 +41,8 @@ class sort_task : public task {
    * @param[in] null_precedences Whether a null element is smaller or larger than other elements.
    * The size of this argument must be the same as the size of `keys`.
    */
-  sort_task(int32_t task_id,
+  sort_task(query_context* query_context,
+            int32_t task_id,
             int32_t stage_id,
             std::shared_ptr<task> input,
             std::vector<std::unique_ptr<expression>> keys,

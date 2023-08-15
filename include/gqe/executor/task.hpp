@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -11,6 +11,9 @@
  */
 
 #pragma once
+
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
@@ -36,6 +39,7 @@ class task {
   /**
    * @brief Construct a new task.
    *
+   * @param[in] query_context The query context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] dependencies Dependent tasks of the new task. These tasks are the children nodes in
@@ -43,7 +47,8 @@ class task {
    * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
    * relation index `i` in a subquery expression refers to `subquery_tasks[i]`.
    */
-  task(int32_t task_id,
+  task(query_context* query_context,
+       int32_t task_id,
        int32_t stage_id,
        std::vector<std::shared_ptr<task>> dependencies,
        std::vector<std::shared_ptr<task>> subquery_tasks);
@@ -115,6 +120,16 @@ class task {
   [[nodiscard]] std::vector<task*> subqueries() const noexcept;
 
   /**
+   * @brief Return the query context.
+   */
+  [[nodiscard]] query_context& get_query_context() const noexcept;
+
+  /**
+   * @brief Return the optimization parameters.
+   */
+  [[nodiscard]] const optimization_parameters& get_optimization_parameters() const noexcept;
+
+  /**
    * @brief Make the results of all dependencies available to the local GPU.
    */
   void prepare_dependencies();
@@ -137,6 +152,7 @@ class task {
  private:
   void prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent_tasks);
 
+  query_context* _query_context;
   int32_t _task_id;
   int32_t _stage_id;
   std::vector<std::shared_ptr<task>> _dependencies;

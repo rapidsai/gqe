@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/read.hpp>
 #include <gqe/executor/write.hpp>
 #include <gqe/storage/readable_view.hpp>
@@ -52,6 +53,11 @@ class parquet_table : public table {
   [[nodiscard]] bool is_writeable() const override;
 
   /**
+   * @copydoc gqe::storage::table::max_concurrent_readers()
+   */
+  [[nodiscard]] int32_t max_concurrent_readers() const override;
+
+  /**
    * @copydoc gqe::storage::table::max_concurrent_writers()
    */
   [[nodiscard]] int32_t max_concurrent_writers() const override;
@@ -77,6 +83,7 @@ class parquet_read_task : public read_task_base {
    *
    * A read task is used for loading a table from a file.
    *
+   * @param[in] query_context The query context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] file_paths Paths of the files to be read.
@@ -92,7 +99,8 @@ class parquet_read_task : public read_task_base {
    * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
    * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
    */
-  parquet_read_task(int32_t task_id,
+  parquet_read_task(query_context* query_context,
+                    int32_t task_id,
                     int32_t stage_id,
                     std::vector<std::string> file_paths,
                     std::vector<std::string> column_names,
@@ -122,7 +130,8 @@ class parquet_read_task : public read_task_base {
 
 class parquet_write_task : public write_task_base {
  public:
-  parquet_write_task(int32_t task_id,
+  parquet_write_task(query_context* query_context,
+                     int32_t task_id,
                      int32_t stage_id,
                      std::shared_ptr<task> input,
                      std::vector<std::string> file_paths,
@@ -155,6 +164,7 @@ class parquet_readable_view : public readable_view {
    */
   std::vector<std::unique_ptr<read_task_base>> get_read_tasks(
     std::vector<readable_view::task_parameters>&& task_parameters,
+    query_context* query_context,
     int32_t stage_id,
     std::vector<std::string> column_names,
     std::vector<cudf::data_type> data_types) override;
@@ -178,6 +188,7 @@ class parquet_writeable_view : public writeable_view {
    */
   std::vector<std::unique_ptr<write_task_base>> get_write_tasks(
     std::vector<writeable_view::task_parameters>&& task_parameters,
+    query_context* query_context,
     int32_t stage_id,
     std::vector<std::string> column_names,
     std::vector<cudf::data_type> data_types) override;

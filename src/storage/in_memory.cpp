@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/executor/task.hpp>
 #include <gqe/memory_resource/numa_memory_resource.hpp>
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
 #include <gqe/memory_resource/system_memory_resource.hpp>
@@ -124,6 +125,14 @@ bool in_memory_table::is_readable() const { return true; }
 
 bool in_memory_table::is_writeable() const { return true; }
 
+int32_t in_memory_table::max_concurrent_readers() const
+{
+  auto const nrow_groups = _row_groups.size();
+  assert(nrow_groups <= static_cast<std::size_t>(std::numeric_limits<int32_t>::max()));
+
+  return static_cast<int32_t>(nrow_groups);
+}
+
 int32_t in_memory_table::max_concurrent_writers() const
 {
   // Each writer appends a new row group to the table. Thus, the number of
@@ -173,14 +182,15 @@ void in_memory_table::row_group_appender::operator()(std::vector<row_group>&& ne
   }
 }
 
-in_memory_read_task::in_memory_read_task(int32_t task_id,
+in_memory_read_task::in_memory_read_task(query_context* query_context,
+                                         int32_t task_id,
                                          int32_t stage_id,
                                          std::vector<const row_group*> row_groups,
                                          std::vector<cudf::size_type> column_indexes,
                                          std::vector<cudf::data_type> data_types,
                                          std::unique_ptr<gqe::expression> partial_filter,
                                          std::vector<std::shared_ptr<task>> subquery_tasks)
-  : read_task_base(task_id, stage_id, std::move(subquery_tasks)),
+  : read_task_base(query_context, task_id, stage_id, std::move(subquery_tasks)),
     _row_groups(std::move(row_groups)),
     _column_indexes(std::move(column_indexes)),
     _data_types(std::move(data_types)),
@@ -200,7 +210,7 @@ void in_memory_read_task::execute()
   std::vector<std::unique_ptr<cudf::column>> result_columns;
   result_columns.reserve(_column_indexes.size());
 
-  // Allocate result columns and copy input data to result
+  // For each table column, concatenate the row groups into a single cudf::column
   for (auto const& idx : _column_indexes) {
     std::vector<cudf::column_view> src_views;
     src_views.reserve(_row_groups.size());
@@ -220,6 +230,7 @@ void in_memory_read_task::execute()
 }
 
 in_memory_write_task::in_memory_write_task(
+  query_context* query_context,
   int32_t task_id,
   int32_t stage_id,
   std::shared_ptr<task> input,
@@ -227,7 +238,7 @@ in_memory_write_task::in_memory_write_task(
   in_memory_table::row_group_appender appender,
   std::vector<cudf::size_type> column_indexes,
   std::vector<cudf::data_type> data_types)
-  : write_task_base(task_id, stage_id, input),
+  : write_task_base(query_context, task_id, stage_id, input),
     _non_owned_memory_resource(non_owned_memory_resource),
     _appender(std::move(appender)),
     _column_indexes(std::move(column_indexes)),
@@ -292,6 +303,7 @@ in_memory_readable_view::in_memory_readable_view(in_memory_table* non_owning_tab
 
 std::vector<std::unique_ptr<read_task_base>> in_memory_readable_view::get_read_tasks(
   std::vector<readable_view::task_parameters>&& task_parameters,
+  query_context* query_context,
   int32_t stage_id,
   std::vector<std::string> column_names,
   std::vector<cudf::data_type> data_types)
@@ -347,7 +359,8 @@ std::vector<std::unique_ptr<read_task_base>> in_memory_readable_view::get_read_t
                      [](const row_group& rg) { return &rg; });
 
       // Create a new read task
-      auto read_task = std::make_unique<in_memory_read_task>(task->task_id,
+      auto read_task = std::make_unique<in_memory_read_task>(query_context,
+                                                             task->task_id,
                                                              stage_id,
                                                              std::move(row_groups_chunk),
                                                              column_indexes,
@@ -371,6 +384,7 @@ in_memory_writeable_view::in_memory_writeable_view(in_memory_table* non_owning_t
 
 std::vector<std::unique_ptr<write_task_base>> in_memory_writeable_view::get_write_tasks(
   std::vector<writeable_view::task_parameters>&& task_parameters,
+  query_context* query_context,
   int32_t stage_id,
   std::vector<std::string> column_names,
   std::vector<cudf::data_type> data_types)
@@ -401,7 +415,8 @@ std::vector<std::unique_ptr<write_task_base>> in_memory_writeable_view::get_writ
 
     // Create a new write task
     auto write_task =
-      std::make_unique<in_memory_write_task>(task_parameter.task_id,
+      std::make_unique<in_memory_write_task>(query_context,
+                                             task_parameter.task_id,
                                              stage_id,
                                              std::move(task_parameter.input),
                                              _non_owning_table->_memory_resource.get(),

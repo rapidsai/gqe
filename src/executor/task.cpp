@@ -17,16 +17,19 @@
 
 namespace gqe {
 
-task::task(int32_t task_id,
+task::task(query_context* query_context,
+           int32_t task_id,
            int32_t stage_id,
            std::vector<std::shared_ptr<task>> dependencies,
            std::vector<std::shared_ptr<task>> subqueries)
-  : _task_id(task_id),
+  : _query_context(query_context),
+    _task_id(task_id),
     _stage_id(stage_id),
     _dependencies(std::move(dependencies)),
     _subqueries(std::move(subqueries)),
     _status(status_type::not_started)
 {
+  assert(query_context != nullptr);
 }
 
 void task::migrate() { throw std::logic_error("task::migrate() has not been implemented"); }
@@ -44,6 +47,13 @@ std::vector<task*> task::dependencies() const noexcept
 }
 
 std::vector<task*> task::subqueries() const noexcept { return utility::to_raw_ptrs(_subqueries); }
+
+query_context& task::get_query_context() const noexcept { return *_query_context; }
+
+const optimization_parameters& task::get_optimization_parameters() const noexcept
+{
+  return *_query_context->parameters;
+}
 
 void task::prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent_tasks)
 {

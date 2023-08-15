@@ -11,6 +11,8 @@
  */
 
 #include <gqe/catalog.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/logical/project.hpp>
 #include <gqe/logical/read.hpp>
@@ -95,11 +97,14 @@ TEST(ParquetWrite, CopyTable)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(write_relation.get());
 
+  gqe::optimization_parameters opms(true);
+  gqe::query_context qctx(&opms);
+
   // Generate the task graph and execute on a single GPU
-  gqe::task_graph_builder graph_builder(&catalog);
+  gqe::task_graph_builder graph_builder(&qctx, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::execute_task_graph_single_gpu(task_graph.get());
+  gqe::execute_task_graph_single_gpu(&qctx, task_graph.get());
 
   // Verify the execution result
   auto result_table_options =
@@ -190,11 +195,14 @@ TEST(ParquetWrite, CopyTableParallelRead)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(write_relation.get());
 
+  gqe::optimization_parameters opms(true);
+  gqe::query_context qctx(&opms);
+
   // Generate the task graph and execute on a single GPU
-  gqe::task_graph_builder graph_builder(&catalog);
+  gqe::task_graph_builder graph_builder(&qctx, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::execute_task_graph_single_gpu(task_graph.get());
+  gqe::execute_task_graph_single_gpu(&qctx, task_graph.get());
 
   // Verify the execution result
   auto result_table_options =
@@ -290,11 +298,14 @@ TEST(ParquetWrite, CopyTableParallel)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(write_relation.get());
 
+  gqe::optimization_parameters opms(true);
+  gqe::query_context qctx(&opms);
+
   // Generate the task graph and execute on a single GPU
-  gqe::task_graph_builder graph_builder(&catalog);
+  gqe::task_graph_builder graph_builder(&qctx, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::execute_task_graph_single_gpu(task_graph.get());
+  gqe::execute_task_graph_single_gpu(&qctx, task_graph.get());
 
   // Verify the execution result
   auto result_table_part_0_options =

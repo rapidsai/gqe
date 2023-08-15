@@ -58,6 +58,11 @@ class table {
   [[nodiscard]] virtual bool is_writeable() const = 0;
 
   /**
+   * @brief Return the maximum number of concurrent readers.
+   */
+  [[nodiscard]] virtual int32_t max_concurrent_readers() const = 0;
+
+  /**
    * @brief Return the maximum number of concurrent writers.
    */
   [[nodiscard]] virtual int32_t max_concurrent_writers() const = 0;

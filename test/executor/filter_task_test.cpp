@@ -13,6 +13,8 @@
 #include "utilities.hpp"
 
 #include <gqe/executor/filter.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/expression/column_reference.hpp>
 
 #include <cudf/column/column.hpp>
@@ -45,14 +47,17 @@ class FilterTest : public ::testing::Test {
     input_columns.push_back(input_col_1.release());
     input_columns.push_back(input_col_2.release());
 
+    gqe::optimization_parameters opms(true);
+    gqe::query_context qctx(&opms);
+
     auto input_task = std::make_shared<gqe::test::executed_task>(
-      input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+      &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
 
     std::unique_ptr<gqe::expression> condition{
       std::make_unique<gqe::column_reference_expression>(2)};
 
     filter_task = std::make_unique<gqe::filter_task>(
-      filter_task_id, stage_id, std::move(input_task), std::move(condition));
+      &qctx, filter_task_id, stage_id, std::move(input_task), std::move(condition));
   }
 
   std::unique_ptr<gqe::filter_task> filter_task;

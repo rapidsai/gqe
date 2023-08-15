@@ -35,7 +35,8 @@ cudf::hash_join const* join_hash_map_cache::hash_map(cudf::table_view build_keys
   return _hash_map.get();
 }
 
-join_task::join_task(int32_t task_id,
+join_task::join_task(query_context* query_context,
+                     int32_t task_id,
                      int32_t stage_id,
                      std::shared_ptr<task> left,
                      std::shared_ptr<task> right,
@@ -43,7 +44,7 @@ join_task::join_task(int32_t task_id,
                      std::unique_ptr<expression> condition,
                      std::vector<cudf::size_type> projection_indices,
                      std::shared_ptr<join_hash_map_cache> hash_map_cache)
-  : task(task_id, stage_id, {std::move(left), std::move(right)}, {}),
+  : task(query_context, task_id, stage_id, {std::move(left), std::move(right)}, {}),
     _join_type(join_type),
     _condition(std::move(condition)),
     _projection_indices(std::move(projection_indices)),

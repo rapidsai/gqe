@@ -47,6 +47,7 @@ add_library(
     executor/gen_ident_col.cu
     executor/unique_key_inner_join.cu
     executor/join.cpp
+    executor/optimization_parameters.cpp
     executor/project.cpp
     executor/read.cpp
     executor/sort.cpp
@@ -61,7 +62,6 @@ add_library(
     storage/in_memory.cpp
     storage/parquet.cpp
     utility/cuda.cpp
-    utility/helpers.cpp
     utility/linux.cpp
     utility/tpcds.cpp
     utility/tpch.cpp

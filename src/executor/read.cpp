@@ -14,10 +14,11 @@
 
 namespace gqe {
 
-read_task_base::read_task_base(int32_t task_id,
+read_task_base::read_task_base(query_context* query_context,
+                               int32_t task_id,
                                int32_t stage_id,
                                std::vector<std::shared_ptr<task>> subquery_tasks)
-  : task(task_id, stage_id, {}, std::move(subquery_tasks))
+  : task(query_context, task_id, stage_id, {}, std::move(subquery_tasks))
 {
 }
 

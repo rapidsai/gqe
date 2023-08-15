@@ -19,11 +19,12 @@
 
 namespace gqe {
 
-project_task::project_task(int32_t task_id,
+project_task::project_task(query_context* query_context,
+                           int32_t task_id,
                            int32_t stage_id,
                            std::shared_ptr<task> input,
                            std::vector<std::unique_ptr<expression>> output_expressions)
-  : task(task_id, stage_id, {std::move(input)}, {}),
+  : task(query_context, task_id, stage_id, {std::move(input)}, {}),
     _output_expressions(std::move(output_expressions))
 {
 }

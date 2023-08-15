@@ -12,6 +12,8 @@
 
 #include "utilities.hpp"
 
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/sort.hpp>
 #include <gqe/expression/column_reference.hpp>
 
@@ -34,6 +36,9 @@ class SingleKeyColumnSortTest : public ::testing::Test {
     constexpr int32_t input_task_id = 0;
     constexpr int32_t sort_task_id  = 1;
 
+    gqe::optimization_parameters opms(true);
+    gqe::query_context qctx(&opms);
+
     int64_column_wrapper input_col_0({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
     int64_column_wrapper input_col_1({5, 3, 4, 8, 1, 9, 6, 7, 2, 0},
                                      {true, true, true, true, true, true, true, false, true, true});
@@ -43,12 +48,13 @@ class SingleKeyColumnSortTest : public ::testing::Test {
     input_columns.push_back(input_col_1.release());
 
     auto input_task = std::make_shared<gqe::test::executed_task>(
-      input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+      &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
 
     std::vector<std::unique_ptr<gqe::expression>> keys;
     keys.push_back(std::make_unique<gqe::column_reference_expression>(1));
 
-    sort_task = std::make_unique<gqe::sort_task>(sort_task_id,
+    sort_task = std::make_unique<gqe::sort_task>(&qctx,
+                                                 sort_task_id,
                                                  stage_id,
                                                  std::move(input_task),
                                                  std::move(keys),

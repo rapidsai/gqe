@@ -25,6 +25,7 @@
 #include <gqe/logical/join.hpp>
 #include <gqe/logical/project.hpp>
 #include <gqe/logical/read.hpp>
+#include <gqe/logical/set.hpp>
 #include <gqe/logical/sort.hpp>
 #include <gqe/logical/window.hpp>
 #include <gqe/utility/logger.hpp>
@@ -66,6 +67,8 @@ std::vector<std::shared_ptr<gqe::logical::relation>> gqe::substrait_parser::from
   const std::string file_ext = ".bin";
   assert(mismatch(file_ext.rbegin(), file_ext.rend(), substrait_file.rbegin()).first ==
          file_ext.rend());
+  if (!std::filesystem::exists(substrait_file))
+    throw std::runtime_error("Substrait file " + substrait_file + " does not exist");
   std::ifstream query_plan_stream(substrait_file, std::ios::binary);
   substrait::Plan query_plan;
   query_plan.ParseFromIstream(&query_plan_stream);
@@ -561,6 +564,8 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_relation(
     return parse_sort_relation(relation.sort());
   else if (relation.has_aggregate())
     return parse_aggregate_relation(relation.aggregate());
+  else if (relation.has_set())
+    return parse_set_relation(relation.set());
   else
     throw std::runtime_error("Unsupported relation type");
 }
@@ -1005,4 +1010,43 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_read_relati
                                                        std::move(column_types),
                                                        std::move(table_name),
                                                        std::move(partial_filter));
+}
+
+std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_set_relation(
+  substrait::SetRel const& set_relation) const
+{
+  assert(set_relation.inputs_size() > 1);
+  // Parse inputs
+  std::vector<std::unique_ptr<gqe::logical::relation>> inputs;
+  inputs.reserve(set_relation.inputs_size());
+  std::transform(set_relation.inputs().begin(),
+                 set_relation.inputs().end(),
+                 std::back_inserter(inputs),
+                 [this](substrait::Rel input) { return parse_relation(input); });
+  // Parse set operation
+  gqe::logical::set_relation::set_operator_type op;
+  switch (set_relation.op()) {
+    case substrait::SetRel::SetOp::SetRel_SetOp_SET_OP_INTERSECTION_PRIMARY:
+      op = gqe::logical::set_relation::set_intersect;
+      break;
+    case substrait::SetRel::SetOp::SetRel_SetOp_SET_OP_UNION_ALL:
+      op = gqe::logical::set_relation::set_union_all;
+      break;
+    case substrait::SetRel::SetOp::SetRel_SetOp_SET_OP_UNION_DISTINCT:
+      op = gqe::logical::set_relation::set_union;
+      break;
+    case substrait::SetRel::SetOp::SetRel_SetOp_SET_OP_MINUS_PRIMARY:
+      op = gqe::logical::set_relation::set_minus;
+      break;
+    default:
+      throw std::runtime_error("Set operation not supported: " +
+                               substrait::SetRel_SetOp_Name(set_relation.op()));
+  }
+  // Turn op and list of inputs into (nested) set relation
+  auto set = std::move(inputs[0]);
+  for (std::size_t input_idx = 1; input_idx < inputs.size(); input_idx++) {
+    set = std::make_unique<gqe::logical::set_relation>(
+      std::move(set), std::move(inputs[input_idx]), op);
+  }
+  return set;
 }

@@ -274,6 +274,15 @@ class substrait_parser {
   std::unique_ptr<gqe::logical::relation> parse_read_relation(
     substrait::ReadRel const& read_relation) const;
 
+  /**
+   * @brief Parse Substrait Set relation into gqe::logical::set_relation
+   *
+   * @param set_relation  Substrait set relation
+   * @return The parsed set relation
+   */
+  std::unique_ptr<gqe::logical::relation> parse_set_relation(
+    substrait::SetRel const& set_relation) const;
+
   catalog* _catalog;
   std::unordered_map<uint32_t, std::string> function_reference_to_name;
 };

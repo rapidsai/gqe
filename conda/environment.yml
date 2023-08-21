@@ -4,7 +4,7 @@ channels:
   - conda-forge
   - nvidia
 dependencies:
-  - libcudf=23.06
+  - libcudf=23.08
   - libnuma
   - python=3.10
   - cuda-cccl=11.8

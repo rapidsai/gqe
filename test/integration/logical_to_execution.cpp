@@ -59,7 +59,7 @@ TEST(LogicalToExecution, HardcodePlanAndData)
   auto table_0_filepath = temp_env->get_temp_filepath("table_0.parquet");
   auto table_0_options  = cudf::io::parquet_writer_options::builder(
     cudf::io::sink_info(table_0_filepath), table_0->view());
-  table_0_options.metadata(&table_0_metadata);
+  table_0_options.metadata(table_0_metadata);
   cudf::io::write_parquet(table_0_options);
 
   cudf::test::strings_column_wrapper table_1_col_0({"duck", "apple", "orange", "apple"});
@@ -77,7 +77,7 @@ TEST(LogicalToExecution, HardcodePlanAndData)
   auto table_1_filepath = temp_env->get_temp_filepath("table_1.parquet");
   auto table_1_options  = cudf::io::parquet_writer_options::builder(
     cudf::io::sink_info(table_1_filepath), table_1->view());
-  table_1_options.metadata(&table_1_metadata);
+  table_1_options.metadata(table_1_metadata);
   cudf::io::write_parquet(table_1_options);
 
   // Register the input tables
@@ -168,7 +168,7 @@ TEST(LogicalToExecution, ApplyConcatApply)
     auto partition_filepath = temp_env->get_temp_filepath(file_name);
     auto partition_options  = cudf::io::parquet_writer_options::builder(
       cudf::io::sink_info(partition_filepath), partition_table->view());
-    partition_options.metadata(&partition_metadata);
+    partition_options.metadata(partition_metadata);
     cudf::io::write_parquet(partition_options);
   };
 
@@ -258,7 +258,7 @@ TEST(LogicalToExecution, Window)
     auto partition_filepath = temp_env->get_temp_filepath(file_name);
     auto partition_options  = cudf::io::parquet_writer_options::builder(
       cudf::io::sink_info(partition_filepath), partition_table->view());
-    partition_options.metadata(&partition_metadata);
+    partition_options.metadata(partition_metadata);
     cudf::io::write_parquet(partition_options);
   };
 
@@ -361,7 +361,7 @@ TEST(LogicalToExecution, WindowWithOrderBy)
     auto partition_filepath = temp_env->get_temp_filepath(file_name);
     auto partition_options  = cudf::io::parquet_writer_options::builder(
       cudf::io::sink_info(partition_filepath), partition_table->view());
-    partition_options.metadata(&partition_metadata);
+    partition_options.metadata(partition_metadata);
     cudf::io::write_parquet(partition_options);
   };
 

@@ -63,7 +63,7 @@ TEST(FixedDataReadTaskTest, MixTypes)
   auto filepath = temp_env->get_temp_filepath("FixedDataTable.parquet");
   auto options =
     cudf::io::parquet_writer_options::builder(cudf::io::sink_info(filepath), test_table->view());
-  options.metadata(&metadata);
+  options.metadata(metadata);
   cudf::io::write_parquet(options);
 
   // Load the test table from disk using a read task
@@ -148,8 +148,8 @@ TEST(FixedDataReadTaskTestMultiTask, MixTypes)
     cudf::io::sink_info(filepath_first), test_table_first->view());
   auto options_second = cudf::io::parquet_writer_options::builder(
     cudf::io::sink_info(filepath_second), test_table_second->view());
-  options_first.metadata(&metadata_first);
-  options_second.metadata(&metadata_second);
+  options_first.metadata(metadata_first);
+  options_second.metadata(metadata_second);
   cudf::io::write_parquet(options_first);
   cudf::io::write_parquet(options_second);
 
@@ -225,7 +225,7 @@ TEST(FixedDataReadTaskTestPartialFilter, MixTypes)
 
     auto options =
       cudf::io::parquet_writer_options::builder(cudf::io::sink_info(filepath), test_table->view());
-    options.metadata(&metadata);
+    options.metadata(metadata);
     cudf::io::write_parquet(options);
   }
 
@@ -248,7 +248,7 @@ TEST(FixedDataReadTaskTestPartialFilter, MixTypes)
   auto haystack_filepath = temp_env->get_temp_filepath("HaystackDataTable.parquet");
   auto haystack_options  = cudf::io::parquet_writer_options::builder(
     cudf::io::sink_info(haystack_filepath), haystack_table->view());
-  haystack_options.metadata(&haystack_metadata);
+  haystack_options.metadata(haystack_metadata);
   cudf::io::write_parquet(haystack_options);
 
   gqe::optimization_parameters opms(true);

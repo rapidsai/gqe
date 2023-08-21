@@ -66,7 +66,7 @@ TEST(InMemoryStorage, CopyTable)
   auto in_table_filepath = temp_env->get_temp_filepath("in_table.parquet");
   auto in_table_options  = cudf::io::parquet_writer_options::builder(
     cudf::io::sink_info(in_table_filepath), in_table->view());
-  in_table_options.metadata(&in_table_metadata);
+  in_table_options.metadata(in_table_metadata);
   cudf::io::write_parquet(in_table_options);
 
   // Register the input and output tables
@@ -170,8 +170,8 @@ TEST(InMemoryStorage, CopyTableParallel)
     cudf::io::sink_info(in_table_part_0_filepath), in_table_part_0->view());
   auto in_table_part_1_options = cudf::io::parquet_writer_options::builder(
     cudf::io::sink_info(in_table_part_1_filepath), in_table_part_1->view());
-  in_table_part_0_options.metadata(&in_table_part_0_metadata);
-  in_table_part_1_options.metadata(&in_table_part_1_metadata);
+  in_table_part_0_options.metadata(in_table_part_0_metadata);
+  in_table_part_1_options.metadata(in_table_part_1_metadata);
   cudf::io::write_parquet(in_table_part_0_options);
   cudf::io::write_parquet(in_table_part_1_options);
 

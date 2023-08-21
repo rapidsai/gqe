@@ -16,7 +16,7 @@ endif()
 
 # Setup rapids-cmake
 if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/GQE_RAPIDS.cmake)
-  file(DOWNLOAD https://raw.githubusercontent.com/rapidsai/rapids-cmake/branch-23.06/RAPIDS.cmake
+  file(DOWNLOAD https://raw.githubusercontent.com/rapidsai/rapids-cmake/branch-23.08/RAPIDS.cmake
        ${CMAKE_CURRENT_BINARY_DIR}/GQE_RAPIDS.cmake
   )
 endif()
@@ -47,16 +47,7 @@ include(${rapids-cmake-dir}/cpm/spdlog.cmake)
 include(${rapids-cmake-dir}/cpm/cuco.cmake)
 rapids_cpm_gtest()
 rapids_cpm_spdlog()
-
-CPMAddPackage(
-  NAME cuco
-  GITHUB_REPOSITORY NVIDIA/cuCollections
-  GIT_TAG 303f134573afa315cf14fca3f7a0b730438497c3
-  OPTIONS
-     "BUILD_TESTS OFF"
-     "BUILD_BENCHMARKS OFF"
-     "BUILD_EXAMPLES OFF"
-)
+rapids_cpm_cuco()
 
 # Setup CTest
 if(PROJECT_IS_TOP_LEVEL)

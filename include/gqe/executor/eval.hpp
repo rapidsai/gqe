@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -23,11 +23,13 @@
 #include <cudf/ast/expressions.hpp>
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_view.hpp>
+#include <cudf/scalar/scalar.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf/types.hpp>
 #include <cudf/wrappers/timestamps.hpp>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -119,51 +121,112 @@ class expression_evaluator : public expression_visitor {
    */
   void visit(unary_op_expression const* expression) override;
 
+  /**
+   * @brief Context infomation required to evaluate an expression.
+   */
+  struct evaluation_context {
+    /**
+     * @brief Construct an evaluation context object.
+     *
+     * @param[in] expr Expression for which the context is to be created.
+     */
+    evaluation_context(std::unique_ptr<gqe::expression> expr) : gqe_expression{std::move(expr)} {}
+
+    /**
+     * @brief Return the string representation of the evaluation context.
+     */
+    [[nodiscard]] std::string to_string() const noexcept;
+
+    std::shared_ptr<gqe::expression> gqe_expression;  ///< Expression this context is for.
+    std::vector<evaluation_context*>
+      child_contexts;  ///< References the context objects of each child expression.
+    std::optional<std::unique_ptr<cudf::ast::expression>>
+      cudf_ast_expression;  ///< The equivalent `cudf::ast` expression, if available.
+    std::vector<std::unique_ptr<cudf::ast::expression>>
+      cudf_ast_dependencies;  ///< Any expression the `cudf::ast`expression depends on.
+    std::optional<std::unique_ptr<cudf::scalar>>
+      cudf_scalar;  ///< Stores the equivalent `cudf::scalar`, in case the expression is a
+                    ///< `literal_expression`.
+    std::optional<cudf::size_type>
+      column_idx;  ///< Holds the index of the target column if the expression is either a
+                   ///< `column_reference_expression` or is evaluated as a sub-task.
+  };
+
  private:
   /**
-   * @brief Helper function for convertion a variant of `shared_ptr`to a variant of raw pointers.
+   * @brief Flag an expression context to be evaluated as a (sub-)task. If the expression is already
+   * a task, return the column index of the result column.
    *
-   * @param expr A variant of `shared_ptr` types.
+   * @param[in] context Evaluation context of the expression
    *
-   * @return A variant of raw pointers.
+   * @returns Column offset of the materialized evaluation result.
    */
-  [[nodiscard]] std::variant<cudf::ast::expression*, gqe::expression*> to_raw_expr_ptr(
-    std::variant<std::shared_ptr<cudf::ast::expression>, std::shared_ptr<gqe::expression>> const&
-      expr) const;
+  cudf::size_type dispatch_task(evaluation_context& context) noexcept;
 
   /**
-   * @brief Helper function which concatenated the input table with the current
-   *        intermediate result columns and returns a new `cudf::table_view` object.
+   * @brief Flag an expression context to be evaluated as a (sub-)task.
    *
-   * @param intermediate_results Additional columns that are concatenated to the input table.
+   * @tparam Args Types of forwarded ctor parameters for `evaluation_context`.
    *
-   * @return New table view of the two concatenated tables.
+   * @param[in] expression Pointer to the input expression (key) to be stored in the context map.
+   * @param[in] args Ctor parameters of the evaluation_context (payload) to be emplaced in the
+   * context map.
+   *
+   * @returns A pair consisting of a ref to the stored context object along with a bool indicating
+   * if the key has been newly inserted into the map.
    */
-  [[nodiscard]] cudf::table_view concat_input_table(
-    std::vector<std::unique_ptr<cudf::column>> const& intermediate_results) const;
+  template <typename... Args>
+  [[nodiscard]] std::pair<evaluation_context&, bool> emplace_context(expression const* expression,
+                                                                     Args&&... args) noexcept;
 
   /**
-   * @brief Helper function to create a column reference for the evaluation result of `expr`.
+   * @brief Fetches the associated `evaluation_context` for a given key expression.
    *
-   * @return Index in the `_converted_expressions` for the evaluation result.
-   * `_converted_expressions[idx]` is guaranteed to have type
-   * `std::shared_ptr<gqe::column_reference_expression>`.
+   * @param[in] expression Pointer to the expression (key) to search for.
+   *
+   * @returns A reference to the stored `evaluation_context` object.
+   *
+   * @throws If the key expression cannot located inside the map.
    */
-  [[nodiscard]] cudf::size_type create_column_reference(gqe::expression* expr);
+  [[nodiscard]] evaluation_context& find_context(expression const* expression);
+
+  /**
+   * @brief Maps a `cudf::{unary|binary}_operator` to its `cudf::ast::ast_operator` equivalent.
+   *
+   * @param[in] op Input `cudf::{unary|binary}_operator`.
+   *
+   * @returns The equivalent `cudf::ast::ast_operator`.
+   *
+   * @throws If there is no equivalent `cudf::ast::ast_operator`.
+   */
+  [[nodiscard]] cudf::ast::ast_operator const& convert_operator(
+    std::variant<cudf::binary_operator, cudf::unary_operator> op) const;
+
+  /**
+   * @brief Helper function to create and store the initial `evaluation_context` for a
+   * `literal_expression`.
+   *
+   * @tparam T Underlying C++ type of the literal.
+   *
+   * @param[in] expression Input `literal_expression`.
+   *
+   * @returns A pair consisting of a ref to the stored context object along with a bool indicating
+   * if the key has been newly inserted into the map.
+   */
+  template <typename T>
+  void create_literal_context(literal_expression<T> const* expression) noexcept;
 
   cudf::table_view const&
     _table;  ///< Non-owning reference to the table on which to evaluate the expression.
-  expression const* _root_expression;        //< Root of the AST to be evaluated
-  cudf::size_type _column_reference_offset;  ///< Global column offset.
-  std::vector<std::variant<std::shared_ptr<cudf::ast::expression>,
-                           std::shared_ptr<gqe::expression>>>
-    _converted_expressions;  //< Converted expressions (either in `cudf::ast::expression` or
-                             //`gqe::expression` format).
-  std::vector<std::unique_ptr<cudf::scalar>> _converted_scalars;  ///< Scalars in cudf::ast format.
-  std::vector<std::variant<cudf::ast::expression*, gqe::expression*>>
-    _sub_tasks;  // Sub-expressions which need to be executed in order.
-  cudf::size_type
-    _next_intermediate;  // Counter for intermediate result columns needed during execution.
+  std::vector<cudf::data_type> _column_types;  ///< Column data types of the input table.
+  expression const* _root_expression;          ///< Root of the AST to be evaluated
+  cudf::size_type _column_reference_offset;    ///< Global column offset.
+  std::vector<evaluation_context const*>
+    _tasks;                    ///< Sub-expressions which need to be executed in order.
+  cudf::size_type _next_task;  ///< Index of the next available output column.
+
+  std::unordered_map<expression const*, evaluation_context>
+    _evaluation_contexts;  ///< Storage for the evaluation context of each sub-expression.
 
   static inline const std::unordered_map<std::variant<cudf::binary_operator, cudf::unary_operator>,
                                          cudf::ast::ast_operator>
@@ -180,8 +243,9 @@ class expression_evaluator : public expression_visitor {
       {cudf::binary_operator::GREATER, cudf::ast::ast_operator::GREATER},
       {cudf::binary_operator::LESS_EQUAL, cudf::ast::ast_operator::LESS_EQUAL},
       {cudf::binary_operator::GREATER_EQUAL, cudf::ast::ast_operator::GREATER_EQUAL},
-      {cudf::unary_operator::NOT, cudf::ast::ast_operator::NOT}  // TODO add more operators
-    };  ///> Emum mapper between cudf::binary_op and cudf::ast::ast_operator.
+      {cudf::unary_operator::NOT,
+       cudf::ast::ast_operator::NOT}};  ///> Emum mapper between cudf::{unary|binary}_op and
+                                        /// cudf::ast::ast_operator.
 };
 
 /**

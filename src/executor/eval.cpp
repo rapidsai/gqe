@@ -24,26 +24,16 @@
 
 namespace gqe {
 
-namespace {
-
-/**
- * @brief Helper function to extract the data type of each column from a table view.
- *
- * @param table Table view.
- *
- * @return Vector of column data types.
- */
-std::vector<cudf::data_type> extract_column_types(cudf::table_view const& table)
+std::string expression_evaluator::evaluation_context::to_string() const noexcept
 {
-  std::vector<cudf::data_type> column_types;
-  column_types.reserve(table.num_columns());
-  for (auto const& col : table) {
-    column_types.push_back(col.type());
-  }
-  return column_types;
+  std::string s = "evaluation_context(" + this->gqe_expression->to_string() + ", ";
+  s += (this->cudf_ast_expression.has_value()) ? "has" : "no";
+  s += " cudf::ast equivalent, ";
+  s += (this->column_idx.has_value())
+         ? "column_offset = " + std::to_string(this->column_idx.value()) + ")"
+         : "no task)";
+  return s;
 }
-
-}  // namespace
 
 expression_evaluator::expression_evaluator(cudf::table_view const& table,
                                            expression const* root_expression,
@@ -51,90 +41,124 @@ expression_evaluator::expression_evaluator(cudf::table_view const& table,
   : _table{table},
     _root_expression{root_expression},
     _column_reference_offset{column_reference_offset},
-    _next_intermediate{table.num_columns()}
+    _next_task{table.num_columns()}
 {
+  // this->column_types is an empty member vector
+  this->_column_types.reserve(table.num_columns());
+  for (auto const& col : table) {
+    this->_column_types.push_back(col.type());
+  }
+
   // traverse AST recursively starting at the root node
   root_expression->accept(*this);
 
-  // mark the root expression as to be executed as well
-  _sub_tasks.emplace_back(to_raw_expr_ptr(_converted_expressions.back()));
+  // mark the root expression as to be evaluated as well
+  this->dispatch_task(this->find_context(root_expression));
 }
 
 [[nodiscard]] std::pair<cudf::column_view, std::unique_ptr<cudf::column>>
 expression_evaluator::evaluate() const
 {
+  auto table        = this->_table;
+  auto column_types = this->_column_types;
+
+  // storage for intermediate result columns
   std::vector<std::unique_ptr<cudf::column>> intermediate_results;
-  intermediate_results.reserve(_sub_tasks.size());
+  intermediate_results.reserve(_tasks.size());
 
-  auto cudf_scalar_cast = [](gqe::expression* expr) -> std::unique_ptr<cudf::scalar> {
-    if (auto lit = dynamic_cast<gqe::literal_expression<std::string>*>(expr)) {
-      return std::make_unique<cudf::string_scalar>(lit->value(), !lit->is_null());
-    } else if (auto lit = dynamic_cast<gqe::literal_expression<int32_t>*>(expr)) {
-      return std::make_unique<cudf::numeric_scalar<int32_t>>(lit->value(), !lit->is_null());
-    } else if (auto lit = dynamic_cast<gqe::literal_expression<int64_t>*>(expr)) {
-      return std::make_unique<cudf::numeric_scalar<int64_t>>(lit->value(), !lit->is_null());
-    } else if (auto lit = dynamic_cast<gqe::literal_expression<float>*>(expr)) {
-      return std::make_unique<cudf::numeric_scalar<float>>(lit->value(), !lit->is_null());
-    } else if (auto lit = dynamic_cast<gqe::literal_expression<double>*>(expr)) {
-      return std::make_unique<cudf::numeric_scalar<double>>(lit->value(), !lit->is_null());
-    } else {
-      throw std::logic_error("Invalid `gqe::literal_expression`");
-    }
-  };
-
-  for (auto task : _sub_tasks) {
-    // input table and associated column types the expression should be evaluated on
-    auto table = concat_input_table(intermediate_results);
-    auto types = extract_column_types(table);
-
-    if (std::holds_alternative<cudf::ast::expression*>(task)) {
-      // evaluate the the `cudf::ast` (sub-)expression using `cudf::compute_column`
-      auto result = cudf::compute_column(table, *std::get<cudf::ast::expression*>(task));
+  // helper function to append any newly generated column to the table
+  auto append_result =
+    [&table, &column_types, &intermediate_results](std::unique_ptr<cudf::column> result) {
+      table = cudf::table_view({table, cudf::table_view{{result->view()}}});
+      column_types.push_back(result->type());
       intermediate_results.push_back(std::move(result));
-    } else if (std::holds_alternative<gqe::expression*>(task)) {
-      auto task_ptr = std::get<gqe::expression*>(task);
-      auto children = task_ptr->children();
+    };
 
-      switch (task_ptr->type()) {
+  for (auto context : _tasks) {
+    // cudf::compute_column currently only supports fixed-width output columns
+    bool const can_use_cudf_ast =
+      context->cudf_ast_expression.has_value() &&
+      cudf::is_fixed_width(context->gqe_expression->data_type(this->_column_types));
+
+    if (can_use_cudf_ast) {
+      // evaluate the the `cudf::ast` (sub-)expression using `cudf::compute_column`
+      append_result(cudf::compute_column(table, *context->cudf_ast_expression.value()));
+    } else {
+      // fallback evaluation method
+      auto const expression = context->gqe_expression.get();
+      auto const children   = expression->children();
+
+      switch (expression->type()) {
+        case gqe::expression::expression_type::column_reference: {
+          throw std::logic_error("Evaluating " + expression->to_string() + " is not supported");
+          // TODO either implement a deep copy of the input column to the output table
+          // or share a reference-counted view.
+          // With this, we can remove the WAR in the evaluate_expressions function
+          // for when the input expressions is just a column reference
+          break;
+        }
+        case gqe::expression::expression_type::literal: {
+          // expand literal to a column
+          append_result(
+            cudf::make_column_from_scalar(*context->cudf_scalar.value().get(), table.num_rows()));
+          break;
+        }
         case gqe::expression::expression_type::binary_op: {
-          auto binop   = dynamic_cast<gqe::binary_op_expression*>(task_ptr);
-          auto lhs_ref = dynamic_cast<gqe::column_reference_expression*>(children[0]);
-          auto rhs_ref = dynamic_cast<gqe::column_reference_expression*>(children[1]);
+          auto const binop = dynamic_cast<gqe::binary_op_expression const*>(expression);
 
-          // if the expression is a binary op we can evaluate it using `cudf::binary_operation`
-          // children can only be of type column_reference or literal -> 4 combinations
+          auto const lhs_ref = dynamic_cast<gqe::column_reference_expression const*>(children[0]);
+          auto const rhs_ref = dynamic_cast<gqe::column_reference_expression const*>(children[1]);
+
+          auto const& lhs_context = context->child_contexts[0];
+          auto const& rhs_context = context->child_contexts[1];
+
+          // children must either be a column reference or literal expression
+          if (!lhs_ref && children[0]->type() != expression::expression_type::literal) {
+            throw std::logic_error("Evaluating " + binop->to_string() +
+                                   " in the fallback path requires an LHS child which is either a "
+                                   "column reference or literal expression but is " +
+                                   children[0]->to_string() + ".");
+          }
+
+          if (!rhs_ref && children[1]->type() != expression::expression_type::literal) {
+            throw std::logic_error("Evaluating " + binop->to_string() +
+                                   " in the fallback path requires an LHS child which is either a "
+                                   "column reference or literal expression but is " +
+                                   children[1]->to_string() + ".");
+          }
+
+          // if the expression is a binary op we can evaluate it using `cudf::binary_operation`.
+          // Children can only be of type column_reference or literal -> 4 combinations.
           if (lhs_ref && rhs_ref) {
-            auto result = cudf::binary_operation(table.column(lhs_ref->column_idx()),
+            append_result(cudf::binary_operation(table.column(lhs_ref->column_idx()),
                                                  table.column(rhs_ref->column_idx()),
                                                  binop->binary_operator(),
-                                                 binop->data_type(types));
-            intermediate_results.push_back(std::move(result));
+                                                 binop->data_type(column_types)));
           }
 
           if (lhs_ref && !rhs_ref) {
-            auto rhs_scalar = cudf_scalar_cast(children[1]);
-            auto result     = cudf::binary_operation(table.column(lhs_ref->column_idx()),
-                                                 *(rhs_scalar.get()),
+            append_result(cudf::binary_operation(table.column(lhs_ref->column_idx()),
+                                                 *(rhs_context->cudf_scalar.value().get()),
                                                  binop->binary_operator(),
-                                                 binop->data_type(types));
-            intermediate_results.push_back(std::move(result));
+                                                 binop->data_type(column_types)));
           }
 
           if (!lhs_ref && rhs_ref) {
-            auto lhs_scalar = cudf_scalar_cast(children[0]);
-            auto result     = cudf::binary_operation(*(lhs_scalar.get()),
+            append_result(cudf::binary_operation(*(lhs_context->cudf_scalar.value().get()),
                                                  table.column(rhs_ref->column_idx()),
                                                  binop->binary_operator(),
-                                                 binop->data_type(types));
-            intermediate_results.push_back(std::move(result));
+                                                 binop->data_type(column_types)));
           }
 
-          if (!lhs_ref && !rhs_ref) { throw std::logic_error("Not implemented"); }
+          if (!lhs_ref && !rhs_ref) {
+            throw std::logic_error("Evaluating " + binop->to_string() +
+                                   " on two scalar inputs in the fallback path is not supported");
+          }
           break;
         }
         case gqe::expression::expression_type::unary_op: {
-          auto op      = dynamic_cast<gqe::unary_op_expression*>(task_ptr);
-          auto col_ref = dynamic_cast<gqe::column_reference_expression*>(children[0]);
+          auto const op      = dynamic_cast<gqe::unary_op_expression const*>(expression);
+          auto const col_ref = dynamic_cast<gqe::column_reference_expression const*>(children[0]);
 
           if (!col_ref) {
             throw std::logic_error(
@@ -142,49 +166,73 @@ expression_evaluator::evaluate() const
               children[0]->to_string());
           }
 
-          auto result =
-            cudf::unary_operation(table.column(col_ref->column_idx()), op->unary_operator());
-          intermediate_results.push_back(std::move(result));
+          append_result(
+            cudf::unary_operation(table.column(col_ref->column_idx()), op->unary_operator()));
           break;
         }
         case gqe::expression::expression_type::if_then_else: {
-          auto if_ref   = dynamic_cast<gqe::column_reference_expression*>(children[0]);
-          auto then_ref = dynamic_cast<gqe::column_reference_expression*>(children[1]);
-          auto else_ref = dynamic_cast<gqe::column_reference_expression*>(children[2]);
+          auto const if_ref = dynamic_cast<gqe::column_reference_expression const*>(children[0]);
 
-          auto result = cudf::copy_if_else(table.column(then_ref->column_idx()),
-                                           table.column(else_ref->column_idx()),
-                                           table.column(if_ref->column_idx()));
-          intermediate_results.push_back(std::move(result));
+          if (!if_ref) {
+            throw std::logic_error(
+              "Input predicate of `cudf::copy_if_else` must be a column reference but is " +
+              children[0]->to_string());
+          }
+
+          auto const then_ref = dynamic_cast<gqe::column_reference_expression const*>(children[1]);
+          auto const else_ref = dynamic_cast<gqe::column_reference_expression const*>(children[2]);
+
+          auto const& then_context = context->child_contexts[1];
+          auto const& else_context = context->child_contexts[2];
+
+          // `cudf::copy_if_else` supports THEN and ELSE children to be either
+          // of type column_reference or literal -> 4 combinations.
+          if (then_ref && else_ref) {
+            append_result(cudf::copy_if_else(table.column(then_ref->column_idx()),
+                                             table.column(else_ref->column_idx()),
+                                             table.column(if_ref->column_idx())));
+          }
+
+          if (!then_ref && else_ref) {
+            append_result(cudf::copy_if_else(*(then_context->cudf_scalar.value().get()),
+                                             table.column(else_ref->column_idx()),
+                                             table.column(if_ref->column_idx())));
+          }
+
+          if (then_ref && !else_ref) {
+            append_result(cudf::copy_if_else(table.column(then_ref->column_idx()),
+                                             *(else_context->cudf_scalar.value().get()),
+                                             table.column(if_ref->column_idx())));
+          }
+
+          if (!then_ref && !else_ref) {
+            append_result(cudf::copy_if_else(*(then_context->cudf_scalar.value().get()),
+                                             *(else_context->cudf_scalar.value().get()),
+                                             table.column(if_ref->column_idx())));
+          }
           break;
         }
-        case gqe::expression::expression_type::literal:
-          intermediate_results.push_back(
-            cudf::make_column_from_scalar(*cudf_scalar_cast(task_ptr), table.num_rows()));
-          break;
         case gqe::expression::expression_type::cast: {
           auto const child_ref =
             dynamic_cast<gqe::column_reference_expression*>(children[0])->column_idx();
-          auto const out_type = dynamic_cast<gqe::cast_expression*>(task_ptr)->out_type();
+          auto const out_type = dynamic_cast<gqe::cast_expression*>(expression)->out_type();
 
-          intermediate_results.push_back(cudf::cast(table.column(child_ref), out_type));
+          append_result(cudf::cast(table.column(child_ref), out_type));
           break;
         }
         default:
           throw std::logic_error("Cannot evaluate expression in the fallback path: " +
-                                 task_ptr->to_string());
+                                 expression->to_string());
       }
-    } else {
-      throw std::bad_variant_access();
     }
   }
 
   // cuDF's AST module might evaluate expression to a different type than GQE expression's data
   // type. For example, the AST module might evaluate an expression to int32_t, while GQE promotes
   // the result to int64_t. In such case, we cast the result to GQE expression's data type.
-  auto const expected_type = _root_expression->data_type(extract_column_types(_table));
+  auto const expected_type = _root_expression->data_type(this->_column_types);
   if (intermediate_results.back()->type() != expected_type) {
-    intermediate_results.push_back(cudf::cast(intermediate_results.back()->view(), expected_type));
+    append_result(cudf::cast(intermediate_results.back()->view(), expected_type));
   }
 
   return std::make_pair(intermediate_results.back()->view(),
@@ -193,338 +241,308 @@ expression_evaluator::evaluate() const
 
 void expression_evaluator::visit(column_reference_expression const* expression)
 {
-  _converted_expressions.emplace_back(std::make_shared<cudf::ast::column_reference>(
-    expression->column_idx() - _column_reference_offset));
+  auto const column_id = expression->column_idx() - this->_column_reference_offset;
+  auto [context, is_new] =
+    this->emplace_context(expression, std::make_unique<column_reference_expression>(column_id));
+  if (is_new) {
+    context.cudf_ast_expression = std::make_unique<cudf::ast::column_reference>(column_id);
+    context.column_idx          = column_id;
+  }
 }
 
 void expression_evaluator::visit(literal_expression<int32_t> const* expression)
 {
-  // `expression` and `scalar` objects must be kept alive for the lifetime of
-  // the evaluator so we store them in member vectors
-  _converted_scalars.push_back(
-    std::make_unique<cudf::numeric_scalar<int32_t>>(expression->value(), !expression->is_null()));
-  auto const value = dynamic_cast<cudf::numeric_scalar<int32_t>*>(_converted_scalars.back().get());
-  _converted_expressions.emplace_back(std::make_shared<cudf::ast::literal>(*(value)));
+  this->create_literal_context(expression);
 }
 
 void expression_evaluator::visit(literal_expression<int64_t> const* expression)
 {
-  _converted_scalars.push_back(
-    std::make_unique<cudf::numeric_scalar<int64_t>>(expression->value(), !expression->is_null()));
-  auto const value = dynamic_cast<cudf::numeric_scalar<int64_t>*>(_converted_scalars.back().get());
-  _converted_expressions.emplace_back(std::make_shared<cudf::ast::literal>(*(value)));
+  this->create_literal_context(expression);
 }
 
 void expression_evaluator::visit(literal_expression<float> const* expression)
 {
-  _converted_scalars.push_back(
-    std::make_unique<cudf::numeric_scalar<float>>(expression->value(), !expression->is_null()));
-  auto const value = dynamic_cast<cudf::numeric_scalar<float>*>(_converted_scalars.back().get());
-  _converted_expressions.emplace_back(std::make_shared<cudf::ast::literal>(*(value)));
+  this->create_literal_context(expression);
 }
 
 void expression_evaluator::visit(literal_expression<double> const* expression)
 {
-  _converted_scalars.push_back(
-    std::make_unique<cudf::numeric_scalar<double>>(expression->value(), !expression->is_null()));
-  auto const value = dynamic_cast<cudf::numeric_scalar<double>*>(_converted_scalars.back().get());
-  _converted_expressions.emplace_back(std::make_shared<cudf::ast::literal>(*(value)));
+  this->create_literal_context(expression);
 }
 
 void expression_evaluator::visit(literal_expression<std::string> const* expression)
 {
-  _converted_expressions.emplace_back(expression->clone());
+  this->create_literal_context(expression);
 }
 
 void expression_evaluator::visit(literal_expression<cudf::timestamp_D> const* expression)
 {
-  _converted_scalars.push_back(std::make_unique<cudf::timestamp_scalar<cudf::timestamp_D>>(
-    expression->value(), !expression->is_null()));
-  auto const value =
-    dynamic_cast<cudf::timestamp_scalar<cudf::timestamp_D>*>(_converted_scalars.back().get());
-  _converted_expressions.emplace_back(std::make_shared<cudf::ast::literal>(*(value)));
+  this->create_literal_context(expression);
 }
 
 void expression_evaluator::visit(unary_op_expression const* expression)
 {
-  // compute AST for the child expression
-  expression->_children[0]->accept(*this);
+  // Emplace context in the context map
+  auto [context, is_new] = this->emplace_context(expression, expression->clone());
 
-  // child has been created at the back of `_converted_expressions`
-  auto child_index = _converted_expressions.size() - 1;
+  if (is_new) {
+    auto const child = expression->_children[0];
+    // compute AST for the child expression
+    child->accept(*this);
 
-  // does child use fallback eval strategy?
-  bool const child_needs_fallback =
-    std::holds_alternative<std::shared_ptr<gqe::expression>>(_converted_expressions[child_index]);
+    // Store a reference to the child context in the parent context
+    auto& child_context = this->find_context(child.get());
+    context.child_contexts.emplace_back(&child_context);
 
-  if (child_needs_fallback ||
-      // `cudf::ast` cannot handle non-fixed width output columns
-      !cudf::is_fixed_width(expression->data_type(extract_column_types(_table)))) {
-    if (!child_needs_fallback) {
-      auto child =
-        std::get<cudf::ast::expression*>(to_raw_expr_ptr(_converted_expressions[child_index]));
+    bool const child_is_column  = child_context.column_idx.has_value();
+    bool const can_use_cudf_ast = cudf::is_fixed_width(expression->data_type(this->_column_types));
 
-      // if the child expression is a `cudf::ast:literal` or `cudf::ast::column_reference`
-      // replace it with their `gqe::expression` equivalent
-      if (dynamic_cast<cudf::ast::literal*>(child) ||
-          dynamic_cast<cudf::ast::column_reference*>(child)) {
-        _converted_expressions[child_index] = expression->_children[0];
-      } else {  // child expression is a `cudf::ast` sub-expression (needs to be evaluated
-                // separately)
-        // mark the `cudf::ast` sub-expression as to be evaluated
-        _sub_tasks.emplace_back(to_raw_expr_ptr(_converted_expressions[child_index]));
+    if (can_use_cudf_ast) {
+      auto const op = this->convert_operator(expression->unary_operator());
 
-        // child expression is executed as a separate task; the current expression needs to pick up
-        // its result
-        _converted_expressions.emplace_back(
-          std::make_shared<gqe::column_reference_expression>(_next_intermediate++));
-
-        // index of new child (reference to intermediate result)
-        child_index = _converted_expressions.size() - 1;
+      if (child_is_column) {
+        auto const child_column_idx = child_context.column_idx.value();
+        context.gqe_expression->_children[0] =
+          std::make_shared<column_reference_expression>(child_column_idx);
+        auto new_child = std::make_unique<cudf::ast::column_reference>(child_column_idx);
+        context.cudf_ast_expression = std::make_unique<cudf::ast::operation>(op, *new_child);
+        context.cudf_ast_dependencies.emplace_back(std::move(new_child));
+      } else {
+        context.gqe_expression->_children[0] = child_context.gqe_expression;
+        context.cudf_ast_expression =
+          std::make_unique<cudf::ast::operation>(op, *child_context.cudf_ast_expression.value());
       }
+    } else {
+      auto const child_column_idx = this->dispatch_task(child_context);
+      context.gqe_expression->_children[0] =
+        std::make_shared<column_reference_expression>(child_column_idx);
+      this->dispatch_task(context);
     }
-
-    // make a copy of the current expression but with the new child expressions
-    auto new_expr       = expression->clone();
-    new_expr->_children = {
-      std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[child_index])};
-
-    _converted_expressions.emplace_back(std::move(new_expr));
-
-    // mark the new expression as to be evaluated
-    if (expression != _root_expression) {
-      _sub_tasks.emplace_back(to_raw_expr_ptr(_converted_expressions.back()));
-      // parent expression picks up the reference to the intermediate result for its child
-      _converted_expressions.emplace_back(
-        std::make_shared<cudf::ast::column_reference>(_next_intermediate++));
-    }
-  } else {  // no fallback strategy needed
-    // find the `cudf::ast` equivalent of the given operation type
-    auto converted_op = _operator_map.find(expression->unary_operator());
-    if (converted_op == _operator_map.end()) {
-      throw std::logic_error("Unable to convert " + expression->to_string() +
-                             " to cudf::ast operator");
-    }
-
-    _converted_expressions.emplace_back(std::make_shared<cudf::ast::operation>(
-      converted_op->second,
-      *std::get<cudf::ast::expression*>(to_raw_expr_ptr(_converted_expressions[child_index]))));
   }
 }
 
 void expression_evaluator::visit(binary_op_expression const* expression)
 {
-  // compute AST for the lhs child
-  expression->_children[0]->accept(*this);
-  // child has been created at the back of `_converted_expressions`
-  auto lhs_child_index = _converted_expressions.size() - 1;
+  auto [context, is_new] = this->emplace_context(expression, expression->clone());
 
-  // same for rhs child
-  expression->_children[1]->accept(*this);
-  auto rhs_child_index = _converted_expressions.size() - 1;
+  if (is_new) {
+    auto const lhs = expression->_children[0];
+    auto const rhs = expression->_children[1];
+    // compute AST for the child expressions
+    lhs->accept(*this);
+    rhs->accept(*this);
 
-  // does lhs child use fallback eval strategy?
-  bool const lhs_needs_fallback = std::holds_alternative<std::shared_ptr<gqe::expression>>(
-    _converted_expressions[lhs_child_index]);
-  // does rhs child use fallback eval strategy?
-  bool const rhs_needs_fallback = std::holds_alternative<std::shared_ptr<gqe::expression>>(
-    _converted_expressions[rhs_child_index]);
+    auto& lhs_context = this->find_context(lhs.get());
+    auto& rhs_context = this->find_context(rhs.get());
 
-  // lhs fallback and rhs fallback -> emit gqe expr
-  if (lhs_needs_fallback || rhs_needs_fallback ||
-      // `cudf::ast` cannot handle non-fixed width output columns
-      !cudf::is_fixed_width(expression->data_type(extract_column_types(_table))) ||
-      // `cudf::ast` cannot handle expressions with different types
-      expression->_children[0]->data_type(extract_column_types(_table)) !=
-        expression->_children[1]->data_type(extract_column_types(_table))) {
-    if (!lhs_needs_fallback) {
-      auto lhs_child =
-        std::get<cudf::ast::expression*>(to_raw_expr_ptr(_converted_expressions[lhs_child_index]));
+    context.child_contexts.emplace_back(&lhs_context);
+    context.child_contexts.emplace_back(&rhs_context);
 
-      // if the child expression is a `cudf::ast:literal` or `cudf::ast::column_reference`
-      // replace it with their `gqe::expression` equivalent
-      if (dynamic_cast<cudf::ast::literal*>(lhs_child) ||
-          dynamic_cast<cudf::ast::column_reference*>(lhs_child)) {
-        _converted_expressions[lhs_child_index] = expression->_children[0];
-      } else {  // lhs is a `cudf::ast` sub-expression (needs to be evaluated separately)
-        // mark the `cudf::ast` sub-expression as to be evaluated
-        _sub_tasks.emplace_back(to_raw_expr_ptr(_converted_expressions[lhs_child_index]));
+    bool const can_use_cudf_ast =
+      cudf::is_fixed_width(expression->data_type(this->_column_types)) &&
+      (expression->_children[0]->data_type(this->_column_types) ==
+       expression->_children[1]->data_type(this->_column_types));
 
-        // lhs is executed as a separate task; the current expression needs to pick up its result
-        _converted_expressions.emplace_back(
-          std::make_shared<gqe::column_reference_expression>(_next_intermediate++));
+    if (can_use_cudf_ast) {
+      auto const op = this->convert_operator(expression->binary_operator());
 
-        // index of new child (reference to intermediate result)
-        lhs_child_index = _converted_expressions.size() - 1;
+      auto process_child = [&](auto& context,
+                               auto const child_idx) -> cudf::ast::expression const& {
+        auto const& child_context = context.child_contexts[child_idx];
+        bool const is_task        = child_context->column_idx.has_value();
+        if (is_task) {
+          auto const column_idx = child_context->column_idx.value();
+          context.gqe_expression->_children[child_idx] =
+            std::make_shared<column_reference_expression>(column_idx);
+          auto new_child = std::make_unique<cudf::ast::column_reference>(column_idx);
+          return *context.cudf_ast_dependencies.emplace_back(std::move(new_child));
+        } else {
+          context.gqe_expression->_children[child_idx] = child_context->gqe_expression;
+          return *child_context->cudf_ast_expression.value();
+        }
+      };
+
+      auto const& cudf_ast_lhs = process_child(context, 0);
+      auto const& cudf_ast_rhs = process_child(context, 1);
+
+      context.cudf_ast_expression =
+        std::make_unique<cudf::ast::operation>(op, cudf_ast_lhs, cudf_ast_rhs);
+    } else {
+      auto process_child = [&](auto& context, int child_idx) {
+        auto const& child_context = context.child_contexts[child_idx];
+        bool const is_scalar      = child_context->cudf_scalar.has_value();
+
+        if (is_scalar) {
+          context.gqe_expression->_children[child_idx] = child_context->gqe_expression;
+        } else {
+          context.gqe_expression->_children[child_idx] =
+            std::make_shared<column_reference_expression>(dispatch_task(*child_context));
+        }
+      };
+
+      bool const lhs_is_scalar = lhs_context.cudf_scalar.has_value();
+      bool const rhs_is_scalar = rhs_context.cudf_scalar.has_value();
+
+      if (lhs_is_scalar && rhs_is_scalar) {
+        throw std::logic_error(
+          "Unable to evaluate cudf::binary_operation on two cudf::scalars in " +
+          expression->to_string());
       }
+
+      process_child(context, 0);
+      process_child(context, 1);
+
+      dispatch_task(context);
     }
-
-    // same as above for rhs child
-    if (!rhs_needs_fallback) {
-      auto rhs_child =
-        std::get<cudf::ast::expression*>(to_raw_expr_ptr(_converted_expressions[rhs_child_index]));
-
-      if (dynamic_cast<cudf::ast::literal*>(rhs_child) or
-          dynamic_cast<cudf::ast::column_reference*>(rhs_child)) {
-        _converted_expressions[rhs_child_index] = expression->_children[1];
-      } else {
-        _sub_tasks.emplace_back(to_raw_expr_ptr(_converted_expressions[rhs_child_index]));
-
-        _converted_expressions.emplace_back(
-          std::make_shared<gqe::column_reference_expression>(_next_intermediate++));
-
-        rhs_child_index = _converted_expressions.size() - 1;
-      }
-    }
-
-    // make a copy of the current expression but with the new child expressions
-    auto new_expr       = expression->clone();
-    new_expr->_children = {
-      std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[lhs_child_index]),
-      std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[rhs_child_index])};
-
-    _converted_expressions.emplace_back(std::move(new_expr));
-
-    // mark the new expression as to be evaluated
-    if (expression != _root_expression) {
-      _sub_tasks.emplace_back(to_raw_expr_ptr(_converted_expressions.back()));
-      // parent expression picks up the reference to the intermediate result for its child
-      _converted_expressions.emplace_back(
-        std::make_shared<cudf::ast::column_reference>(_next_intermediate++));
-    }
-  } else {  // no fallback strategy needed; continue building a `cudf::ast`
-    // find the `cudf::ast` equivalent of the given operation type
-    auto converted_op = _operator_map.find(expression->binary_operator());
-    if (converted_op == _operator_map.end()) {
-      throw std::logic_error("Unable to convert " + expression->to_string() +
-                             " to cudf::ast operator");
-    }
-
-    _converted_expressions.emplace_back(std::make_shared<cudf::ast::operation>(
-      converted_op->second,
-      *std::get<cudf::ast::expression*>(to_raw_expr_ptr(_converted_expressions[lhs_child_index])),
-      *std::get<cudf::ast::expression*>(to_raw_expr_ptr(_converted_expressions[rhs_child_index]))));
   }
 }
 
 void expression_evaluator::visit(if_then_else_expression const* expression)
 {
-  if (!cudf::is_boolean(expression->_children[0]->data_type(extract_column_types(_table)))) {
-    throw std::logic_error("Cannot convert " + expression->_children[0]->to_string() +
-                           " to boolean");
-  }
+  auto [context, is_new] = this->emplace_context(expression, expression->clone());
 
-  if (expression->_children[1]->data_type(extract_column_types(_table)) !=
-      expression->_children[2]->data_type(extract_column_types(_table))) {
-    throw std::logic_error("Column types of " + expression->_children[1]->to_string() + " and " +
-                           expression->_children[2]->to_string() + " must be equal");
-  }
+  if (is_new) {
+    if (!cudf::is_boolean(expression->_children[0]->data_type(this->_column_types))) {
+      throw std::logic_error("Cannot convert " + expression->_children[0]->to_string() +
+                             " to boolean");
+    }
 
-  // create task for IF child
-  auto if_child_index = create_column_reference(expression->_children[0].get());
-  // create task for THEN child
-  auto then_child_index = create_column_reference(expression->_children[1].get());
-  // create task for ELSE child
-  auto else_child_index = create_column_reference(expression->_children[2].get());
+    if (expression->_children[1]->data_type(this->_column_types) !=
+        expression->_children[2]->data_type(this->_column_types)) {
+      throw std::logic_error("Column types of " + expression->_children[1]->to_string() + " and " +
+                             expression->_children[2]->to_string() + " must be equal");
+    }
 
-  // make a copy of the current expression but with the new child expressions
-  auto new_expr       = expression->clone();
-  new_expr->_children = {
-    std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[if_child_index]),
-    std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[then_child_index]),
-    std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[else_child_index])};
+    for (std::size_t child_id = 0; child_id < expression->_children.size(); ++child_id) {
+      auto const& child = expression->_children[child_id];
+      child->accept(*this);
+      auto& child_context = this->find_context(child.get());
+      context.child_contexts.emplace_back(&child_context);
 
-  _converted_expressions.emplace_back(std::move(new_expr));
+      // IF, THEN, and ELSE columns need to be evaluated.
+      // However, cudf::copy_if_else supports scalar arguments for THEN and ELSE
+      if (child_id == 0 || !child_context.cudf_scalar.has_value()) {
+        auto const child_column_idx = this->dispatch_task(child_context);
+        context.gqe_expression->_children[child_id] =
+          std::make_shared<column_reference_expression>(child_column_idx);
+      }
+    }
 
-  // mark the new expression as to be evaluated
-  if (expression != _root_expression) {
-    _sub_tasks.emplace_back(to_raw_expr_ptr(_converted_expressions.back()));
-    // parent expression picks up the reference to the intermediate result for its child
-    _converted_expressions.emplace_back(
-      std::make_shared<cudf::ast::column_reference>(_next_intermediate++));
+    this->dispatch_task(context);
   }
 }
 
 void expression_evaluator::visit(cast_expression const* expression)
 {
-  // FIXME: The current implementation always uses the fallback path to evaluate cast expressions,
-  // but cuDF's AST module has cast support for limited types: int64, uint64 and double:
-  // https://github.com/rapidsai/cudf/blob/branch-22.12/cpp/include/cudf/ast/expressions.hpp#L137-L139
-  // It might be worthwhile to take advantage of that.
+  auto [context, is_new] = this->emplace_context(expression, expression->clone());
 
-  assert(expression->_children.size() == 1);
-  auto const child_index = create_column_reference(expression->_children[0].get());
+  if (is_new) {
+    auto const& child = expression->_children[0];
+    child->accept(*this);
 
-  // make a copy of the current expression but with the new child expressions
-  auto new_expr       = expression->clone();
-  new_expr->_children = {
-    std::get<std::shared_ptr<gqe::expression>>(_converted_expressions[child_index])};
+    auto& child_context = this->find_context(child.get());
+    context.child_contexts.emplace_back(&child_context);
+    bool const child_is_column = child_context.column_idx.has_value();
 
-  _converted_expressions.emplace_back(std::move(new_expr));
+    // cudf::ast only supports cast operations to INT64, UIN64, and FLOAT64
+    std::optional<cudf::ast::ast_operator> cudf_ast_operator;
+    switch (expression->out_type().id()) {
+      case cudf::type_id::INT64: cudf_ast_operator = cudf::ast::ast_operator::CAST_TO_INT64; break;
+      case cudf::type_id::UINT64:
+        cudf_ast_operator = cudf::ast::ast_operator::CAST_TO_UINT64;
+        break;
+      case cudf::type_id::FLOAT64:
+        cudf_ast_operator = cudf::ast::ast_operator::CAST_TO_FLOAT64;
+        break;
+      default: break;
+    }
 
-  // mark the new expression as to be evaluated
-  if (expression != _root_expression) {
-    _sub_tasks.emplace_back(to_raw_expr_ptr(_converted_expressions.back()));
-    // parent expression picks up the reference to the intermediate result for its child
-    _converted_expressions.emplace_back(
-      std::make_shared<cudf::ast::column_reference>(_next_intermediate++));
+    if (cudf_ast_operator.has_value()) {
+      // same logic as in visit(unary_op_expression const*)
+      if (child_is_column) {
+        auto const child_column_idx = child_context.column_idx.value();
+        context.gqe_expression->_children[0] =
+          std::make_shared<column_reference_expression>(child_column_idx);
+        auto new_child = std::make_unique<cudf::ast::column_reference>(child_column_idx);
+        context.cudf_ast_expression =
+          std::make_unique<cudf::ast::operation>(*cudf_ast_operator, *new_child);
+        context.cudf_ast_dependencies.emplace_back(std::move(new_child));
+      } else {
+        context.gqe_expression->_children[0] = child_context.gqe_expression;
+        context.cudf_ast_expression          = std::make_unique<cudf::ast::operation>(
+          *cudf_ast_operator, *child_context.cudf_ast_expression.value());
+      }
+    } else {
+      auto const child_column_idx = dispatch_task(child_context);
+      context.gqe_expression->_children[0] =
+        std::make_shared<column_reference_expression>(child_column_idx);
+      dispatch_task(context);
+    }
   }
 }
 
-std::variant<cudf::ast::expression*, gqe::expression*> expression_evaluator::to_raw_expr_ptr(
-  std::variant<std::shared_ptr<cudf::ast::expression>, std::shared_ptr<gqe::expression>> const&
-    expr) const
+cudf::size_type expression_evaluator::dispatch_task(evaluation_context& context) noexcept
 {
-  if (std::holds_alternative<std::shared_ptr<cudf::ast::expression>>(expr)) {
-    return {std::get<std::shared_ptr<cudf::ast::expression>>(expr).get()};
+  // is already a task
+  if (context.column_idx.has_value()) {
+    return context.column_idx.value();
   } else {
-    return {std::get<std::shared_ptr<gqe::expression>>(expr).get()};
-  }
+    // make it a new task and emit column index of the result
+    auto const column_idx = _next_task++;
+    context.column_idx    = column_idx;
 
-  throw std::bad_variant_access();
-}
-
-cudf::table_view expression_evaluator::concat_input_table(
-  std::vector<std::unique_ptr<cudf::column>> const& intermediate_results) const
-{
-  if (intermediate_results.empty()) {
-    return _table;
-  } else {
-    std::vector<cudf::column_view> intermediate_results_cols;
-    std::transform(intermediate_results.begin(),
-                   intermediate_results.end(),
-                   std::back_inserter(intermediate_results_cols),
-                   [](auto& c) { return c->view(); });
-    cudf::table_view intermediate_result_table{intermediate_results_cols};
-    cudf::table_view combined_table({this->_table, intermediate_result_table});
-    return combined_table;
+    this->_tasks.emplace_back(&context);
+    return column_idx;
   }
 }
 
-cudf::size_type expression_evaluator::create_column_reference(gqe::expression* expr)
+template <typename... Args>
+std::pair<expression_evaluator::evaluation_context&, bool> expression_evaluator::emplace_context(
+  expression const* expression, Args&&... args) noexcept
 {
-  // compute AST for `expr`
-  expr->accept(*this);
-  // the converted expression has been created at the back of _converted_expressions
-  auto converted_expr = to_raw_expr_ptr(_converted_expressions.back());
+  auto [iter, is_new] =
+    this->_evaluation_contexts.try_emplace(expression, std::forward<Args>(args)...);
+  return {iter->second, is_new};
+}
 
-  // if the current expression is already a `cudf::ast::column_reference`
-  // we just convert it to a `gqe::column_reference_expression` and pass it on
-  if (std::holds_alternative<cudf::ast::expression*>(converted_expr) &&
-      dynamic_cast<cudf::ast::column_reference*>(
-        std::get<cudf::ast::expression*>(converted_expr))) {
-    _converted_expressions.emplace_back(std::make_shared<gqe::column_reference_expression>(
-      dynamic_cast<cudf::ast::column_reference*>(std::get<cudf::ast::expression*>(converted_expr))
-        ->get_column_index()));
-  } else {
-    // push the expression into task queue for evaluation
-    _sub_tasks.emplace_back(converted_expr);
-    // fetch result of the expression
-    _converted_expressions.emplace_back(
-      std::make_shared<gqe::column_reference_expression>(_next_intermediate++));
+[[nodiscard]] expression_evaluator::evaluation_context& expression_evaluator::find_context(
+  expression const* expression)
+{
+  auto search = this->_evaluation_contexts.find(expression);
+  if (search == this->_evaluation_contexts.end()) {
+    throw std::logic_error("Unable to find evaluation context for " + expression->to_string());
   }
-  // The result of `eval` has been created at the back of `_converted_expressions`
-  return _converted_expressions.size() - 1;
+
+  return search->second;
+}
+
+[[nodiscard]] cudf::ast::ast_operator const& expression_evaluator::convert_operator(
+  std::variant<cudf::binary_operator, cudf::unary_operator> op) const
+{
+  auto search = this->_operator_map.find(op);
+  if (search == this->_operator_map.end()) {
+    throw std::logic_error(
+      "Unable to convert cudf::{unary|binary}_operator to cudf::ast::ast_operator");
+  }
+
+  return search->second;
+}
+
+template <typename T>
+void expression_evaluator::create_literal_context(literal_expression<T> const* expression) noexcept
+{
+  using cudf_scalar_type =
+    std::conditional_t<std::is_same_v<T, std::string>,
+                       cudf::string_scalar,
+                       std::conditional_t<std::is_same_v<T, cudf::timestamp_D>,
+                                          cudf::timestamp_scalar<cudf::timestamp_D>,
+                                          cudf::numeric_scalar<T>>>;
+  auto [context, is_new] = this->emplace_context(expression, expression->clone());
+  if (is_new) {
+    auto scalar = std::make_unique<cudf_scalar_type>(expression->value(), !expression->is_null());
+    context.cudf_ast_expression = std::make_unique<cudf::ast::literal>(*scalar);
+    context.cudf_scalar         = std::move(scalar);
+  }
 }
 
 std::pair<std::vector<cudf::column_view>, std::vector<std::unique_ptr<cudf::column>>>
@@ -549,7 +567,12 @@ evaluate_expressions(cudf::table_view const& table,
       evaluated_results.push_back(table.column(column_idx - column_reference_offset));
       continue;
     } else if (table.num_rows() == 0) {
-      auto empty_column = cudf::make_empty_column(expr->data_type(extract_column_types(table)));
+      std::vector<cudf::data_type> column_types;
+      column_types.reserve(table.num_columns());
+      for (auto const& col : table) {
+        column_types.push_back(col.type());
+      }
+      auto empty_column = cudf::make_empty_column(expr->data_type(column_types));
       evaluated_results.push_back(empty_column->view());
       column_cache.push_back(std::move(empty_column));
     } else {

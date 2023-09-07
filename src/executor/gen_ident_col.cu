@@ -50,7 +50,7 @@ void gen_ident_col_task::execute()
   cudf::table initial_table(input_table);
   auto result_cols = initial_table.release();
   result_cols.push_back(std::move(row_id_col));
-  update_result_cache(std::make_unique<cudf::table>(std::move(result_cols)));
+  emit_result(std::make_unique<cudf::table>(std::move(result_cols)));
 }
 
 }  // namespace gqe

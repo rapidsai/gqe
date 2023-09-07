@@ -47,14 +47,13 @@ void fetch_task::execute()
   auto end_idx = _offset + _count;
 
   if (start_idx >= input_table.num_rows() || start_idx >= end_idx) {
-    update_result_cache(cudf::empty_like(input_table));
+    emit_result(cudf::empty_like(input_table));
     return;
   }
 
   if (end_idx > input_table.num_rows()) { end_idx = input_table.num_rows(); }
 
-  update_result_cache(
-    std::make_unique<cudf::table>(cudf::slice(input_table, {start_idx, end_idx})[0]));
+  emit_result(std::make_unique<cudf::table>(cudf::slice(input_table, {start_idx, end_idx})[0]));
   remove_dependencies();
 }
 

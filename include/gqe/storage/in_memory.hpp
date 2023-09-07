@@ -274,12 +274,16 @@ class in_memory_read_task : public read_task_base {
    * @param[in] data_types Expected data types of each column. If the actual data type of a loaded
    * column is different from expected, the column will be casted to the data type specified. Must
    * have the same length as `column_names`.
+   * @param[in] memory_kind The memory kind used by the input table.
    * @param[in] partial_filter Used to support predicate pushdown. Note that a row that satisfies
    * the predicate is guaranteed to be included in the loaded table, but a row that does not satisfy
    * the predicate may or may not be excluded. If such exclusion needs to be guaranteed, an extra
    * filter task is needed. If this argument is nullptr, no rows will be filtered out.
    * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
    * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
+   * @param[in] force_zero_copy_disable Override the zero-copy optimization parameter with a disable
+   * command. Used, e.g., for unit testing or when zero-copy is unsafe due to the system
+   * configuration.
    */
   in_memory_read_task(query_context* query_context,
                       int32_t task_id,
@@ -287,8 +291,10 @@ class in_memory_read_task : public read_task_base {
                       std::vector<const row_group*> row_groups,
                       std::vector<cudf::size_type> column_indexes,
                       std::vector<cudf::data_type> data_types,
+                      memory_kind::type memory_kind,
                       std::unique_ptr<gqe::expression> partial_filter   = nullptr,
-                      std::vector<std::shared_ptr<task>> subquery_tasks = {});
+                      std::vector<std::shared_ptr<task>> subquery_tasks = {},
+                      bool force_zero_copy_disable                      = false);
 
   in_memory_read_task(const in_memory_read_task&) = delete;
   in_memory_read_task& operator=(const in_memory_read_task&) = delete;
@@ -296,11 +302,16 @@ class in_memory_read_task : public read_task_base {
   void execute() override;
 
  private:
+  void execute_read_by_value();
+  void execute_read_by_reference();
+
   std::vector<const row_group*>
     _row_groups; /**< Non-owning references to the row groups assigned to this task. */
   std::vector<cudf::size_type> _column_indexes;
   std::vector<cudf::data_type> _data_types;
+  memory_kind::type _memory_kind;
   std::unique_ptr<gqe::expression> _partial_filter;
+  bool _force_zero_copy_disable;
 };
 
 /**

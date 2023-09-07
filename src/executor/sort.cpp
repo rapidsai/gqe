@@ -44,8 +44,7 @@ void sort_task::execute()
   auto values               = dependent_tasks[0]->result().value();
   auto [keys, column_cache] = evaluate_expressions(values, utility::to_const_raw_ptrs(_keys));
 
-  update_result_cache(
-    cudf::sort_by_key(values, cudf::table_view(keys), _column_orders, _null_precedences));
+  emit_result(cudf::sort_by_key(values, cudf::table_view(keys), _column_orders, _null_precedences));
   remove_dependencies();
 }
 

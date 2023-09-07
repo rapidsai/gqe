@@ -45,7 +45,7 @@ void project_task::execute()
   // In theory, a copy is not necessary in certain scenarios. For example, if a project
   // relation is only used to reorder columns, we could simply let the input task release its
   // ownership of the table, change the order of the columns and assemble into a new table.
-  update_result_cache(std::make_unique<cudf::table>(eval_table));
+  emit_result(std::make_unique<cudf::table>(eval_table));
   remove_dependencies();
 }
 

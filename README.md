@@ -70,5 +70,6 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | MAX_NUM_PARTITIONS | 8 | The maximum number of read tasks that can be generated for a single table |
 | GQE_LOG_LEVEL | info | Enable log messages for this level or higher |
 | GQE_JOIN_USE_HASH_MAP_CACHE | true | Allow multiple join tasks to reuse the same hash map. Enabling this option may increase device-memory usage in some circumstances. If `MAX_NUM_WORKERS` is set to more than 1, this option is disabled. |
+| GQE_READ_USE_ZERO_COPY | true | Enable zero-copy reads for in-memory table. When disabled, read tasks copy input data to a temporary output buffer. |
 
 Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-23.08/CONTRIBUTING.md#build-cudf-from-source).

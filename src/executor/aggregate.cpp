@@ -168,7 +168,7 @@ void aggregate_task::execute()
     }
   }
 
-  update_result_cache(std::make_unique<cudf::table>(std::move(result_columns)));
+  emit_result(std::make_unique<cudf::table>(std::move(result_columns)));
   remove_dependencies();
 }
 

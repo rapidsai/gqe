@@ -27,6 +27,6 @@ void gqe::concatenate_task::execute()
     tables_to_concatenate.push_back(depedent_task_result.value());
   }
 
-  update_result_cache(cudf::concatenate(tables_to_concatenate));
+  emit_result(cudf::concatenate(tables_to_concatenate));
   remove_dependencies();
 }

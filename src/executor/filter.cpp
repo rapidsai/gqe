@@ -45,7 +45,7 @@ void filter_task::execute()
   auto input_table          = dependent_tasks[0]->result().value();
   auto [mask, column_cache] = evaluate_expressions(input_table, condition_expr);
 
-  update_result_cache(cudf::apply_boolean_mask(input_table, mask[0]));
+  emit_result(cudf::apply_boolean_mask(input_table, mask[0]));
 }
 
 }  // namespace gqe

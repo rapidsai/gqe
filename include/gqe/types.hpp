@@ -237,6 +237,11 @@ using type = std::variant<memory_kind::system,
                           memory_kind::device,
                           memory_kind::managed>;
 
+/**
+ * @brief Return whether the GPU can directly access the memory kind
+ */
+bool is_gpu_accessible(memory_kind::type type);
+
 }  // namespace memory_kind
 
 namespace storage_kind {

@@ -12,6 +12,9 @@
 
 #include <gqe/types.hpp>
 
+#include <gqe/utility/cuda.hpp>
+#include <gqe/utility/helpers.hpp>
+
 #include <bitset>
 #include <sstream>
 
@@ -116,6 +119,29 @@ std::size_t page_kind::size() const noexcept
 
   // Should never be reached
   return 0;
+}
+
+bool memory_kind::is_gpu_accessible(memory_kind::type type)
+{
+  auto check_pageable_access = []() -> bool {
+    // Check if zero copy is legal
+    auto device_properties = utility::get_cuda_device_property();
+    return device_properties->pageableMemoryAccess;
+  };
+
+  return std::visit(
+    utility::overloaded{[&](memory_kind::system) { return check_pageable_access(); },
+                        [&](memory_kind::numa) { return check_pageable_access(); },
+                        [&](memory_kind::pinned) -> bool {
+                          auto device_properties = utility::get_cuda_device_property();
+                          return device_properties->unifiedAddressing;
+                        },
+                        [](memory_kind::device) { return true; },
+                        [](memory_kind::managed) -> bool {
+                          auto device_properties = utility::get_cuda_device_property();
+                          return device_properties->managedMemory;
+                        }},
+    type);
 }
 
 }  // namespace gqe

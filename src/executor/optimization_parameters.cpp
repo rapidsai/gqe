@@ -114,6 +114,8 @@ optimization_parameters::optimization_parameters(bool only_defaults)
 
     join_use_hash_map_cache =
       parse_env_variable("GQE_JOIN_USE_HASH_MAP_CACHE", join_use_hash_map_cache);
+
+    read_zero_copy_enable = parse_env_variable("GQE_READ_USE_ZERO_COPY", read_zero_copy_enable);
   }
 }
 

@@ -21,9 +21,24 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <variant>
 #include <vector>
 
 namespace gqe {
+
+namespace result_kind {
+
+struct owned {
+  std::unique_ptr<cudf::table> table;
+};
+
+struct borrowed {
+  cudf::table_view view;
+};
+
+using type = std::variant<result_kind::owned, result_kind::borrowed>;
+
+}  // namespace result_kind
 
 class task {
  public:
@@ -74,7 +89,7 @@ class task {
   /**
    * @brief Return the task result.
    */
-  [[nodiscard]] std::optional<cudf::table_view> result() const noexcept { return _result; }
+  [[nodiscard]] std::optional<cudf::table_view> result() const noexcept;
 
   /**
    * @brief Return the task ID.
@@ -90,13 +105,23 @@ class task {
 
  protected:
   /**
-   * @brief Update the local result cache.
+   * @brief Emit an owned result.
    *
-   * @note Use this function when the local GPU gets a copy of the task result, for
+   * Sets the result as a new table instance. The task owns the result.
+   *
+   * @note Use this function when the local GPU gets  copy of the task result, for
    * example, after the local GPU finishes executing the task, or after the local GPU explicitly
    * copies the result from a remote GPU.
    */
-  void update_result_cache(std::unique_ptr<cudf::table> new_result);
+  void emit_result(std::unique_ptr<cudf::table> new_result);
+
+  /**
+   * @brief Emit a borrowed result.
+   *
+   * Sets the result as a reference to an existing table. The caller retains
+   * ownership of the data.
+   */
+  void emit_result(cudf::table_view new_result);
 
   /**
    * @brief Return the dependent tasks.
@@ -157,11 +182,7 @@ class task {
   int32_t _stage_id;
   std::vector<std::shared_ptr<task>> _dependencies;
   std::vector<std::shared_ptr<task>> _subqueries;
-  std::optional<cudf::table_view> _result;
-  // This field could hold the result after execution, or the migrated table from a remote GPU. Note
-  // that it is possible that this field is empty but `_result` contains the valid view, when
-  // directly accessing a remote GPU's mapped memory.
-  std::unique_ptr<cudf::table> _result_cache;
+  result_kind::type _result;
   std::atomic<status_type> _status;
 };
 

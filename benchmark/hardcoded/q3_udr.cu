@@ -351,7 +351,7 @@ void custom_task::execute()
   out_columns.push_back(materialize_column(item_table, 1, item_indices_column->view()));
   out_columns.push_back(materialize_column(item_table, 2, item_indices_column->view()));
 
-  update_result_cache(std::make_unique<cudf::table>(std::move(out_columns)));
+  emit_result(std::make_unique<cudf::table>(std::move(out_columns)));
   remove_dependencies();
 }
 

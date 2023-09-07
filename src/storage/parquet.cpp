@@ -251,7 +251,7 @@ void parquet_read_task::execute()
   GQE_LOG_TRACE(
     "Load {0} from files with {1} rows.", print_column_names(), loaded_table->num_rows());
 
-  update_result_cache(std::move(loaded_table));
+  emit_result(std::move(loaded_table));
   remove_dependencies();
   remove_subqueries();
 }

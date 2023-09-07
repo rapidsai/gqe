@@ -13,7 +13,10 @@
 #include <gqe/executor/task.hpp>
 #include <gqe/utility/helpers.hpp>
 
+#include <cudf/table/table_view.hpp>
+
 #include <stdexcept>
+#include <variant>
 
 namespace gqe {
 
@@ -34,11 +37,26 @@ task::task(query_context* query_context,
 
 void task::migrate() { throw std::logic_error("task::migrate() has not been implemented"); }
 
-void task::update_result_cache(std::unique_ptr<cudf::table> new_result)
+std::optional<cudf::table_view> task::result() const noexcept
 {
-  _result_cache = std::move(new_result);
-  _result       = _result_cache->view();
-  _status       = status_type::finished;
+  cudf::table_view view = std::visit(
+    utility::overloaded{[](const result_kind::owned& result) { return result.table->view(); },
+                        [](const result_kind::borrowed& result) { return result.view; }},
+    _result);
+
+  return {view};
+}
+
+void task::emit_result(std::unique_ptr<cudf::table> new_result)
+{
+  _result = result_kind::owned{std::move(new_result)};
+  _status = status_type::finished;
+}
+
+void task::emit_result(cudf::table_view new_result)
+{
+  _result = result_kind::borrowed{new_result};
+  _status = status_type::finished;
 }
 
 std::vector<task*> task::dependencies() const noexcept

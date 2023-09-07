@@ -385,7 +385,7 @@ void join_task::execute()
                                  right_policy,
                                  _projection_indices);
 
-  update_result_cache(std::move(join_result));
+  emit_result(std::move(join_result));
   remove_dependencies();
 }
 

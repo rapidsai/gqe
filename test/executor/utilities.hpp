@@ -35,7 +35,7 @@ class executed_task : public task {
                 std::unique_ptr<cudf::table> result)
     : task(query_context, task_id, stage_id, {}, {})
   {
-    update_result_cache(std::move(result));
+    emit_result(std::move(result));
   }
 
   void execute() override {}

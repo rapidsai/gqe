@@ -18,6 +18,9 @@
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/writeable_view.hpp>
 #include <gqe/types.hpp>
+#include <gqe/utility/cuda.hpp>
+#include <gqe/utility/helpers.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <cudf/column/column_view.hpp>
 #include <cudf/concatenate.hpp>
@@ -188,23 +191,22 @@ in_memory_read_task::in_memory_read_task(query_context* query_context,
                                          std::vector<const row_group*> row_groups,
                                          std::vector<cudf::size_type> column_indexes,
                                          std::vector<cudf::data_type> data_types,
+                                         memory_kind::type memory_kind,
                                          std::unique_ptr<gqe::expression> partial_filter,
-                                         std::vector<std::shared_ptr<task>> subquery_tasks)
+                                         std::vector<std::shared_ptr<task>> subquery_tasks,
+                                         bool force_zero_copy_disable)
   : read_task_base(query_context, task_id, stage_id, std::move(subquery_tasks)),
     _row_groups(std::move(row_groups)),
     _column_indexes(std::move(column_indexes)),
     _data_types(std::move(data_types)),
-    _partial_filter(std::move(partial_filter))
+    _memory_kind(std::move(memory_kind)),
+    _partial_filter(std::move(partial_filter)),
+    _force_zero_copy_disable(force_zero_copy_disable)
 {
 }
 
-// FIXME: Data are always copied to a new cudf::table because GQE tasks must
-// have ownership of the result cache. Ideally, zero-copy results would also be
-// possible through a copy-on-write type such as
-// https://doc.rust-lang.org/std/borrow/enum.Cow.html.
-void in_memory_read_task::execute()
+void in_memory_read_task::execute_read_by_value()
 {
-  prepare_subqueries();
   auto mr = rmm::mr::get_current_device_resource();
 
   std::vector<std::unique_ptr<cudf::column>> result_columns;
@@ -226,7 +228,52 @@ void in_memory_read_task::execute()
 
   // Cache the result
   auto new_table = std::make_unique<cudf::table>(std::move(result_columns));
-  update_result_cache(std::move(new_table));
+  emit_result(std::move(new_table));
+}
+
+void in_memory_read_task::execute_read_by_reference()
+{
+  if (_row_groups.size() > 1) {
+    throw std::logic_error(
+      "Zero-copy read is only possible if columns have a contiguous "
+      "memory layout. Cannot handle multiple row groups.");
+  }
+
+  std::vector<cudf::column_view> result_columns;
+  result_columns.reserve(_column_indexes.size());
+
+  for (auto const& idx : _column_indexes) {
+    auto view = dynamic_cast<contiguous_column&>(_row_groups.front()->get_column(idx)).view();
+    result_columns.push_back(view);
+  }
+
+  emit_result(cudf::table_view(std::move(result_columns)));
+}
+
+void in_memory_read_task::execute()
+{
+  prepare_subqueries();
+
+  // Check if zero-copy is legal.
+  bool is_gpu_accessible   = memory_kind::is_gpu_accessible(_memory_kind);
+  bool is_single_row_group = _row_groups.size() <= 1;
+
+  // Execute read.
+  if (!_force_zero_copy_disable && get_optimization_parameters().read_zero_copy_enable &&
+      is_gpu_accessible && is_single_row_group) {
+    execute_read_by_reference();
+  } else {
+    if (!_force_zero_copy_disable && !is_gpu_accessible) {
+      GQE_LOG_WARN(
+        "Disabling zero-copy read because the GPU cannot access pageable memory on this "
+        "system.");
+    }
+    if (!_force_zero_copy_disable && !is_single_row_group) {
+      GQE_LOG_WARN("Disabling zero-copy because cannot handle more than one row group per task.");
+    }
+
+    execute_read_by_value();
+  }
 }
 
 in_memory_write_task::in_memory_write_task(
@@ -365,6 +412,7 @@ std::vector<std::unique_ptr<read_task_base>> in_memory_readable_view::get_read_t
                                                              std::move(row_groups_chunk),
                                                              column_indexes,
                                                              data_types,
+                                                             _non_owning_table->_memory_kind,
                                                              std::move(task->partial_filter),
                                                              std::move(task->subquery_tasks));
       read_tasks.push_back(std::move(read_task));

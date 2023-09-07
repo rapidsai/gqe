@@ -259,7 +259,7 @@ void window_task::execute()
     throw std::runtime_error("Window task needs an order-by expression\n");
   }
 
-  update_result_cache(std::move(window_col_table));
+  emit_result(std::move(window_col_table));
 }
 
 }  // namespace gqe

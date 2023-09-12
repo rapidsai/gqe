@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -14,10 +14,12 @@
 
 #include <cudf/column/column.hpp>
 #include <cudf/table/table_view.hpp>
+#include <cudf/wrappers/timestamps.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
 
+#include <cuda/std/chrono>
 #include <memory>
 #include <string>
 #include <vector>
@@ -402,6 +404,58 @@ TEST(EvalExpressionTest, SimpleUnaryNot)
   std::vector<gqe::expression const*> expressions = {&not_expr};
 
   auto expected                          = column_wrapper<bool>{true, false, false, true};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+TEST(EvalExpressionTest, ScalarFunctionLike)
+{
+  auto c_0   = cudf::test::strings_column_wrapper{"azaa", "ababaabba", "aaxa"};
+  auto table = cudf::table_view{{c_0}};
+
+  auto like_expr =
+    gqe::like_expression(std::make_shared<gqe::column_reference_expression>(0), "%a_aa%", "");
+  std::vector<gqe::expression const*> expressions = {&like_expr};
+
+  auto expected                          = column_wrapper<bool>{true, true, false};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+TEST(EvalExpressionTest, ScalarFunctionSubstr)
+{
+  auto c_0   = cudf::test::strings_column_wrapper{"azaa", "ababaabba", "aaxa"};
+  auto table = cudf::table_view{{c_0}};
+
+  auto substr_expr =
+    gqe::substr_expression(std::make_shared<gqe::column_reference_expression>(0), 1, 2);
+  std::vector<gqe::expression const*> expressions = {&substr_expr};
+
+  auto expected                          = cudf::test::strings_column_wrapper{"za", "ba", "ax"};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+TEST(EvalExpressionTest, ScalarFunctionDatepart)
+{
+  auto t1 = cuda::std::chrono::duration<int, cuda::std::ratio<86400>>(0);
+  auto t2 = cuda::std::chrono::duration<int, cuda::std::ratio<86400>>(19358);
+
+  cudf::timestamp_D ct1{t1};  // 1970-01-01
+  cudf::timestamp_D ct2{t2};  // 2023-01-01
+
+  auto c_0   = column_wrapper<cudf::timestamp_D>{ct1, ct2};
+  auto table = cudf::table_view{{c_0}};
+
+  auto dt_component = gqe::datepart_expression::datetime_component::year;
+  auto dp_expr =
+    gqe::datepart_expression(std::make_shared<gqe::column_reference_expression>(0), dt_component);
+  std::vector<gqe::expression const*> expressions = {&dp_expr};
+
+  auto expected                          = column_wrapper<int16_t>{1970, 2023};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);

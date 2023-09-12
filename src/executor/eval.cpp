@@ -15,6 +15,9 @@
 #include <cudf/binaryop.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
+#include <cudf/datetime.hpp>
+#include <cudf/strings/contains.hpp>
+#include <cudf/strings/slice.hpp>
 #include <cudf/transform.hpp>
 #include <cudf/unary.hpp>
 
@@ -218,6 +221,101 @@ expression_evaluator::evaluate() const
           auto const out_type = dynamic_cast<gqe::cast_expression*>(expression)->out_type();
 
           append_result(cudf::cast(table.column(child_ref), out_type));
+          break;
+        }
+        case gqe::expression::expression_type::scalar_function: {
+          auto const scalar_func = dynamic_cast<gqe::scalar_function_expression*>(expression);
+          auto const col_ref = dynamic_cast<gqe::column_reference_expression const*>(children[0]);
+
+          // Scalar function expressions are always evaluated in the fallback path.
+          // Thus, the child expression must always be a column reference.
+          if (!col_ref) {
+            throw std::logic_error(
+              "Input of `gqe::scalar_function_expression` must be a column reference but is " +
+              children[0]->to_string());
+          }
+
+          switch (scalar_func->fn_kind()) {
+            case gqe::scalar_function_expression::function_kind::like: {
+              auto const like_expr = dynamic_cast<gqe::like_expression*>(scalar_func);
+
+              if (like_expr->ignore_case()) {
+                throw std::logic_error("Evaluating ILIKE expression not implemented");
+              }
+
+              cudf::string_scalar const pattern{like_expr->pattern()};
+              cudf::string_scalar const escape_char{like_expr->escape_character()};
+
+              append_result(
+                cudf::strings::like(table.column(col_ref->column_idx()), pattern, escape_char));
+              break;
+            }
+            case gqe::scalar_function_expression::function_kind::substr: {
+              auto const substr_expr = dynamic_cast<gqe::substr_expression*>(scalar_func);
+
+              cudf::numeric_scalar const start{substr_expr->start()};
+              cudf::numeric_scalar const end{substr_expr->start() + substr_expr->length()};
+
+              append_result(
+                cudf::strings::slice_strings(table.column(col_ref->column_idx()), start, end));
+              break;
+            }
+            case gqe::scalar_function_expression::function_kind::datepart: {
+              auto const dp_expr = dynamic_cast<gqe::datepart_expression*>(scalar_func);
+
+              switch (dp_expr->component()) {
+                case gqe::datepart_expression::datetime_component::year: {
+                  append_result(cudf::datetime::extract_year(table.column(col_ref->column_idx())));
+                  break;
+                }
+                case gqe::datepart_expression::datetime_component::month: {
+                  append_result(cudf::datetime::extract_month(table.column(col_ref->column_idx())));
+                  break;
+                }
+                case gqe::datepart_expression::datetime_component::day: {
+                  append_result(cudf::datetime::extract_day(table.column(col_ref->column_idx())));
+                  break;
+                }
+                case gqe::datepart_expression::datetime_component::weekday: {
+                  append_result(
+                    cudf::datetime::extract_weekday(table.column(col_ref->column_idx())));
+                  break;
+                }
+                case gqe::datepart_expression::datetime_component::hour: {
+                  append_result(cudf::datetime::extract_hour(table.column(col_ref->column_idx())));
+                  break;
+                }
+                case gqe::datepart_expression::datetime_component::minute: {
+                  append_result(
+                    cudf::datetime::extract_minute(table.column(col_ref->column_idx())));
+                  break;
+                }
+                case gqe::datepart_expression::datetime_component::second: {
+                  append_result(
+                    cudf::datetime::extract_second(table.column(col_ref->column_idx())));
+                  break;
+                }
+                case gqe::datepart_expression::datetime_component::millisecond: {
+                  append_result(cudf::datetime::extract_millisecond_fraction(
+                    table.column(col_ref->column_idx())));
+                  break;
+                }
+                case gqe::datepart_expression::datetime_component::nanosecond: {
+                  append_result(cudf::datetime::extract_nanosecond_fraction(
+                    table.column(col_ref->column_idx())));
+                  break;
+                }
+                default: {
+                  throw std::logic_error("Cannot evaluate `datepart_expression` " +
+                                         expression->to_string());
+                }
+              }
+              break;
+            }
+            default:
+              throw std::logic_error("Unable to evaluate `scalar_function_expression` " +
+                                     expression->to_string());
+          }
           break;
         }
         default:
@@ -478,6 +576,23 @@ void expression_evaluator::visit(cast_expression const* expression)
         std::make_shared<column_reference_expression>(child_column_idx);
       dispatch_task(context);
     }
+  }
+}
+
+void expression_evaluator::visit(scalar_function_expression const* expression)
+{
+  auto [context, is_new] = this->emplace_context(expression, expression->clone());
+
+  if (is_new) {
+    auto const& child = expression->_children[0];
+    child->accept(*this);
+    auto& child_context = this->find_context(child.get());
+    context.child_contexts.emplace_back(&child_context);
+    context.gqe_expression->_children[0] =
+      std::make_shared<column_reference_expression>(dispatch_task(child_context));
+
+    // scalar function expressions are always evaluated in the fallback path
+    dispatch_task(context);
   }
 }
 

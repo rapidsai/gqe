@@ -18,6 +18,7 @@
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/if_then_else.hpp>
 #include <gqe/expression/literal.hpp>
+#include <gqe/expression/scalar_function.hpp>
 #include <gqe/expression/unary_op.hpp>
 
 #include <cudf/ast/expressions.hpp>
@@ -120,6 +121,11 @@ class expression_evaluator : public expression_visitor {
    * @copydoc gqe::expression_visitor::visit(unary_op_expression const*)
    */
   void visit(unary_op_expression const* expression) override;
+
+  /**
+   * @copydoc gqe::expression_visitor::visit(scalar_function_expression const*)
+   */
+  void visit(scalar_function_expression const* expression) override;
 
   /**
    * @brief Context infomation required to evaluate an expression.

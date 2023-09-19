@@ -11,12 +11,16 @@
  */
 
 #include <gqe/executor/concatenate.hpp>
+#include <gqe/utility/cuda.hpp>
 
 #include <cudf/concatenate.hpp>
 
 void gqe::concatenate_task::execute()
 {
   prepare_dependencies();
+
+  utility::nvtx_scoped_range concatenate_task_range("concatenate_task");
+
   auto dependent_tasks = dependencies();
 
   std::vector<cudf::table_view> tables_to_concatenate;

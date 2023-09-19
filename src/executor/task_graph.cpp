@@ -395,29 +395,14 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::filter_rel
   assert(children.size() == 1);
   auto input_tasks = _builder->generate_tasks(children[0]);
 
-  auto const condition = relation->condition_unsafe();
-
-  std::shared_ptr<task> concatenated_subquery_task = nullptr;
-  if (condition->type() == expression::expression_type::subquery) {
-    // If it's a subquery, we know it's an in-predicate
-    auto const subquery           = dynamic_cast<subquery_expression* const>(condition);
-    auto const subquery_relations = relation->subqueries_unsafe();
-
-    // FIXME: Make sure the filter tasks and their children are within the same stage.
-    auto const subquery_tasks =
-      _builder->generate_tasks(subquery_relations[subquery->relation_index()]);
-    concatenated_subquery_task = _builder->concatenate(subquery_tasks);
-  }
-
   // Generate the filter tasks
   for (auto& input_task : input_tasks) {
-    _generated_tasks.push_back(std::make_shared<filter_task>(
-      _builder->_query_context,
-      _builder->_current_task_id,
-      _builder->_current_stage_id,
-      std::move(input_task),
-      relation->condition_unsafe()->clone(),
-      std::vector<std::shared_ptr<task>>{concatenated_subquery_task}));
+    _generated_tasks.push_back(
+      std::make_shared<filter_task>(_builder->_query_context,
+                                    _builder->_current_task_id,
+                                    _builder->_current_stage_id,
+                                    std::move(input_task),
+                                    relation->condition_unsafe()->clone()));
     _builder->_current_task_id++;
   }
 

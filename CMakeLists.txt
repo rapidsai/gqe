@@ -49,6 +49,12 @@ rapids_cpm_gtest()
 rapids_cpm_spdlog()
 rapids_cpm_cuco()
 
+CPMAddPackage(
+    NAME NVTX
+    GITHUB_REPOSITORY NVIDIA/NVTX
+    GIT_TAG v3.1.0-c-cpp
+    GIT_SHALLOW TRUE)
+
 # Setup CTest
 if(PROJECT_IS_TOP_LEVEL)
   include(CTest)

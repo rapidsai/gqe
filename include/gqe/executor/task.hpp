@@ -155,14 +155,9 @@ class task {
   [[nodiscard]] const optimization_parameters& get_optimization_parameters() const noexcept;
 
   /**
-   * @brief Make the results of all dependencies available to the local GPU.
+   * @brief Make the results of all dependencies (including subqueries) available to the local GPU.
    */
   void prepare_dependencies();
-
-  /**
-   * @brief Make the results of all subqueries available to the local GPU.
-   */
-  void prepare_subqueries();
 
   /**
    * @brief Remove all dependencies from this task.
@@ -170,9 +165,11 @@ class task {
    * This function should be called after the current task has a valid result, as the dependencies
    * are no longer needed.
    */
-  void remove_dependencies() noexcept { _dependencies.clear(); }
-
-  void remove_subqueries() noexcept { _subqueries.clear(); }
+  void remove_dependencies() noexcept
+  {
+    _dependencies.clear();
+    _subqueries.clear();
+  }
 
  private:
   void prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent_tasks);

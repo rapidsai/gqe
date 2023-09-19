@@ -12,6 +12,7 @@
 
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/sort.hpp>
+#include <gqe/utility/cuda.hpp>
 #include <gqe/utility/helpers.hpp>
 
 #include <cudf/sorting.hpp>
@@ -38,6 +39,9 @@ sort_task::sort_task(query_context* query_context,
 void sort_task::execute()
 {
   prepare_dependencies();
+
+  utility::nvtx_scoped_range sort_task_range("sort_task");
+
   auto dependent_tasks = dependencies();
   assert(dependent_tasks.size() == 1);
 

@@ -95,8 +95,10 @@ void task::prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent
   }
 }
 
-void task::prepare_dependencies() { prepare_dependent_tasks(_dependencies); }
-
-void task::prepare_subqueries() { prepare_dependent_tasks(_subqueries); }
+void task::prepare_dependencies()
+{
+  prepare_dependent_tasks(_dependencies);
+  prepare_dependent_tasks(_subqueries);
+}
 
 }  // namespace gqe

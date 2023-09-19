@@ -11,6 +11,7 @@
  */
 
 #include <gqe/executor/gen_ident_col.hpp>
+#include <gqe/utility/cuda.hpp>
 
 #include <cudf/table/table_view.hpp>
 
@@ -33,6 +34,9 @@ gen_ident_col_task::gen_ident_col_task(query_context* query_context,
 void gen_ident_col_task::execute()
 {
   prepare_dependencies();
+
+  utility::nvtx_scoped_range gen_ident_col_task_range("gen_ident_col_task");
+
   auto dependent_tasks = dependencies();
   assert(dependent_tasks.size() == 1);
 
@@ -51,6 +55,7 @@ void gen_ident_col_task::execute()
   auto result_cols = initial_table.release();
   result_cols.push_back(std::move(row_id_col));
   emit_result(std::make_unique<cudf::table>(std::move(result_cols)));
+  remove_dependencies();
 }
 
 }  // namespace gqe

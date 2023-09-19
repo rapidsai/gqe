@@ -14,6 +14,7 @@
 #include <gqe/executor/join.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
+#include <gqe/utility/cuda.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
@@ -23,6 +24,7 @@
 #include <cudf/utilities/type_dispatcher.hpp>
 
 #include <stdexcept>
+#include <string>
 #include <tuple>
 
 namespace gqe {
@@ -258,6 +260,8 @@ void join_task::execute()
 {
   prepare_dependencies();
 
+  utility::nvtx_scoped_range join_task_range("join_task");
+
   auto dependent_tasks = dependencies();
   auto left_view       = *dependent_tasks[0]->result();
   auto right_view      = *dependent_tasks[1]->result();
@@ -384,6 +388,10 @@ void join_task::execute()
                                  right_indices_column->view(),
                                  right_policy,
                                  _projection_indices);
+
+  utility::nvtx_mark(std::string("left_size:") + std::to_string(left_view.num_rows()) +
+                     ", right_size:" + std::to_string(right_view.num_rows()) +
+                     ", result_size:" + std::to_string(join_result->num_rows()));
 
   emit_result(std::move(join_result));
   remove_dependencies();

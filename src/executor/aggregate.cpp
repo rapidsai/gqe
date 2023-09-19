@@ -12,6 +12,7 @@
 
 #include <gqe/executor/aggregate.hpp>
 #include <gqe/executor/eval.hpp>
+#include <gqe/utility/cuda.hpp>
 #include <gqe/utility/helpers.hpp>
 
 #include <cudf/column/column_factories.hpp>
@@ -102,6 +103,9 @@ aggregate_task::aggregate_task(
 void aggregate_task::execute()
 {
   prepare_dependencies();
+
+  utility::nvtx_scoped_range aggregate_task_range("aggregate_task");
+
   auto const dependent_tasks = dependencies();
   assert(dependent_tasks.size() == 1);
   auto const input_table = dependent_tasks[0]->result().value();

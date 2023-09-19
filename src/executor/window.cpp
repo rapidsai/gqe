@@ -12,6 +12,7 @@
 
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/window.hpp>
+#include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 
 #include <cudf/aggregation.hpp>
@@ -239,6 +240,9 @@ std::unique_ptr<cudf::table> window_partition_and_order(
 void window_task::execute()
 {
   prepare_dependencies();
+
+  utility::nvtx_scoped_range window_task_range("window_task");
+
   auto const dependent_tasks = dependencies();
   assert(dependent_tasks.size() == 1);
   auto const input_table = dependent_tasks[0]->result().value();
@@ -260,6 +264,7 @@ void window_task::execute()
   }
 
   emit_result(std::move(window_col_table));
+  remove_dependencies();
 }
 
 }  // namespace gqe

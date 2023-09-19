@@ -12,6 +12,7 @@
 
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/filter.hpp>
+#include <gqe/utility/cuda.hpp>
 
 #include <cudf/stream_compaction.hpp>
 #include <cudf/table/table_view.hpp>
@@ -34,10 +35,10 @@ filter_task::filter_task(query_context* query_context,
 void filter_task::execute()
 {
   prepare_dependencies();
+
+  utility::nvtx_scoped_range filter_task_range("filter_task");
+
   auto dependent_tasks = dependencies();
-
-  // TODO: Evaluate possible subquery
-
   assert(dependent_tasks.size() == 1);
 
   std::vector<expression const*> condition_expr{_condition.get()};
@@ -46,6 +47,7 @@ void filter_task::execute()
   auto [mask, column_cache] = evaluate_expressions(input_table, condition_expr);
 
   emit_result(cudf::apply_boolean_mask(input_table, mask[0]));
+  remove_dependencies();
 }
 
 }  // namespace gqe

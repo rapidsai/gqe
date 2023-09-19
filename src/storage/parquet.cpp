@@ -14,6 +14,7 @@
 #include <gqe/storage/parquet.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/writeable_view.hpp>
+#include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/logger.hpp>
 
@@ -164,6 +165,10 @@ std::string parquet_read_task::print_column_names() const
 
 void parquet_read_task::execute()
 {
+  prepare_dependencies();
+
+  utility::nvtx_scoped_range parquet_read_task_range("parquet_read_task");
+
   auto const partial_filter = _partial_filter.get();
 
   // Indicates whether each file should be loaded
@@ -176,8 +181,6 @@ void parquet_read_task::execute()
     }
     auto const partial_filter_subquery = dynamic_cast<const subquery_expression*>(partial_filter);
 
-    // Execute subquery tasks
-    prepare_subqueries();
     auto const subquery_tasks = subqueries();
     auto const expressions    = partial_filter_subquery->children();
 
@@ -253,7 +256,6 @@ void parquet_read_task::execute()
 
   emit_result(std::move(loaded_table));
   remove_dependencies();
-  remove_subqueries();
 }
 
 parquet_write_task::parquet_write_task(query_context* query_context,
@@ -273,6 +275,9 @@ parquet_write_task::parquet_write_task(query_context* query_context,
 void parquet_write_task::execute()
 {
   prepare_dependencies();
+
+  utility::nvtx_scoped_range parquet_write_task_range("parquet_write_task");
+
   auto const dependent_tasks = dependencies();
   assert(dependent_tasks.size() == 1);
   auto input_table = *dependent_tasks[0]->result();

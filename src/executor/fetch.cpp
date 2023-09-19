@@ -12,6 +12,7 @@
 
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/fetch.hpp>
+#include <gqe/utility/cuda.hpp>
 
 #include <cudf/copying.hpp>
 #include <cudf/table/table_view.hpp>
@@ -33,6 +34,9 @@ fetch_task::fetch_task(query_context* query_context,
 void fetch_task::execute()
 {
   prepare_dependencies();
+
+  utility::nvtx_scoped_range fetch_task_range("fetch_task");
+
   auto dependent_tasks = dependencies();
   assert(dependent_tasks.size() == 1);
 

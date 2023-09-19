@@ -252,7 +252,9 @@ void in_memory_read_task::execute_read_by_reference()
 
 void in_memory_read_task::execute()
 {
-  prepare_subqueries();
+  prepare_dependencies();
+
+  utility::nvtx_scoped_range in_memory_read_task_range("in_memory_read_task");
 
   // Check if zero-copy is legal.
   bool is_gpu_accessible   = memory_kind::is_gpu_accessible(_memory_kind);
@@ -274,6 +276,8 @@ void in_memory_read_task::execute()
 
     execute_read_by_value();
   }
+
+  remove_dependencies();
 }
 
 in_memory_write_task::in_memory_write_task(
@@ -296,6 +300,9 @@ in_memory_write_task::in_memory_write_task(
 void in_memory_write_task::execute()
 {
   prepare_dependencies();
+
+  utility::nvtx_scoped_range in_memory_write_task_range("in_memory_write_task");
+
   auto const dependent_tasks = dependencies();
   assert(dependent_tasks.size() == 1);
   auto input_table = *dependent_tasks[0]->result();

@@ -12,6 +12,7 @@
 
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/project.hpp>
+#include <gqe/utility/cuda.hpp>
 #include <gqe/utility/helpers.hpp>
 
 #include <cudf/table/table.hpp>
@@ -32,6 +33,9 @@ project_task::project_task(query_context* query_context,
 void project_task::execute()
 {
   prepare_dependencies();
+
+  utility::nvtx_scoped_range project_task_range("project_task");
+
   auto const dependent_tasks = dependencies();
   assert(dependent_tasks.size() == 1);
   auto input_table = *dependent_tasks[0]->result();

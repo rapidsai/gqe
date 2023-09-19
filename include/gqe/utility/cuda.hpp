@@ -14,11 +14,11 @@
 
 #include <rmm/cuda_device.hpp>
 
+#include <nvtx3/nvtx3.hpp>
+
 #include <memory>
 
-namespace gqe {
-
-namespace utility {
+namespace gqe::utility {
 
 /**
  * @brief Return the current CUDA device ID.
@@ -31,6 +31,25 @@ rmm::cuda_device_id current_cuda_device_id();
 std::unique_ptr<cudaDeviceProp> get_cuda_device_property(
   rmm::cuda_device_id id = current_cuda_device_id());
 
-}  // namespace utility
+/**
+ * @brief NVTX domain which should be used across the GQE project
+ */
+struct gqe_nvtx_domain {
+  static constexpr char const* name{"GQE"};
+};
 
-}  // namespace gqe
+/**
+ * @brief A RAII object for creating a NVTX range local to a thread within the GQE domain
+ */
+using nvtx_scoped_range = nvtx3::scoped_range_in<gqe_nvtx_domain>;
+
+/**
+ * @brief Create a NVTX marker within the GQE domain.
+ */
+template <typename... Args>
+inline void nvtx_mark(Args&&... args)
+{
+  nvtx3::mark_in<gqe_nvtx_domain>(std::forward<Args>(args)...);
+}
+
+}  // namespace gqe::utility

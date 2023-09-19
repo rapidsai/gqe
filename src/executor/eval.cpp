@@ -11,6 +11,7 @@
  */
 
 #include <gqe/executor/eval.hpp>
+#include <gqe/utility/cuda.hpp>
 
 #include <cudf/binaryop.hpp>
 #include <cudf/column/column_factories.hpp>
@@ -665,6 +666,8 @@ evaluate_expressions(cudf::table_view const& table,
                      std::vector<expression const*> const& exprs,
                      cudf::size_type column_reference_offset)
 {
+  utility::nvtx_scoped_range eval_expr_range("evaluate_expressions");
+
   std::vector<cudf::column_view> evaluated_results;
   evaluated_results.reserve(exprs.size());
   std::vector<std::unique_ptr<cudf::column>> column_cache;

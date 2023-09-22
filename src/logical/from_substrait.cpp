@@ -598,9 +598,6 @@ void gqe::substrait_parser::parse_sorts(
   std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
 {
   for (auto const& sort_order : sorts) {
-    if (!sort_order.has_direction())
-      throw std::runtime_error("Does not support sort with comparison function reference");
-
     expressions.push_back(parse_expression(sort_order.expr(), subquery_relations));
 
     switch (sort_order.direction()) {

@@ -481,6 +481,8 @@ aggregation_values_type clone_aggregation_values(aggregation_values_type const& 
   return aggregation_values;
 }
 
+}  // namespace
+
 // Mappings for apply-concat-apply from the kind of the first aggregation to the kind of the
 // second aggregation
 cudf::aggregation::Kind get_second_aggregation_kind(cudf::aggregation::Kind first_aggregation_kind)
@@ -496,8 +498,6 @@ cudf::aggregation::Kind get_second_aggregation_kind(cudf::aggregation::Kind firs
                              std::to_string(first_aggregation_kind));
   }
 }
-
-}  // namespace
 
 void task_graph_builder::generate_task_graph_visitor::visit(
   physical::concatenate_aggregate_relation* relation)

@@ -16,6 +16,10 @@
 #include <cudf/detail/aggregation/aggregation.hpp>
 
 namespace gqe {
+
+// Get the second aggregation kind from the first aggregation kind in apply-concat-apply
+cudf::aggregation::Kind get_second_aggregation_kind(cudf::aggregation::Kind first_aggregation_kind);
+
 namespace logical {
 
 aggregate_relation::aggregate_relation(
@@ -36,12 +40,20 @@ void aggregate_relation::_init_data_types() const
   for (auto const& key : _keys)
     _data_types.value().push_back(key->data_type(input_relation->data_types()));
 
-  for (auto measure : measures_unsafe()) {
-    auto aggregation_kind = measure.first;
-    auto value            = measure.second;
-    cudf::data_type output_type =
-      cudf::detail::target_type(value->data_type(input_relation->data_types()), aggregation_kind);
-    _data_types.value().push_back(output_type);
+  for (auto [aggregation_kind, value] : measures_unsafe()) {
+    if (aggregation_kind == cudf::aggregation::MEAN) {
+      // The `mean` aggregation needs to divide the sum by the count during post-processing, so we
+      // treat it as a special case.
+      _data_types.value().push_back(cudf::data_type(cudf::type_id::FLOAT64));
+    } else {
+      // All other aggregations do not need post-processing, so the output type is the data type of
+      // the second aggregation in apply-concat-apply.
+      cudf::data_type output_type =
+        cudf::detail::target_type(value->data_type(input_relation->data_types()), aggregation_kind);
+      output_type =
+        cudf::detail::target_type(output_type, get_second_aggregation_kind(aggregation_kind));
+      _data_types.value().push_back(output_type);
+    }
   }
 }
 

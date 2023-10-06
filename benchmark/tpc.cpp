@@ -31,6 +31,8 @@
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
 
+#include <nvtx3/nvtx3.hpp>
+
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
@@ -65,6 +67,12 @@ gqe::storage_kind::type parse_storage_kind(const std::string& storage_kind_descr
     {"parquet_file", gqe::storage_kind::parquet_file{file_paths}}};
   return storage_kinds.at(normalized_description);
 }
+
+struct tpc_nvtx_domain {
+  static constexpr char const* name{"TPC"};
+};
+
+using nvtx_scoped_range = nvtx3::scoped_range_in<tpc_nvtx_domain>;
 
 class copy_plan_builder {
  public:
@@ -122,6 +130,8 @@ class copy_plan_builder {
   void execute_copy()
   {
     if (_logical_plans.empty()) { return; }
+
+    nvtx_scoped_range load_data_range("load_data");
 
     gqe::physical_plan_builder plan_builder(_catalog);
     gqe::task_graph_builder graph_builder(_query_context, _catalog);
@@ -324,7 +334,10 @@ int main(int argc, char* argv[])
   auto task_graph = graph_builder.build(physical_plan.get());
 
   GQE_LOG_INFO("Starting query execution.");
-  gqe::utility::time_function(gqe::execute_task_graph_single_gpu, &qctx, task_graph.get());
+  {
+    nvtx_scoped_range query_range("query");
+    gqe::utility::time_function(gqe::execute_task_graph_single_gpu, &qctx, task_graph.get());
+  }
 
   const std::string result_path = "output.parquet";
   GQE_LOG_INFO("Writing query result to \"" + result_path + "\".");

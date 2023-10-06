@@ -10,6 +10,7 @@
 
 add_executable(tpc tpc.cpp)
 target_include_directories(tpc PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(tpc PRIVATE nvtx3-cpp)
 target_link_libraries(tpc PUBLIC gqe)
 
 add_executable(q3 hardcoded/q3.cpp)

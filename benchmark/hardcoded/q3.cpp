@@ -146,18 +146,7 @@ int main(int argc, char* argv[])
                std::move(partial_filter));
 
   // After this operation, store_sales_table contains columns
-  // ["ss_item_sk", "ss_ext_sales_price", "d_year"]
-  store_sales_table = std::make_shared<gqe::logical::join_relation>(
-    std::move(store_sales_table),
-    std::move(date_dim_table),
-    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
-    std::make_unique<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(1),
-                                            std::make_shared<gqe::column_reference_expression>(3)),
-    gqe::join_type_type::inner,
-    std::vector<cudf::size_type>({0, 2, 4}));
-
-  // After this operation, store_sales_table contains columns
-  // ["ss_ext_sales_price", "d_year", "i_brand_id", "i_brand"]
+  // ["ss_sold_date_sk", "ss_ext_sales_price", "i_brand_id", "i_brand"]
   store_sales_table = std::make_shared<gqe::logical::join_relation>(
     std::move(store_sales_table),
     std::move(item_table),
@@ -166,6 +155,17 @@ int main(int argc, char* argv[])
                                             std::make_shared<gqe::column_reference_expression>(3)),
     gqe::join_type_type::inner,
     std::vector<cudf::size_type>({1, 2, 4, 5}));
+
+  // After this operation, store_sales_table contains columns
+  // ["ss_ext_sales_price", "d_year", "i_brand_id", "i_brand"]
+  store_sales_table = std::make_shared<gqe::logical::join_relation>(
+    std::move(store_sales_table),
+    std::move(date_dim_table),
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
+    std::make_unique<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(0),
+                                            std::make_shared<gqe::column_reference_expression>(4)),
+    gqe::join_type_type::inner,
+    std::vector<cudf::size_type>({1, 5, 2, 3}));
 
   // Groupby on d_year, i_brand, i_brand_id
   // After this operation, store_sales_table contains columns

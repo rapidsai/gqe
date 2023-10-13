@@ -216,31 +216,31 @@ int main(int argc, char* argv[])
         std::make_shared<gqe::column_reference_expression>(2),
         std::make_shared<gqe::literal_expression<std::string>>("N"))));
 
-  // Join store_sales with date_dim on condition "ss_sold_date_sk = d_date_sk"
+  // Join store_sales with customer_demographics on condition "ss_cdemo_sk = cd_demo_sk"
   // After this operation, store_sales_table contains columns
-  // ["ss_quantity", "ss_list_price", "ss_coupon_amt", "ss_sales_price", "ss_item_sk",
-  // "ss_cdemo_sk", "ss_promo_sk"]
+  // ["ss_quantity", "ss_list_price", "ss_coupon_amt", "ss_sales_price", "ss_sold_date_sk",
+  // "ss_item_sk", "ss_promo_sk"]
   store_sales_table = std::make_shared<gqe::logical::join_relation>(
     std::move(store_sales_table),
-    std::move(date_dim_table),
+    std::move(customer_demographics_table),
     std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
-    std::make_unique<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(4),
+    std::make_unique<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(6),
                                             std::make_shared<gqe::column_reference_expression>(8)),
     gqe::join_type_type::inner,
-    std::vector<cudf::size_type>({0, 1, 2, 3, 5, 6, 7}));
+    std::vector<cudf::size_type>({0, 1, 2, 3, 4, 5, 7}));
 
-  // Join store_sales with customer_demographics on condition "ss_cdemo_sk = cd_demo_sk"
+  // Join store_sales with date_dim on condition "ss_sold_date_sk = d_date_sk"
   // After this operation, store_sales_table contains columns
   // ["ss_quantity", "ss_list_price", "ss_coupon_amt", "ss_sales_price", "ss_item_sk",
   // "ss_promo_sk"]
   store_sales_table = std::make_shared<gqe::logical::join_relation>(
     std::move(store_sales_table),
-    std::move(customer_demographics_table),
+    std::move(date_dim_table),
     std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
-    std::make_unique<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(5),
+    std::make_unique<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(4),
                                             std::make_shared<gqe::column_reference_expression>(7)),
     gqe::join_type_type::inner,
-    std::vector<cudf::size_type>({0, 1, 2, 3, 4, 6}));
+    std::vector<cudf::size_type>({0, 1, 2, 3, 5, 6}));
 
   // Join store_sales with promotion on condition "ss_promo_sk = p_promo_sk"
   // After this operation, store_sales_table contains columns

@@ -40,9 +40,9 @@ struct optimization_parameters {
     8;  ///< The maximum number of read tasks that can be generated for a single table.
   std::string log_level = "info";  ///< Enable log messages for this level or higher.
   bool join_use_hash_map_cache =
-    true;  ///< Allow multiple join tasks to reuse the same hash map. Enabling this option may
-           ///< increase device-memory usage in some circumstances. If `max_num_workers` is set to
-           ///< more than 1, this option is disabled.
+    false;  ///< Allow multiple join tasks to reuse the same hash map. Enabling this option may
+            ///< increase device-memory usage in some circumstances. If `max_num_workers` is set to
+            ///< more than 1, this option is disabled.
   bool read_zero_copy_enable =
     true;  ///< Enable zero-copy reads for in-memory table. When disabled, read tasks copy input
            ///< data to a temporary output buffer.

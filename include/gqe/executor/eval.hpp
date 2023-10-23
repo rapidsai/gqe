@@ -39,6 +39,18 @@
 
 namespace gqe {
 
+/**
+ * @brief Maps a `cudf::{unary|binary}_operator` to its `cudf::ast::ast_operator` equivalent.
+ *
+ * @param[in] op Input `cudf::{unary|binary}_operator`.
+ *
+ * @returns The equivalent `cudf::ast::ast_operator`.
+ *
+ * @throws std::logic_error if there is no equivalent `cudf::ast::ast_operator`.
+ */
+[[nodiscard]] cudf::ast::ast_operator cudf_to_ast_operator(
+  std::variant<cudf::binary_operator, cudf::unary_operator> op);
+
 class expression_evaluator : public expression_visitor {
  public:
   /**
@@ -197,18 +209,6 @@ class expression_evaluator : public expression_visitor {
   [[nodiscard]] evaluation_context& find_context(expression const* expression);
 
   /**
-   * @brief Maps a `cudf::{unary|binary}_operator` to its `cudf::ast::ast_operator` equivalent.
-   *
-   * @param[in] op Input `cudf::{unary|binary}_operator`.
-   *
-   * @returns The equivalent `cudf::ast::ast_operator`.
-   *
-   * @throws If there is no equivalent `cudf::ast::ast_operator`.
-   */
-  [[nodiscard]] cudf::ast::ast_operator const& convert_operator(
-    std::variant<cudf::binary_operator, cudf::unary_operator> op) const;
-
-  /**
    * @brief Helper function to create and store the initial `evaluation_context` for a
    * `literal_expression`.
    *
@@ -233,25 +233,6 @@ class expression_evaluator : public expression_visitor {
 
   std::unordered_map<expression const*, evaluation_context>
     _evaluation_contexts;  ///< Storage for the evaluation context of each sub-expression.
-
-  static inline const std::unordered_map<std::variant<cudf::binary_operator, cudf::unary_operator>,
-                                         cudf::ast::ast_operator>
-    _operator_map = {
-      {cudf::binary_operator::ADD, cudf::ast::ast_operator::ADD},
-      {cudf::binary_operator::SUB, cudf::ast::ast_operator::SUB},
-      {cudf::binary_operator::MUL, cudf::ast::ast_operator::MUL},
-      {cudf::binary_operator::TRUE_DIV, cudf::ast::ast_operator::TRUE_DIV},
-      {cudf::binary_operator::LOGICAL_AND, cudf::ast::ast_operator::LOGICAL_AND},
-      {cudf::binary_operator::LOGICAL_OR, cudf::ast::ast_operator::NULL_LOGICAL_OR},
-      {cudf::binary_operator::EQUAL, cudf::ast::ast_operator::EQUAL},
-      {cudf::binary_operator::NOT_EQUAL, cudf::ast::ast_operator::NOT_EQUAL},
-      {cudf::binary_operator::LESS, cudf::ast::ast_operator::LESS},
-      {cudf::binary_operator::GREATER, cudf::ast::ast_operator::GREATER},
-      {cudf::binary_operator::LESS_EQUAL, cudf::ast::ast_operator::LESS_EQUAL},
-      {cudf::binary_operator::GREATER_EQUAL, cudf::ast::ast_operator::GREATER_EQUAL},
-      {cudf::unary_operator::NOT,
-       cudf::ast::ast_operator::NOT}};  ///> Emum mapper between cudf::{unary|binary}_op and
-                                        /// cudf::ast::ast_operator.
 };
 
 /**

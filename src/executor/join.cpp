@@ -14,18 +14,23 @@
 #include <gqe/executor/join.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
+#include <gqe/expression/literal.hpp>
+#include <gqe/expression/unary_op.hpp>
 #include <gqe/utility/cuda.hpp>
 
+#include <cudf/ast/expressions.hpp>
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/copying.hpp>
+#include <cudf/scalar/scalar.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
 #include <stdexcept>
 #include <string>
 #include <tuple>
+#include <variant>
 
 namespace gqe {
 
@@ -85,40 +90,43 @@ class join_keys_container {
    * @brief Helper function for recursively parsing a join condition and store the key expressions.
    *
    * @param[in] condition Join condition to be parsed.
-   * @param[out] left_keys_expr Expressions of the left key columns. The parsed expressions will be
+   * @param[out] left_key_exprs Expressions of the left key columns. The parsed expressions will be
    * appended to the vector.
-   * @param[out] right_keys_expr Expressions of the right key columns. The parsed expressions will
+   * @param[out] right_key_exprs Expressions of the right key columns. The parsed expressions will
    * be appended to the vector.
+   * @param[out] non_equality_exprs Non-equality join condition expressions. The parsed expressions
+   * will be appended to the vector.
    */
   void parse_join_condition(expression const* condition,
-                            std::vector<expression const*>& left_keys_expr,
-                            std::vector<expression const*>& right_keys_expr)
+                            std::vector<expression const*>& left_key_exprs,
+                            std::vector<expression const*>& right_key_exprs,
+                            std::vector<expression const*>& non_equality_exprs)
   {
-    // The top-level expression must be either equal or logical_and. Both are binary_op expressions.
-    if (condition->type() != expression::expression_type::binary_op)
-      throw std::logic_error("Unsupported join condition expression: " + condition->to_string());
-    auto binary_op_condition = dynamic_cast<binary_op_expression const*>(condition);
-    auto child_exprs         = condition->children();
-    assert(child_exprs.size() == 2);
+    if (condition->type() == expression::expression_type::binary_op) {
+      auto binary_op_condition = dynamic_cast<binary_op_expression const*>(condition);
+      auto child_exprs         = condition->children();
+      assert(child_exprs.size() == 2);
 
-    // FIXME: Support inequality joins.
-    switch (binary_op_condition->binary_operator()) {
-      case cudf::binary_operator::EQUAL:
-        left_keys_expr.push_back(child_exprs[0]);
-        right_keys_expr.push_back(child_exprs[1]);
-        update_null_equality(cudf::null_equality::UNEQUAL);
-        break;
-      case cudf::binary_operator::NULL_EQUALS:
-        left_keys_expr.push_back(child_exprs[0]);
-        right_keys_expr.push_back(child_exprs[1]);
-        update_null_equality(cudf::null_equality::EQUAL);
-        break;
-      case cudf::binary_operator::LOGICAL_AND:
-        // If the top-level expression is AND, we recursively parse the two children expressions
-        parse_join_condition(child_exprs[0], left_keys_expr, right_keys_expr);
-        parse_join_condition(child_exprs[1], left_keys_expr, right_keys_expr);
-        break;
-      default: throw std::logic_error("Cannot parse join condition: " + condition->to_string());
+      switch (binary_op_condition->binary_operator()) {
+        case cudf::binary_operator::EQUAL:
+          left_key_exprs.push_back(child_exprs[0]);
+          right_key_exprs.push_back(child_exprs[1]);
+          update_null_equality(cudf::null_equality::UNEQUAL);
+          break;
+        case cudf::binary_operator::NULL_EQUALS:
+          left_key_exprs.push_back(child_exprs[0]);
+          right_key_exprs.push_back(child_exprs[1]);
+          update_null_equality(cudf::null_equality::EQUAL);
+          break;
+        case cudf::binary_operator::LOGICAL_AND:
+          // If the top-level expression is AND, we recursively parse the two children expressions
+          parse_join_condition(child_exprs[0], left_key_exprs, right_key_exprs, non_equality_exprs);
+          parse_join_condition(child_exprs[1], left_key_exprs, right_key_exprs, non_equality_exprs);
+          break;
+        default: non_equality_exprs.push_back(condition);
+      }
+    } else {
+      non_equality_exprs.push_back(condition);
     }
   }
 
@@ -126,20 +134,21 @@ class join_keys_container {
    * @brief Add a join condition.
    *
    * @note Instead of returning the parsed expression, this function appends the parsed result
-   * internally. `left_keys()` and `right_keys()` can be used to retrieve the parsing result
-   * afterwards.
+   * internally. `left_keys()` and `right_keys()` can be used to retrieve the parsed equality key
+   * columns afterwards. If a non-equal join condition exists, it can be retrieved via
+   * `non_equality_conditions()`.
    *
    * @param[in] condition Join condition to be parsed.
    */
   void add_join_condition(expression const* condition)
   {
-    std::vector<expression const*> left_keys_expr;
-    std::vector<expression const*> right_keys_expr;
+    std::vector<expression const*> left_key_exprs;
+    std::vector<expression const*> right_key_exprs;
 
-    parse_join_condition(condition, left_keys_expr, right_keys_expr);
+    parse_join_condition(condition, left_key_exprs, right_key_exprs, _non_equality_conditions);
 
     // Evaluate the expressions to get the left key columns
-    auto [left_keys, left_cached_columns] = evaluate_expressions(_left, left_keys_expr);
+    auto [left_keys, left_cached_columns] = evaluate_expressions(_left, left_key_exprs);
     _left_keys.reserve(_left_keys.size() + left_keys.size());
     for (auto& left_key : left_keys)
       _left_keys.push_back(std::move(left_key));
@@ -149,7 +158,7 @@ class join_keys_container {
     // right table. To get the column index within the right table, we need to subtract the number
     // of columns in the left table.
     auto [right_keys, right_cached_columns] =
-      evaluate_expressions(_right, right_keys_expr, _left.num_columns());
+      evaluate_expressions(_right, right_key_exprs, _left.num_columns());
     _right_keys.reserve(_right_keys.size() + right_keys.size());
     for (auto& right_key : right_keys)
       _right_keys.push_back(std::move(right_key));
@@ -166,12 +175,16 @@ class join_keys_container {
   /**
    * @brief Return the parsed left key columns.
    *
+   * If there is no equality join condition, this function returns an empty vector.
+   *
    * @note This object must be kept alive for the return columns to be valid.
    */
   std::vector<cudf::column_view> const& left_keys() { return _left_keys; }
 
   /**
    * @brief Return the parsed right key columns.
+   *
+   * If there is no equality join condition, this function returns an empty vector.
    *
    * @note This object must be kept alive for the return columns to be valid.
    */
@@ -188,6 +201,11 @@ class join_keys_container {
       throw std::runtime_error("Invalid access of uninitialized null equality policy");
   }
 
+  /**
+   * @brief Return all non-equality join conditions.
+   */
+  std::vector<expression const*> non_equality_conditions() { return _non_equality_conditions; }
+
  private:
   cudf::table_view _left;
   cudf::table_view _right;
@@ -195,6 +213,113 @@ class join_keys_container {
   std::vector<cudf::column_view> _right_keys;
   std::vector<std::unique_ptr<cudf::column>> _column_cache;
   std::optional<cudf::null_equality> _compare_nulls;
+  std::vector<expression const*> _non_equality_conditions;
+};
+
+/**
+ * @brief Convert a non-equality join predicate from a GQE expression to a cuDF AST expression.
+ *
+ * The output will be generated in the member variable `out_expr`.
+ */
+struct predicate_rewritter : public expression_visitor {
+  using cache_type = std::vector<
+    std::variant<std::unique_ptr<cudf::ast::expression>, std::unique_ptr<cudf::scalar>>>;
+
+  /**
+   * @brief Construct a predicate rewritter object.
+   *
+   * @param[in] left_num_columns Number of columns in the left table. Used for applying offsets to
+   * column reference expressions.
+   * @param[in] cache cuDF AST expressions do not own their child expressions and scalars. We use
+   * this cache to keep the child expressions and scalars alive. Therefore, the output `out_expr` is
+   * valid only if the cache is valid.
+   */
+  predicate_rewritter(cudf::size_type left_num_columns, cache_type& cache)
+    : left_num_columns(left_num_columns), cache(cache)
+  {
+  }
+
+  void visit(column_reference_expression const* expression) override
+  {
+    auto const column_idx = expression->column_idx();
+    if (column_idx < left_num_columns) {
+      // The expression references a column from the left table
+      out_expr =
+        std::make_unique<cudf::ast::column_reference>(column_idx, cudf::ast::table_reference::LEFT);
+    } else {
+      // The expression references a column from the right table
+      out_expr = std::make_unique<cudf::ast::column_reference>(column_idx - left_num_columns,
+                                                               cudf::ast::table_reference::RIGHT);
+    }
+  }
+
+  void visit(binary_op_expression const* expression) override
+  {
+    auto child_in_exprs = expression->children();
+    assert(child_in_exprs.size() == 2);
+
+    predicate_rewritter lhs_rewritter(left_num_columns, cache);
+    child_in_exprs[0]->accept(lhs_rewritter);
+
+    predicate_rewritter rhs_rewritter(left_num_columns, cache);
+    child_in_exprs[1]->accept(rhs_rewritter);
+
+    out_expr =
+      std::make_unique<cudf::ast::operation>(cudf_to_ast_operator(expression->binary_operator()),
+                                             *lhs_rewritter.out_expr,
+                                             *rhs_rewritter.out_expr);
+
+    cache.push_back(std::move(lhs_rewritter.out_expr));
+    cache.push_back(std::move(rhs_rewritter.out_expr));
+  }
+
+  void visit(unary_op_expression const* expression) override
+  {
+    auto child_in_exprs = expression->children();
+    assert(child_in_exprs.size() == 1);
+
+    predicate_rewritter child_rewritter(left_num_columns, cache);
+    child_in_exprs[0]->accept(child_rewritter);
+
+    out_expr = std::make_unique<cudf::ast::operation>(
+      cudf_to_ast_operator(expression->unary_operator()), *child_rewritter.out_expr);
+
+    cache.push_back(std::move(child_rewritter.out_expr));
+  }
+
+  template <typename T>
+  void create_literal_ast(literal_expression<T> const* expression)
+  {
+    using cudf_scalar_type =
+      std::conditional_t<std::is_same_v<T, std::string>,
+                         cudf::string_scalar,
+                         std::conditional_t<std::is_same_v<T, cudf::timestamp_D>,
+                                            cudf::timestamp_scalar<cudf::timestamp_D>,
+                                            cudf::numeric_scalar<T>>>;
+    auto scalar = std::make_unique<cudf_scalar_type>(expression->value(), !expression->is_null());
+
+    out_expr = std::make_unique<cudf::ast::literal>(*scalar);
+    cache.push_back(std::move(scalar));
+  }
+
+  void visit(literal_expression<int32_t> const* expression) { create_literal_ast(expression); }
+
+  void visit(literal_expression<int64_t> const* expression) { create_literal_ast(expression); }
+
+  void visit(literal_expression<float> const* expression) { create_literal_ast(expression); }
+
+  void visit(literal_expression<double> const* expression) { create_literal_ast(expression); }
+
+  void visit(literal_expression<std::string> const* expression) { create_literal_ast(expression); }
+
+  void visit(literal_expression<cudf::timestamp_D> const* expression)
+  {
+    create_literal_ast(expression);
+  }
+
+  std::unique_ptr<cudf::ast::expression> out_expr;
+  cudf::size_type left_num_columns;
+  cache_type& cache;
 };
 
 /**
@@ -235,6 +360,10 @@ std::unique_ptr<cudf::table> materialize(cudf::table_view const& left,
       result_columns.push_back(std::move(gathered_column[0]));
     } else {
       // This column belongs to the right table
+      if (column_idx - left_ncolumns >= right.num_columns()) {
+        throw std::logic_error("Projection indices are out of bounds for join materialization");
+      }
+
       auto const current_column = right.select({column_idx - left_ncolumns});
       auto gathered_column = cudf::gather(current_column, right_indices, right_policy)->release();
       assert(gathered_column.size() == 1);
@@ -271,13 +400,13 @@ void join_task::execute()
   join_keys.add_join_condition(_condition.get());
   cudf::table_view left_keys(join_keys.left_keys());
   cudf::table_view right_keys(join_keys.right_keys());
-  cudf::null_equality compare_nulls(join_keys.compare_nulls());
+  auto const predicates = join_keys.non_equality_conditions();
 
   // Execute the join and get the result indicies
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_indices;
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> right_indices;
 
-  if (_hash_map_cache && is_separate_hash_map_supported(_join_type)) {
+  if (_hash_map_cache && is_separate_hash_map_supported(_join_type) && predicates.size() == 0) {
     // Fast path: use the cached hash map
     cudf::table_view build_keys;
     cudf::table_view probe_keys;
@@ -292,7 +421,7 @@ void join_task::execute()
         break;
     }
 
-    auto const hash_map = _hash_map_cache->hash_map(build_keys, compare_nulls);
+    auto const hash_map = _hash_map_cache->hash_map(build_keys, join_keys.compare_nulls());
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_indices;
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_indices;
 
@@ -321,26 +450,97 @@ void join_task::execute()
     }
   } else {
     // Fallback path: reconstruct hash map from scratch
-    switch (_join_type) {
-      case join_type_type::inner:
-        std::tie(left_indices, right_indices) =
-          cudf::inner_join(left_keys, right_keys, compare_nulls);
-        break;
-      case join_type_type::left:
-        std::tie(left_indices, right_indices) =
-          cudf::left_join(left_keys, right_keys, compare_nulls);
-        break;
-      case join_type_type::left_semi:
-        left_indices = cudf::left_semi_join(left_keys, right_keys, compare_nulls);
-        break;
-      case join_type_type::left_anti:
-        left_indices = cudf::left_anti_join(left_keys, right_keys, compare_nulls);
-        break;
-      case join_type_type::full:
-        std::tie(left_indices, right_indices) =
-          cudf::full_join(left_keys, right_keys, compare_nulls);
-        break;
-      default: throw std::logic_error("Unknown join type");
+    if (predicates.size() == 0) {
+      // Only have equality join conditions
+      auto const compare_nulls = join_keys.compare_nulls();
+      switch (_join_type) {
+        case join_type_type::inner:
+          std::tie(left_indices, right_indices) =
+            cudf::inner_join(left_keys, right_keys, compare_nulls);
+          break;
+        case join_type_type::left:
+          std::tie(left_indices, right_indices) =
+            cudf::left_join(left_keys, right_keys, compare_nulls);
+          break;
+        case join_type_type::left_semi:
+          left_indices = cudf::left_semi_join(left_keys, right_keys, compare_nulls);
+          break;
+        case join_type_type::left_anti:
+          left_indices = cudf::left_anti_join(left_keys, right_keys, compare_nulls);
+          break;
+        case join_type_type::full:
+          std::tie(left_indices, right_indices) =
+            cudf::full_join(left_keys, right_keys, compare_nulls);
+          break;
+        default: throw std::logic_error("Unknown join type for equality join");
+      }
+    } else {
+      // Have at least one join condition that is not equality condition
+      // Concatenate all non-equality join conditions
+      std::unique_ptr<expression> predicate_expr = predicates[0]->clone();
+      for (std::size_t predicate_idx = 1; predicate_idx < predicates.size(); predicate_idx++) {
+        predicate_expr = std::make_unique<logical_and_expression>(
+          std::move(predicate_expr), predicates[predicate_idx]->clone());
+      }
+
+      // Convert the non-equality join condition into a cuDF AST expression
+      predicate_rewritter::cache_type cache;
+      predicate_rewritter rewritter(left_view.num_columns(), cache);
+      predicate_expr->accept(rewritter);
+      cudf::ast::expression const& predicate_ast = *rewritter.out_expr;
+
+      if (!left_keys.is_empty()) {
+        // Have both equality and non-equality join conditions
+        assert(left_keys.num_columns() == right_keys.num_columns());
+
+        auto const compare_nulls = join_keys.compare_nulls();
+        switch (_join_type) {
+          case join_type_type::inner:
+            std::tie(left_indices, right_indices) = cudf::mixed_inner_join(
+              left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
+            break;
+          case join_type_type::left:
+            std::tie(left_indices, right_indices) = cudf::mixed_left_join(
+              left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
+            break;
+          case join_type_type::left_semi:
+            left_indices = cudf::mixed_left_semi_join(
+              left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
+            break;
+          case join_type_type::left_anti:
+            left_indices = cudf::mixed_left_anti_join(
+              left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
+            break;
+          case join_type_type::full:
+            std::tie(left_indices, right_indices) = cudf::mixed_full_join(
+              left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
+            break;
+          default: throw std::logic_error("Unknown join type for mixed-condition join");
+        }
+      } else {
+        // Only have non-equality join conditions
+        switch (_join_type) {
+          case join_type_type::inner:
+            std::tie(left_indices, right_indices) =
+              cudf::conditional_inner_join(left_view, right_view, predicate_ast);
+            break;
+          case join_type_type::left:
+            std::tie(left_indices, right_indices) =
+              cudf::conditional_left_join(left_view, right_view, predicate_ast);
+            break;
+          case join_type_type::left_semi:
+            left_indices = cudf::conditional_left_semi_join(left_view, right_view, predicate_ast);
+            break;
+          case join_type_type::left_anti:
+            left_indices = cudf::conditional_left_anti_join(left_view, right_view, predicate_ast);
+            break;
+          case join_type_type::full:
+            std::tie(left_indices, right_indices) =
+              cudf::conditional_full_join(left_view, right_view, predicate_ast);
+            break;
+          default: throw std::logic_error("Unknown join type for conditional join");
+        }
+      }
     }
   }
 

@@ -18,6 +18,8 @@
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
+#include <gqe/expression/literal.hpp>
+#include <gqe/expression/unary_op.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/sorting.hpp>
@@ -428,6 +430,381 @@ TEST(JoinHashMapCache, DISABLED_Multithread)
   for (auto const& num_matches : right_num_matches) {
     EXPECT_EQ(num_matches, 8);
   }
+}
+
+class NonEqualityJoinConditionTest : public ::testing::Test {
+ protected:
+  void construct_join_task(gqe::join_type_type join_type,
+                           std::vector<cudf::size_type> projection_indices,
+                           std::unique_ptr<gqe::expression> join_condition)
+  {
+    int64_column_wrapper left_key({2, 1, 1, 3, 4, 1});
+    int64_column_wrapper left_payload({0, 1, 2, 3, 4, 5});
+    int64_column_wrapper right_key({3, 1, 5, 1, 2});
+    int64_column_wrapper right_payload({0, 1, 2, 3, 4});
+
+    std::vector<std::unique_ptr<cudf::column>> left_table_columns;
+    left_table_columns.push_back(left_key.release());
+    left_table_columns.push_back(left_payload.release());
+    auto left_table = std::make_unique<cudf::table>(std::move(left_table_columns));
+
+    std::vector<std::unique_ptr<cudf::column>> right_table_columns;
+    right_table_columns.push_back(right_key.release());
+    right_table_columns.push_back(right_payload.release());
+    auto right_table = std::make_unique<cudf::table>(std::move(right_table_columns));
+
+    constexpr int32_t left_task_id  = 0;
+    constexpr int32_t right_task_id = 1;
+    constexpr int32_t join_task_id  = 2;
+    constexpr int32_t stage_id      = 0;
+
+    gqe::optimization_parameters opms(true);
+    gqe::query_context qctx(&opms);
+
+    auto left_task = std::make_shared<gqe::test::executed_task>(
+      &qctx, left_task_id, stage_id, std::move(left_table));
+    auto right_task = std::make_shared<gqe::test::executed_task>(
+      &qctx, right_task_id, stage_id, std::move(right_table));
+
+    join_task = std::make_unique<gqe::join_task>(&qctx,
+                                                 join_task_id,
+                                                 stage_id,
+                                                 left_task,
+                                                 right_task,
+                                                 join_type,
+                                                 std::move(join_condition),
+                                                 std::move(projection_indices));
+  }
+
+  std::unique_ptr<gqe::join_task> join_task;
+};
+
+TEST_F(NonEqualityJoinConditionTest, MixedConditionsInnerJoin)
+{
+  auto join_condition = std::make_unique<gqe::logical_and_expression>(
+    std::make_shared<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(0),
+                                            std::make_shared<gqe::column_reference_expression>(2)),
+    std::make_shared<gqe::not_expression>(std::make_shared<gqe::greater_equal_expression>(
+      std::make_shared<gqe::column_reference_expression>(1),
+      std::make_shared<gqe::multiply_expression>(
+        std::make_shared<gqe::column_reference_expression>(3),
+        std::make_shared<gqe::literal_expression<int64_t>>(2)))));
+
+  construct_join_task(gqe::join_type_type::inner, {0, 1, 3}, std::move(join_condition));
+
+  join_task->execute();
+
+  auto join_result = join_task->result();
+  ASSERT_EQ(join_result.has_value(), true);
+  auto join_result_sorted = cudf::sort(*join_result);
+
+  int64_column_wrapper ref_result_col0({1, 1, 1, 1, 2});
+  int64_column_wrapper ref_result_col1({1, 1, 2, 5, 0});
+  int64_column_wrapper ref_result_col2({1, 3, 3, 3, 4});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+  ref_result_columns.push_back(ref_result_col0.release());
+  ref_result_columns.push_back(ref_result_col1.release());
+  ref_result_columns.push_back(ref_result_col2.release());
+
+  auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+}
+
+TEST_F(NonEqualityJoinConditionTest, MixedConditionsLeftJoin)
+{
+  auto join_condition = std::make_unique<gqe::logical_and_expression>(
+    std::make_shared<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(0),
+                                            std::make_shared<gqe::column_reference_expression>(2)),
+    std::make_shared<gqe::not_expression>(std::make_shared<gqe::greater_equal_expression>(
+      std::make_shared<gqe::column_reference_expression>(1),
+      std::make_shared<gqe::multiply_expression>(
+        std::make_shared<gqe::column_reference_expression>(3),
+        std::make_shared<gqe::literal_expression<int64_t>>(2)))));
+
+  construct_join_task(gqe::join_type_type::left, {0, 1, 3}, std::move(join_condition));
+
+  join_task->execute();
+
+  auto join_result = join_task->result();
+  ASSERT_EQ(join_result.has_value(), true);
+  auto join_result_sorted = cudf::sort(*join_result);
+
+  int64_column_wrapper ref_result_col0({1, 1, 1, 1, 2, 3, 4});
+  int64_column_wrapper ref_result_col1({1, 1, 2, 5, 0, 3, 4});
+  int64_column_wrapper ref_result_col2({1, 3, 3, 3, 4, 0, 0},
+                                       {true, true, true, true, true, false, false});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+  ref_result_columns.push_back(ref_result_col0.release());
+  ref_result_columns.push_back(ref_result_col1.release());
+  ref_result_columns.push_back(ref_result_col2.release());
+
+  auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+}
+
+TEST_F(NonEqualityJoinConditionTest, MixedConditionsLeftSemiJoin)
+{
+  auto join_condition = std::make_unique<gqe::logical_and_expression>(
+    std::make_shared<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(0),
+                                            std::make_shared<gqe::column_reference_expression>(2)),
+    std::make_shared<gqe::not_expression>(std::make_shared<gqe::greater_equal_expression>(
+      std::make_shared<gqe::column_reference_expression>(1),
+      std::make_shared<gqe::multiply_expression>(
+        std::make_shared<gqe::column_reference_expression>(3),
+        std::make_shared<gqe::literal_expression<int64_t>>(2)))));
+
+  construct_join_task(gqe::join_type_type::left_semi, {0, 1}, std::move(join_condition));
+
+  join_task->execute();
+
+  auto join_result = join_task->result();
+  ASSERT_EQ(join_result.has_value(), true);
+  auto join_result_sorted = cudf::sort(*join_result);
+
+  int64_column_wrapper ref_result_col0({1, 1, 1, 2});
+  int64_column_wrapper ref_result_col1({1, 2, 5, 0});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+  ref_result_columns.push_back(ref_result_col0.release());
+  ref_result_columns.push_back(ref_result_col1.release());
+
+  auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+}
+
+TEST_F(NonEqualityJoinConditionTest, MixedConditionsLeftAntiJoin)
+{
+  auto join_condition = std::make_unique<gqe::logical_and_expression>(
+    std::make_shared<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(0),
+                                            std::make_shared<gqe::column_reference_expression>(2)),
+    std::make_shared<gqe::not_expression>(std::make_shared<gqe::greater_equal_expression>(
+      std::make_shared<gqe::column_reference_expression>(1),
+      std::make_shared<gqe::multiply_expression>(
+        std::make_shared<gqe::column_reference_expression>(3),
+        std::make_shared<gqe::literal_expression<int64_t>>(2)))));
+
+  construct_join_task(gqe::join_type_type::left_anti, {0, 1}, std::move(join_condition));
+
+  join_task->execute();
+
+  auto join_result = join_task->result();
+  ASSERT_EQ(join_result.has_value(), true);
+  auto join_result_sorted = cudf::sort(*join_result);
+
+  int64_column_wrapper ref_result_col0({3, 4});
+  int64_column_wrapper ref_result_col1({3, 4});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+  ref_result_columns.push_back(ref_result_col0.release());
+  ref_result_columns.push_back(ref_result_col1.release());
+
+  auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+}
+
+TEST_F(NonEqualityJoinConditionTest, MixedConditionsFullJoin)
+{
+  auto join_condition = std::make_unique<gqe::logical_and_expression>(
+    std::make_shared<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(0),
+                                            std::make_shared<gqe::column_reference_expression>(2)),
+    std::make_shared<gqe::not_expression>(std::make_shared<gqe::greater_equal_expression>(
+      std::make_shared<gqe::column_reference_expression>(1),
+      std::make_shared<gqe::multiply_expression>(
+        std::make_shared<gqe::column_reference_expression>(3),
+        std::make_shared<gqe::literal_expression<int64_t>>(2)))));
+
+  construct_join_task(gqe::join_type_type::full, {0, 1, 3}, std::move(join_condition));
+
+  join_task->execute();
+
+  auto join_result = join_task->result();
+  ASSERT_EQ(join_result.has_value(), true);
+  auto join_result_sorted = cudf::sort(*join_result);
+
+  int64_column_wrapper ref_result_col0({0, 0, 1, 1, 1, 1, 2, 3, 4},
+                                       {false, false, true, true, true, true, true, true, true});
+  int64_column_wrapper ref_result_col1({0, 0, 1, 1, 2, 5, 0, 3, 4},
+                                       {false, false, true, true, true, true, true, true, true});
+  int64_column_wrapper ref_result_col2({0, 2, 1, 3, 3, 3, 4, 0, 0},
+                                       {true, true, true, true, true, true, true, false, false});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+  ref_result_columns.push_back(ref_result_col0.release());
+  ref_result_columns.push_back(ref_result_col1.release());
+  ref_result_columns.push_back(ref_result_col2.release());
+
+  auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+}
+
+TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsInnerJoin)
+{
+  auto join_condition = std::make_unique<gqe::logical_and_expression>(
+    std::make_shared<gqe::greater_expression>(
+      std::make_shared<gqe::column_reference_expression>(0),
+      std::make_shared<gqe::column_reference_expression>(2)),
+    std::make_shared<gqe::less_expression>(std::make_shared<gqe::column_reference_expression>(1),
+                                           std::make_shared<gqe::column_reference_expression>(3)));
+
+  construct_join_task(gqe::join_type_type::inner, {0, 1, 2, 3}, std::move(join_condition));
+
+  join_task->execute();
+
+  auto join_result = join_task->result();
+  ASSERT_EQ(join_result.has_value(), true);
+  auto join_result_sorted = cudf::sort(*join_result);
+
+  int64_column_wrapper ref_result_col0({2, 2, 3});
+  int64_column_wrapper ref_result_col1({0, 0, 3});
+  int64_column_wrapper ref_result_col2({1, 1, 2});
+  int64_column_wrapper ref_result_col3({1, 3, 4});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+  ref_result_columns.push_back(ref_result_col0.release());
+  ref_result_columns.push_back(ref_result_col1.release());
+  ref_result_columns.push_back(ref_result_col2.release());
+  ref_result_columns.push_back(ref_result_col3.release());
+
+  auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+}
+
+TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsLeftJoin)
+{
+  auto join_condition = std::make_unique<gqe::logical_and_expression>(
+    std::make_shared<gqe::greater_expression>(
+      std::make_shared<gqe::column_reference_expression>(0),
+      std::make_shared<gqe::column_reference_expression>(2)),
+    std::make_shared<gqe::less_expression>(std::make_shared<gqe::column_reference_expression>(1),
+                                           std::make_shared<gqe::column_reference_expression>(3)));
+
+  construct_join_task(gqe::join_type_type::left, {0, 1, 2, 3}, std::move(join_condition));
+
+  join_task->execute();
+
+  auto join_result = join_task->result();
+  ASSERT_EQ(join_result.has_value(), true);
+  auto join_result_sorted = cudf::sort(*join_result);
+
+  int64_column_wrapper ref_result_col0({1, 1, 1, 2, 2, 3, 4});
+  int64_column_wrapper ref_result_col1({1, 2, 5, 0, 0, 3, 4});
+  int64_column_wrapper ref_result_col2({0, 0, 0, 1, 1, 2, 0},
+                                       {false, false, false, true, true, true, false});
+  int64_column_wrapper ref_result_col3({0, 0, 0, 1, 3, 4, 0},
+                                       {false, false, false, true, true, true, false});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+  ref_result_columns.push_back(ref_result_col0.release());
+  ref_result_columns.push_back(ref_result_col1.release());
+  ref_result_columns.push_back(ref_result_col2.release());
+  ref_result_columns.push_back(ref_result_col3.release());
+
+  auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+}
+
+TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsLeftSemiJoin)
+{
+  auto join_condition = std::make_unique<gqe::logical_and_expression>(
+    std::make_shared<gqe::greater_expression>(
+      std::make_shared<gqe::column_reference_expression>(0),
+      std::make_shared<gqe::column_reference_expression>(2)),
+    std::make_shared<gqe::less_expression>(std::make_shared<gqe::column_reference_expression>(1),
+                                           std::make_shared<gqe::column_reference_expression>(3)));
+
+  construct_join_task(gqe::join_type_type::left_semi, {0, 1}, std::move(join_condition));
+
+  join_task->execute();
+
+  auto join_result = join_task->result();
+  ASSERT_EQ(join_result.has_value(), true);
+  auto join_result_sorted = cudf::sort(*join_result);
+
+  int64_column_wrapper ref_result_col0({2, 3});
+  int64_column_wrapper ref_result_col1({0, 3});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+  ref_result_columns.push_back(ref_result_col0.release());
+  ref_result_columns.push_back(ref_result_col1.release());
+
+  auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+}
+
+TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsLeftAntiJoin)
+{
+  auto join_condition = std::make_unique<gqe::logical_and_expression>(
+    std::make_shared<gqe::greater_expression>(
+      std::make_shared<gqe::column_reference_expression>(0),
+      std::make_shared<gqe::column_reference_expression>(2)),
+    std::make_shared<gqe::less_expression>(std::make_shared<gqe::column_reference_expression>(1),
+                                           std::make_shared<gqe::column_reference_expression>(3)));
+
+  construct_join_task(gqe::join_type_type::left_anti, {0, 1}, std::move(join_condition));
+
+  join_task->execute();
+
+  auto join_result = join_task->result();
+  ASSERT_EQ(join_result.has_value(), true);
+  auto join_result_sorted = cudf::sort(*join_result);
+
+  int64_column_wrapper ref_result_col0({1, 1, 1, 4});
+  int64_column_wrapper ref_result_col1({1, 2, 5, 4});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+  ref_result_columns.push_back(ref_result_col0.release());
+  ref_result_columns.push_back(ref_result_col1.release());
+
+  auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+}
+
+TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsFullJoin)
+{
+  auto join_condition = std::make_unique<gqe::logical_and_expression>(
+    std::make_shared<gqe::greater_expression>(
+      std::make_shared<gqe::column_reference_expression>(0),
+      std::make_shared<gqe::column_reference_expression>(2)),
+    std::make_shared<gqe::less_expression>(std::make_shared<gqe::column_reference_expression>(1),
+                                           std::make_shared<gqe::column_reference_expression>(3)));
+
+  construct_join_task(gqe::join_type_type::full, {0, 1, 2, 3}, std::move(join_condition));
+
+  join_task->execute();
+
+  auto join_result = join_task->result();
+  ASSERT_EQ(join_result.has_value(), true);
+  auto join_result_sorted = cudf::sort(*join_result);
+
+  int64_column_wrapper ref_result_col0({0, 0, 1, 1, 1, 2, 2, 3, 4},
+                                       {false, false, true, true, true, true, true, true, true});
+  int64_column_wrapper ref_result_col1({0, 0, 1, 2, 5, 0, 0, 3, 4},
+                                       {false, false, true, true, true, true, true, true, true});
+  int64_column_wrapper ref_result_col2({3, 5, 0, 0, 0, 1, 1, 2, 0},
+                                       {true, true, false, false, false, true, true, true, false});
+  int64_column_wrapper ref_result_col3({0, 2, 0, 0, 0, 1, 3, 4, 0},
+                                       {true, true, false, false, false, true, true, true, false});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+  ref_result_columns.push_back(ref_result_col0.release());
+  ref_result_columns.push_back(ref_result_col1.release());
+  ref_result_columns.push_back(ref_result_col2.release());
+  ref_result_columns.push_back(ref_result_col3.release());
+
+  auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
 // TODO: Add a test on multi column join keys

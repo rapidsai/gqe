@@ -28,6 +28,37 @@
 
 namespace gqe {
 
+[[nodiscard]] cudf::ast::ast_operator cudf_to_ast_operator(
+  std::variant<cudf::binary_operator, cudf::unary_operator> op)
+{
+  static const std::unordered_map<std::variant<cudf::binary_operator, cudf::unary_operator>,
+                                  cudf::ast::ast_operator>
+    _operator_map = {
+      {cudf::binary_operator::ADD, cudf::ast::ast_operator::ADD},
+      {cudf::binary_operator::SUB, cudf::ast::ast_operator::SUB},
+      {cudf::binary_operator::MUL, cudf::ast::ast_operator::MUL},
+      {cudf::binary_operator::TRUE_DIV, cudf::ast::ast_operator::TRUE_DIV},
+      {cudf::binary_operator::LOGICAL_AND, cudf::ast::ast_operator::LOGICAL_AND},
+      {cudf::binary_operator::LOGICAL_OR, cudf::ast::ast_operator::LOGICAL_OR},
+      {cudf::binary_operator::EQUAL, cudf::ast::ast_operator::EQUAL},
+      {cudf::binary_operator::NOT_EQUAL, cudf::ast::ast_operator::NOT_EQUAL},
+      {cudf::binary_operator::LESS, cudf::ast::ast_operator::LESS},
+      {cudf::binary_operator::GREATER, cudf::ast::ast_operator::GREATER},
+      {cudf::binary_operator::LESS_EQUAL, cudf::ast::ast_operator::LESS_EQUAL},
+      {cudf::binary_operator::GREATER_EQUAL, cudf::ast::ast_operator::GREATER_EQUAL},
+      {cudf::unary_operator::NOT,
+       cudf::ast::ast_operator::NOT}};  ///> Emum mapper between cudf::{unary|binary}_op and
+                                        /// cudf::ast::ast_operator.
+
+  auto search = _operator_map.find(op);
+  if (search == _operator_map.end()) {
+    throw std::logic_error(
+      "Unable to convert cudf::{unary|binary}_operator to cudf::ast::ast_operator");
+  }
+
+  return search->second;
+}
+
 std::string expression_evaluator::evaluation_context::to_string() const noexcept
 {
   std::string s = "evaluation_context(" + this->gqe_expression->to_string() + ", ";
@@ -397,7 +428,7 @@ void expression_evaluator::visit(unary_op_expression const* expression)
     bool const can_use_cudf_ast = cudf::is_fixed_width(expression->data_type(this->_column_types));
 
     if (can_use_cudf_ast) {
-      auto const op = this->convert_operator(expression->unary_operator());
+      auto const op = cudf_to_ast_operator(expression->unary_operator());
 
       if (child_is_column) {
         auto const child_column_idx = child_context.column_idx.value();
@@ -443,7 +474,7 @@ void expression_evaluator::visit(binary_op_expression const* expression)
        expression->_children[1]->data_type(this->_column_types));
 
     if (can_use_cudf_ast) {
-      auto const op = this->convert_operator(expression->binary_operator());
+      auto const op = cudf_to_ast_operator(expression->binary_operator());
 
       auto process_child = [&](auto& context,
                                auto const child_idx) -> cudf::ast::expression const& {
@@ -627,18 +658,6 @@ std::pair<expression_evaluator::evaluation_context&, bool> expression_evaluator:
   auto search = this->_evaluation_contexts.find(expression);
   if (search == this->_evaluation_contexts.end()) {
     throw std::logic_error("Unable to find evaluation context for " + expression->to_string());
-  }
-
-  return search->second;
-}
-
-[[nodiscard]] cudf::ast::ast_operator const& expression_evaluator::convert_operator(
-  std::variant<cudf::binary_operator, cudf::unary_operator> op) const
-{
-  auto search = this->_operator_map.find(op);
-  if (search == this->_operator_map.end()) {
-    throw std::logic_error(
-      "Unable to convert cudf::{unary|binary}_operator to cudf::ast::ast_operator");
   }
 
   return search->second;

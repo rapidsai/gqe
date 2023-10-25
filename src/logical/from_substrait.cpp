@@ -488,7 +488,7 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::_parse_scalar_function_e
         return std::make_unique<gqe::nulls_equal_expression>(std::move(lhs), std::move(rhs));
       else if (function_name == "add")
         return std::make_unique<gqe::add_expression>(std::move(lhs), std::move(rhs));
-      else if (function_name == "substract")
+      else if (function_name == "subtract")
         return std::make_unique<gqe::subtract_expression>(std::move(lhs), std::move(rhs));
       else if (function_name == "multiply")
         return std::make_unique<gqe::multiply_expression>(std::move(lhs), std::move(rhs));

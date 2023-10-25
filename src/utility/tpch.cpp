@@ -21,15 +21,17 @@ table_definitions() noexcept
 {
   static const std::unordered_map<std::string, std::vector<column_definition_type>> definitions = {
     {"part",
-     {{"p_partkey", identifier_type},  // primary key
-      {"p_name", string_type},
-      {"p_mfgr", string_type},
-      {"p_brand", string_type},
-      {"p_type", string_type},
-      {"p_size", integer_type},
-      {"p_container", string_type},
-      {"p_retailprice", decimal_type},
-      {"p_comment", string_type}}},
+     {
+       {"p_partkey", identifier_type},  // primary key
+       {"p_name", string_type},
+       {"p_mfgr", string_type},
+       {"p_brand", string_type},
+       {"p_type", string_type},
+       {"p_size", integer_type},
+       {"p_container", string_type}
+       // {"p_retailprice", decimal_type},
+       // {"p_comment", string_type}
+     }},
     {"supplier",
      {{"s_suppkey", identifier_type},  // primary key
       {"s_name", string_type},
@@ -39,11 +41,13 @@ table_definitions() noexcept
       {"s_acctbal", decimal_type},
       {"s_comment", string_type}}},
     {"partsupp",
-     {{"ps_partkey", identifier_type},  // primary key
-      {"ps_suppkey", identifier_type},  // primary key
-      {"ps_availqty", integer_type},
-      {"ps_supplycost", decimal_type},
-      {"ps_comment", string_type}}},
+     {
+       {"ps_partkey", identifier_type},  // primary key
+       {"ps_suppkey", identifier_type},  // primary key
+       {"ps_availqty", integer_type},
+       {"ps_supplycost", decimal_type},
+       // {"ps_comment", string_type}
+     }},
     {"customer",
      {{"c_custkey", identifier_type},  // primary key
       {"c_name", string_type},
@@ -60,35 +64,41 @@ table_definitions() noexcept
       {"o_totalprice", decimal_type},
       {"o_orderdate", date_type},
       {"o_orderpriority", string_type},
-      {"o_clerk", string_type},
+      // {"o_clerk", string_type},
       {"o_shippriority", integer_type},
       {"o_comment", string_type}}},
     {"lineitem",
-     {{"l_orderkey", identifier_type},  // primary key
-      {"l_partkey", identifier_type},
-      {"l_suppkey", identifier_type},
-      {"l_linenumber", integer_type},  // primary key
-      {"l_quantity", decimal_type},
-      {"l_extendedprice", decimal_type},
-      {"l_discount", decimal_type},
-      {"l_tax", decimal_type},
-      {"l_returnflag", string_type},
-      {"l_linestatus", string_type},
-      {"l_shipdate", date_type},
-      {"l_commitdate", date_type},
-      {"l_receiptdate", date_type},
-      {"l_shipinstruct", string_type},
-      {"l_shipmode", string_type},
-      {"l_comment", string_type}}},
+     {
+       {"l_orderkey", identifier_type},  // primary key
+       {"l_partkey", identifier_type},
+       {"l_suppkey", identifier_type},
+       {"l_linenumber", integer_type},  // primary key
+       {"l_quantity", decimal_type},
+       {"l_extendedprice", decimal_type},
+       {"l_discount", decimal_type},
+       {"l_tax", decimal_type},
+       {"l_returnflag", string_type},
+       {"l_linestatus", string_type},
+       {"l_shipdate", date_type},
+       {"l_commitdate", date_type},
+       {"l_receiptdate", date_type},
+       {"l_shipinstruct", string_type},
+       {"l_shipmode", string_type},
+       // {"l_comment", string_type}
+     }},
     {"nation",
-     {{"n_nationkey", identifier_type},  // primary key
-      {"n_name", string_type},
-      {"n_regionkey", identifier_type},
-      {"n_comment", string_type}}},
+     {
+       {"n_nationkey", identifier_type},  // primary key
+       {"n_name", string_type},
+       {"n_regionkey", identifier_type},
+       // {"n_comment", string_type}
+     }},
     {"region",
-     {{"r_regionkey", identifier_type},  // primary key
-      {"r_name", string_type},
-      {"r_comment", string_type}}}};
+     {
+       {"r_regionkey", identifier_type},  // primary key
+       {"r_name", string_type},
+       // {"r_comment", string_type}
+     }}};
   return definitions;
 }
 

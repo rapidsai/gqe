@@ -45,7 +45,9 @@
 void print_usage()
 {
   std::cout << "Run TPC benchmark" << std::endl
-            << "./tpc <{ds, h}> <path-to-substrait-plan> <path-to-dataset> <storage-kind>"
+            << "./tpc <{ds, h}> <path-to-substrait> <path-to-dataset> <storage-kind>" << std::endl
+            << "<path-to-substrait> can be either a single Substrait file or a directory "
+               "containing substrait files"
             << std::endl;
 }
 
@@ -66,6 +68,20 @@ gqe::storage_kind::type parse_storage_kind(const std::string& storage_kind_descr
     {"managed_memory", gqe::storage_kind::managed_memory{}},
     {"parquet_file", gqe::storage_kind::parquet_file{file_paths}}};
   return storage_kinds.at(normalized_description);
+}
+
+// Parse the number of row groups for the in-memory tables from the environment variable
+// `GQE_NUM_ROW_GROUPS`. Default to `8` if the environment variable is not set.
+int32_t parse_num_row_groups()
+{
+  constexpr int32_t default_num_row_groups = 8;
+
+  auto const val_str = std::getenv("GQE_NUM_ROW_GROUPS");
+  int32_t value = (val_str != nullptr) ? std::stoi(val_str, nullptr, 10) : default_num_row_groups;
+
+  GQE_LOG_DEBUG("GQE_NUM_ROW_GROUPS = " + std::to_string(value));
+
+  return value;
 }
 
 struct tpc_nvtx_domain {
@@ -202,10 +218,8 @@ class query_result_writer {
       plan, column_names, data_types, result_table_name);
   }
 
-  void execute_parquet_write(const std::string result_path)
+  void execute_parquet_write(std::string const& result_path, std::string const& parquet_table_name)
   {
-    const std::string parquet_table_name = "parquet_query_result";
-
     _catalog->register_table(parquet_table_name,
                              _column_definitions,
                              gqe::storage_kind::parquet_file{{result_path}},
@@ -237,7 +251,7 @@ int main(int argc, char* argv[])
   }
 
   std::string const tpc_type(argv[1]);
-  std::string const substrait_plan_file(argv[2]);
+  std::string const substrait_location(argv[2]);
   std::string const dataset_location(argv[3]);
 
   // Check commandline inputs
@@ -246,13 +260,8 @@ int main(int argc, char* argv[])
     std::exit(EXIT_FAILURE);
   }
 
-  if (!std::filesystem::exists(substrait_plan_file)) {
+  if (!std::filesystem::exists(substrait_location)) {
     std::cerr << "Invalid path to Substrait plan." << std::endl;
-    std::exit(EXIT_FAILURE);
-  }
-
-  if (!std::filesystem::is_regular_file(substrait_plan_file)) {
-    std::cerr << "Substrait plan is not a file" << std::endl;
     std::exit(EXIT_FAILURE);
   }
 
@@ -272,8 +281,10 @@ int main(int argc, char* argv[])
   rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource> pool_mr{&cuda_mr};
   rmm::mr::set_current_device_resource(&pool_mr);
 
-  gqe::optimization_parameters opms{};
-  gqe::query_context qctx(&opms);
+  gqe::optimization_parameters read_opms{};
+  read_opms.max_num_partitions = parse_num_row_groups();
+
+  gqe::query_context qctx(&read_opms);
   gqe::catalog catalog;
 
   // register all tables
@@ -313,35 +324,52 @@ int main(int argc, char* argv[])
   GQE_LOG_INFO("Copying Parquet files to in-memory tables (if required).");
   copy_plan.execute_copy();
 
-  GQE_LOG_INFO("Building query plan.");
-  gqe::substrait_parser parser(&catalog);
-  auto logical_plan = parser.from_file(substrait_plan_file);
-  assert(logical_plan.size() == 1);
-
-  query_result_writer result_writer(&qctx, &catalog);
-  const std::string cached_result_name = "query_result";
-
-  auto logical_plan_with_result =
-    result_writer.append_to_plan(logical_plan[0],
-                                 cached_result_name,
-                                 gqe::storage_kind::device_memory{rmm::cuda_device_id{0}},
-                                 gqe::partitioning_schema_kind::none{});
-
-  gqe::physical_plan_builder plan_builder(&catalog);
-  auto physical_plan = plan_builder.build(logical_plan_with_result.get());
-
-  gqe::task_graph_builder graph_builder(&qctx, &catalog);
-  auto task_graph = graph_builder.build(physical_plan.get());
-
-  GQE_LOG_INFO("Starting query execution.");
-  {
-    nvtx_scoped_range query_range("query");
-    gqe::utility::time_function(gqe::execute_task_graph_single_gpu, &qctx, task_graph.get());
+  // If needed, parse the directory to get all substrait plans
+  std::vector<std::filesystem::path> substrait_plans;
+  if (std::filesystem::is_regular_file(substrait_location)) {
+    substrait_plans.emplace_back(substrait_location);
+  } else {
+    for (auto const& entry : std::filesystem::directory_iterator(substrait_location)) {
+      substrait_plans.emplace_back(entry.path());
+    }
   }
 
-  const std::string result_path = "output.parquet";
-  GQE_LOG_INFO("Writing query result to \"" + result_path + "\".");
-  result_writer.execute_parquet_write(result_path);
+  for (auto const& substrait_plan_file : substrait_plans) {
+    auto const query_identifier = substrait_plan_file.stem().string();
+
+    GQE_LOG_INFO("Building query plan for " + query_identifier);
+    gqe::substrait_parser parser(&catalog);
+    auto logical_plan = parser.from_file(substrait_plan_file.string());
+    assert(logical_plan.size() == 1);
+
+    gqe::optimization_parameters execute_opms{};
+    qctx.parameters = &execute_opms;
+
+    query_result_writer result_writer(&qctx, &catalog);
+    auto const cached_result_name = "query_result_" + query_identifier;
+
+    auto logical_plan_with_result =
+      result_writer.append_to_plan(logical_plan[0],
+                                   cached_result_name,
+                                   gqe::storage_kind::device_memory{rmm::cuda_device_id{0}},
+                                   gqe::partitioning_schema_kind::none{});
+
+    gqe::physical_plan_builder plan_builder(&catalog);
+    auto physical_plan = plan_builder.build(logical_plan_with_result.get());
+
+    gqe::task_graph_builder graph_builder(&qctx, &catalog);
+    auto task_graph = graph_builder.build(physical_plan.get());
+
+    GQE_LOG_INFO("Starting query execution " + query_identifier);
+    {
+      nvtx_scoped_range query_range("query_execution_" + query_identifier);
+      gqe::utility::time_function(gqe::execute_task_graph_single_gpu, &qctx, task_graph.get());
+    }
+
+    auto const result_path = "output_" + query_identifier + ".parquet";
+    GQE_LOG_INFO("Writing query result to \"" + result_path + "\".");
+    result_writer.execute_parquet_write(result_path, "parquet_result_" + query_identifier);
+  }
 
   std::exit(EXIT_SUCCESS);
 }

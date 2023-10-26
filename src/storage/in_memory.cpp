@@ -221,7 +221,7 @@ void in_memory_read_task::execute_read_by_value()
       src_views.push_back(src_view);
     }
 
-    auto result_column = cudf::concatenate(src_views, mr);
+    auto result_column = cudf::concatenate(src_views, cudf::get_default_stream(), mr);
 
     result_columns.emplace_back(std::move(result_column));
   }

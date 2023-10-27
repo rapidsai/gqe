@@ -274,6 +274,9 @@ cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
     case substrait::Type::kVarchar: return cudf::data_type(cudf::type_id::STRING);
     case substrait::Type::kDate: return cudf::data_type(cudf::type_id::DURATION_DAYS);
     case substrait::Type::kDecimal: {
+      // Currently GQE uses floating point types to represent decimal types.
+      // TODO: Properly support decimal types.
+      /*
       auto const precision = substrait_type.decimal().precision();
       auto const scale     = substrait_type.decimal().scale();
 
@@ -296,6 +299,8 @@ cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
       } else {
         return cudf::data_type(cudf::type_id::DECIMAL128, -scale);
       }
+      */
+      return cudf::data_type(cudf::type_id::FLOAT64);
     }
     default:
       throw std::runtime_error("SubstraitParser cannot convert substrait type " +

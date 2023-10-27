@@ -25,6 +25,7 @@
 #include <cudf/copying.hpp>
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/table/table.hpp>
+#include <cudf/utilities/traits.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
 #include <stdexcept>
@@ -221,12 +222,12 @@ class join_keys_container {
  *
  * The output will be generated in the member variable `out_expr`.
  */
-struct predicate_rewritter : public expression_visitor {
+struct predicate_rewriter : public expression_visitor {
   using cache_type = std::vector<
     std::variant<std::unique_ptr<cudf::ast::expression>, std::unique_ptr<cudf::scalar>>>;
 
   /**
-   * @brief Construct a predicate rewritter object.
+   * @brief Construct a predicate rewriter object.
    *
    * @param[in] left_num_columns Number of columns in the left table. Used for applying offsets to
    * column reference expressions.
@@ -234,23 +235,28 @@ struct predicate_rewritter : public expression_visitor {
    * this cache to keep the child expressions and scalars alive. Therefore, the output `out_expr` is
    * valid only if the cache is valid.
    */
-  predicate_rewritter(cudf::size_type left_num_columns, cache_type& cache)
+  predicate_rewriter(cudf::size_type left_num_columns, cache_type& cache)
     : left_num_columns(left_num_columns), cache(cache)
   {
   }
 
   void visit(column_reference_expression const* expression) override
   {
+    std::unique_ptr<cudf::ast::expression> cudf_expr;
+
     auto const column_idx = expression->column_idx();
     if (column_idx < left_num_columns) {
       // The expression references a column from the left table
-      out_expr =
+      cudf_expr =
         std::make_unique<cudf::ast::column_reference>(column_idx, cudf::ast::table_reference::LEFT);
     } else {
       // The expression references a column from the right table
-      out_expr = std::make_unique<cudf::ast::column_reference>(column_idx - left_num_columns,
-                                                               cudf::ast::table_reference::RIGHT);
+      cudf_expr = std::make_unique<cudf::ast::column_reference>(column_idx - left_num_columns,
+                                                                cudf::ast::table_reference::RIGHT);
     }
+
+    out_expr = cudf_expr.get();
+    cache.push_back(std::move(cudf_expr));
   }
 
   void visit(binary_op_expression const* expression) override
@@ -258,19 +264,19 @@ struct predicate_rewritter : public expression_visitor {
     auto child_in_exprs = expression->children();
     assert(child_in_exprs.size() == 2);
 
-    predicate_rewritter lhs_rewritter(left_num_columns, cache);
-    child_in_exprs[0]->accept(lhs_rewritter);
+    predicate_rewriter lhs_rewriter(left_num_columns, cache);
+    child_in_exprs[0]->accept(lhs_rewriter);
 
-    predicate_rewritter rhs_rewritter(left_num_columns, cache);
-    child_in_exprs[1]->accept(rhs_rewritter);
+    predicate_rewriter rhs_rewriter(left_num_columns, cache);
+    child_in_exprs[1]->accept(rhs_rewriter);
 
-    out_expr =
+    auto cudf_expr =
       std::make_unique<cudf::ast::operation>(cudf_to_ast_operator(expression->binary_operator()),
-                                             *lhs_rewritter.out_expr,
-                                             *rhs_rewritter.out_expr);
+                                             *lhs_rewriter.out_expr,
+                                             *rhs_rewriter.out_expr);
 
-    cache.push_back(std::move(lhs_rewritter.out_expr));
-    cache.push_back(std::move(rhs_rewritter.out_expr));
+    out_expr = cudf_expr.get();
+    cache.push_back(std::move(cudf_expr));
   }
 
   void visit(unary_op_expression const* expression) override
@@ -278,13 +284,14 @@ struct predicate_rewritter : public expression_visitor {
     auto child_in_exprs = expression->children();
     assert(child_in_exprs.size() == 1);
 
-    predicate_rewritter child_rewritter(left_num_columns, cache);
-    child_in_exprs[0]->accept(child_rewritter);
+    predicate_rewriter child_rewriter(left_num_columns, cache);
+    child_in_exprs[0]->accept(child_rewriter);
 
-    out_expr = std::make_unique<cudf::ast::operation>(
-      cudf_to_ast_operator(expression->unary_operator()), *child_rewritter.out_expr);
+    auto cudf_expr = std::make_unique<cudf::ast::operation>(
+      cudf_to_ast_operator(expression->unary_operator()), *child_rewriter.out_expr);
 
-    cache.push_back(std::move(child_rewritter.out_expr));
+    out_expr = cudf_expr.get();
+    cache.push_back(std::move(cudf_expr));
   }
 
   template <typename T>
@@ -298,8 +305,11 @@ struct predicate_rewritter : public expression_visitor {
                                             cudf::numeric_scalar<T>>>;
     auto scalar = std::make_unique<cudf_scalar_type>(expression->value(), !expression->is_null());
 
-    out_expr = std::make_unique<cudf::ast::literal>(*scalar);
+    auto cudf_expr = std::make_unique<cudf::ast::literal>(*scalar);
+    out_expr       = cudf_expr.get();
+
     cache.push_back(std::move(scalar));
+    cache.push_back(std::move(cudf_expr));
   }
 
   void visit(literal_expression<int32_t> const* expression) { create_literal_ast(expression); }
@@ -317,7 +327,31 @@ struct predicate_rewritter : public expression_visitor {
     create_literal_ast(expression);
   }
 
-  std::unique_ptr<cudf::ast::expression> out_expr;
+  void visit(cast_expression const* expression) override
+  {
+    auto child_in_exprs = expression->children();
+    assert(child_in_exprs.size() == 1);
+
+    predicate_rewriter child_rewriter(left_num_columns, cache);
+    child_in_exprs[0]->accept(child_rewriter);
+
+    std::unique_ptr<cudf::ast::expression> cudf_expr;
+    auto const type = expression->out_type();
+    if (cudf::is_integral(type)) {
+      cudf_expr = std::make_unique<cudf::ast::operation>(cudf::ast::ast_operator::CAST_TO_INT64,
+                                                         *child_rewriter.out_expr);
+    } else if (cudf::is_floating_point(type) || cudf::is_fixed_point(type)) {
+      cudf_expr = std::make_unique<cudf::ast::operation>(cudf::ast::ast_operator::CAST_TO_FLOAT64,
+                                                         *child_rewriter.out_expr);
+    } else {
+      throw std::logic_error("Unsupported cast expression in the join condition");
+    }
+
+    out_expr = cudf_expr.get();
+    cache.push_back(std::move(cudf_expr));
+  }
+
+  cudf::ast::expression* out_expr;
   cudf::size_type left_num_columns;
   cache_type& cache;
 };
@@ -484,10 +518,10 @@ void join_task::execute()
       }
 
       // Convert the non-equality join condition into a cuDF AST expression
-      predicate_rewritter::cache_type cache;
-      predicate_rewritter rewritter(left_view.num_columns(), cache);
-      predicate_expr->accept(rewritter);
-      cudf::ast::expression const& predicate_ast = *rewritter.out_expr;
+      predicate_rewriter::cache_type cache;
+      predicate_rewriter rewriter(left_view.num_columns(), cache);
+      predicate_expr->accept(rewriter);
+      cudf::ast::expression const& predicate_ast = *rewriter.out_expr;
 
       if (!left_keys.is_empty()) {
         // Have both equality and non-equality join conditions

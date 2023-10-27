@@ -455,7 +455,7 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::_parse_scalar_function_e
         auto input  = parsed_arguments[0];
         auto start  = try_get_literal_value<std::int64_t>(parsed_arguments[1]);
         auto length = try_get_literal_value<std::int64_t>(parsed_arguments[2]);
-        return std::make_unique<gqe::substr_expression>(std::move(input), start, length);
+        return std::make_unique<gqe::substr_expression>(std::move(input), start - 1, length);
       }
       default: throw std::runtime_error("ScalarFunction " + function_name + "() is not supported");
     }

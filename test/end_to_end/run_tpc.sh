@@ -4,8 +4,8 @@
 set -u
 
 # Check if the correct number of arguments is provided.
-if [ "$#" -ne 4 ]; then
-  echo "Usage: $0 <tpc_kind> <build_dir> <dataset_dir> <substrait_file_or_pattern>"
+if [ "$#" -ne 5 ]; then
+  echo "Usage: $0 <tpc_kind> <build_dir> <dataset_dir> <reference_dir_or_file> <substrait_file_or_pattern>"
   exit 1
 fi
 
@@ -13,7 +13,8 @@ fi
 tpc_kind="${1^^}"
 build_dir="$2"
 dataset_dir="$3"
-substrait_pattern="$4"
+reference_path="$4"
+substrait_pattern="$5"
 
 # Define the query lists for TPC-H and TPC-DS.
 tpc_h_queries=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22)
@@ -41,51 +42,76 @@ for dir in "$build_dir" "$dataset_dir"; do
   fi
 done
 
-# Counters for total tests and failed tests.
-total_tests=0
-failed_tests=0
+# Counters for total and failed runs and verifications.
+total_verifications=0
+failed_verifications=0
+total_runs=0
+failed_runs=0
 
 # Function to run a test.
 run_test() {
-  local substrait_plan="$1"
-  if "$build_dir"/benchmark/tpc "${tpc_kind,,}" "$substrait_plan" "$dataset_dir" "parquet_file"; then
-    echo "Test SUCCESS: $substrait_plan"
+  local substrait_plan="$1" reference_file="$2"
+  if "$build_dir"/benchmark/tpc "${tpc_kind,,}" "$substrait_plan" "$dataset_dir" "parquet_file" ; then
+    echo "Run SUCCESS: $substrait_plan"
+    # Extract output file name
+    substrait_name=$(basename $substrait_plan | cut -d. -f1)
+    output_file="output_${substrait_name}.parquet"
+    ((total_verifications++))
+    if [ -v output_file ]; then
+      # Verify results
+      if python $(dirname "$0")/verify_parquet.py "$output_file" "$reference_file"; then
+        echo "Verification SUCCESS: $output_file vs. $reference_file"
+      else
+        echo "Verification FAILED: $output_file vs. $reference_file" >&2
+        ((failed_verifications++))
+      fi
+    else
+      echo "Unable to extract output filename from program output"
+      ((failed_verifications++))
+    fi
   else
-    echo "Test FAILED: $substrait_plan" >&2
-    ((failed_tests++))
+    echo "Run FAILED: $substrait_plan" >&2
+    ((failed_runs++))
   fi
 }
 
 # Check if substrait pattern has a format specifier (%d) and act accordingly.
 if [[ $substrait_pattern == *"%d"* ]]; then
   for query in "${queries[@]}"; do
-    ((total_tests++))
+    ((total_runs++))
     # Generate the filename based on the pattern.
     substrait_plan=$(printf "$substrait_pattern" "$query")
+    reference_file="${reference_path}/q${query}.parquet"
     if [ -f "$substrait_plan" ]; then
-      run_test "$substrait_plan"
+      run_test "$substrait_plan" "$reference_file"
     else
       echo "Error: File does not exist: $substrait_plan" >&2
-      ((failed_tests++))
+      ((failed_runs++))
     fi
   done
 else
-  ((total_tests++))
+  ((total_runs++))
   # Run a single substrait plan.
   if [ -f "$substrait_pattern" ]; then
-    run_test "$substrait_pattern"
+    run_test "$substrait_pattern" "$reference_path"
   else
     echo "Error: File does not exist: $substrait_pattern" >&2
-    ((failed_tests++))
+    ((failed_runs++))
   fi
 fi
 
 # Display test results.
-if [ $failed_tests -eq 0 ]; then
-  echo "All $total_tests tests PASSED"
+if [ $failed_runs -eq 0 ]; then
+  echo "All $total_runs plans ran SUCCESSFULLY"
 else
-  echo "$failed_tests/$total_tests tests FAILED"
+  echo "$failed_runs/$total_runs plans FAILED to run"
+fi
+
+if [ $failed_verifications -eq 0 ]; then
+  echo "All $total_verifications verifications PASSED"
+else
+  echo "$failed_verifications/$total_verifications verifications FAILED"
 fi
 
 # Exit with the number of failed tests.
-exit $failed_tests
+exit $(($failed_runs + $failed_verifications))

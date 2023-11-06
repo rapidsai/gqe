@@ -19,3 +19,5 @@ dependencies:
   - gcc_linux-64=11.*
   - sysroot_linux-64==2.17
   - libprotobuf=4.*
+  - pandas
+  - pyarrow

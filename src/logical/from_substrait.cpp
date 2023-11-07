@@ -94,6 +94,10 @@ std::vector<std::shared_ptr<gqe::logical::relation>> gqe::substrait_parser::from
     }
   }
 
+  for (auto const& relation : relation_trees) {
+    GQE_LOG_TRACE("Import a query plan from file: \n {}", relation->to_string());
+  }
+
   return relation_trees;
 }
 
@@ -224,6 +228,7 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression
     case substrait::Expression_Literal::LiteralTypeCase::kDecimal: {
       // For now, always parse a decimal into a floating point number
       auto fixed_point_value = from_substrait_decimal(literal_expression.decimal());
+      GQE_LOG_WARN("Use FLOAT64 to represent a decimal literal");
       return std::make_unique<gqe::literal_expression<double>>(
         static_cast<double>(fixed_point_value));
     }
@@ -300,6 +305,7 @@ cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
         return cudf::data_type(cudf::type_id::DECIMAL128, -scale);
       }
       */
+      GQE_LOG_WARN("Use FLOAT64 to represent decimal type");
       return cudf::data_type(cudf::type_id::FLOAT64);
     }
     default:
@@ -933,7 +939,6 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_join_relati
   } else {
     join_condition = std::make_unique<gqe::literal_expression<bool>>(true);
   }
-  GQE_LOG_DEBUG("substrait parser: join condition: " + join_condition->to_string());
   // Construct projection indices
   // TODO: Configure projection indices from parent projection relation. For now,
   //       we'll return all columns and handle projection in a separate relation.
@@ -956,7 +961,6 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_join_relati
   //       will need to reflect the changes
   if (join_relation.has_post_join_filter()) {
     auto join_filter = parse_expression(join_relation.post_join_filter(), subquery_relations);
-    GQE_LOG_DEBUG("substrait parser: join filter: " + join_filter->to_string());
     return std::make_unique<gqe::logical::filter_relation>(
       std::move(join), std::move(subquery_relations), std::move(join_filter));
   }

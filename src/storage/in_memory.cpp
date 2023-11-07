@@ -226,8 +226,14 @@ void in_memory_read_task::execute_read_by_value()
     result_columns.emplace_back(std::move(result_column));
   }
 
-  // Cache the result
+  // Emit the result
   auto new_table = std::make_unique<cudf::table>(std::move(result_columns));
+
+  GQE_LOG_TRACE(
+    "Execute in-memory read task: task_id={}, stage_id={}, strategy=by_value, output_size={}.",
+    task_id(),
+    stage_id(),
+    new_table->num_rows());
   emit_result(std::move(new_table));
 }
 
@@ -247,7 +253,14 @@ void in_memory_read_task::execute_read_by_reference()
     result_columns.push_back(view);
   }
 
-  emit_result(cudf::table_view(std::move(result_columns)));
+  auto result = cudf::table_view(std::move(result_columns));
+
+  GQE_LOG_TRACE(
+    "Execute in-memory read task: task_id={}, stage_id={}, strategy=by_reference, output_size={}.",
+    task_id(),
+    stage_id(),
+    result.num_rows());
+  emit_result(result);
 }
 
 void in_memory_read_task::execute()
@@ -347,6 +360,10 @@ void in_memory_write_task::execute()
   // Append row group to table
   _appender(std::move(row_group));
 
+  GQE_LOG_TRACE("Execute in-memory write task: task_id={}, stage_id={}, input_size={}.",
+                task_id(),
+                stage_id(),
+                input_table.num_rows());
   remove_dependencies();
 }
 

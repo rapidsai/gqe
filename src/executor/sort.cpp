@@ -14,6 +14,7 @@
 #include <gqe/executor/sort.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/helpers.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <cudf/sorting.hpp>
 #include <cudf/table/table_view.hpp>
@@ -48,7 +49,14 @@ void sort_task::execute()
   auto values               = dependent_tasks[0]->result().value();
   auto [keys, column_cache] = evaluate_expressions(values, utility::to_const_raw_ptrs(_keys));
 
-  emit_result(cudf::sort_by_key(values, cudf::table_view(keys), _column_orders, _null_precedences));
+  auto result =
+    cudf::sort_by_key(values, cudf::table_view(keys), _column_orders, _null_precedences);
+
+  GQE_LOG_TRACE("Execute sort task: task_id={}, stage_id={}, output_size={}.",
+                task_id(),
+                stage_id(),
+                result->num_rows());
+  emit_result(std::move(result));
   remove_dependencies();
 }
 

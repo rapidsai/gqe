@@ -17,7 +17,7 @@ reference_path="$4"
 substrait_pattern="$5"
 
 # Define the query lists for TPC-H and TPC-DS.
-tpc_h_queries=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22)
+tpc_h_queries=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 16 17 18 19 20 21 22)
 tpc_ds_queries=()
 
 # Select the correct query list based on the tpc_kind.

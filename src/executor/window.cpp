@@ -14,6 +14,7 @@
 #include <gqe/executor/window.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <cudf/aggregation.hpp>
 #include <cudf/column/column_factories.hpp>
@@ -263,6 +264,10 @@ void window_task::execute()
     throw std::runtime_error("Window task needs an order-by expression\n");
   }
 
+  GQE_LOG_TRACE("Execute window task: task_id={}, stage_id={}, output_size={}.",
+                task_id(),
+                stage_id(),
+                window_col_table->num_rows());
   emit_result(std::move(window_col_table));
   remove_dependencies();
 }

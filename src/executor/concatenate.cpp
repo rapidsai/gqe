@@ -12,6 +12,7 @@
 
 #include <gqe/executor/concatenate.hpp>
 #include <gqe/utility/cuda.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <cudf/concatenate.hpp>
 
@@ -31,6 +32,12 @@ void gqe::concatenate_task::execute()
     tables_to_concatenate.push_back(depedent_task_result.value());
   }
 
-  emit_result(cudf::concatenate(tables_to_concatenate));
+  auto result = cudf::concatenate(tables_to_concatenate);
+
+  GQE_LOG_TRACE("Execute concatenate task: task_id={}, stage_id={}, output_size={}.",
+                task_id(),
+                stage_id(),
+                result->num_rows());
+  emit_result(std::move(result));
   remove_dependencies();
 }

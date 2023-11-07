@@ -14,6 +14,7 @@
 #include <gqe/executor/eval.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/helpers.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/aggregation/aggregation.hpp>
@@ -172,7 +173,14 @@ void aggregate_task::execute()
     }
   }
 
-  emit_result(std::make_unique<cudf::table>(std::move(result_columns)));
+  auto result = std::make_unique<cudf::table>(std::move(result_columns));
+
+  GQE_LOG_TRACE("Execute aggregate task: task_id={}, stage_id={}, input_size={}, output_size={}.",
+                task_id(),
+                stage_id(),
+                input_table.num_rows(),
+                result->num_rows());
+  emit_result(std::move(result));
   remove_dependencies();
 }
 

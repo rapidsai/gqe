@@ -17,6 +17,7 @@
 #include <gqe/expression/literal.hpp>
 #include <gqe/expression/unary_op.hpp>
 #include <gqe/utility/cuda.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <cudf/ast/expressions.hpp>
 #include <cudf/column/column.hpp>
@@ -627,6 +628,13 @@ void join_task::execute()
                      ", right_size:" + std::to_string(right_view.num_rows()) +
                      ", result_size:" + std::to_string(join_result->num_rows()));
 
+  GQE_LOG_TRACE(
+    "Execute join task: task_id={}, stage_id={}, left_size={}, right_size={}, output_size={}.",
+    task_id(),
+    stage_id(),
+    left_view.num_rows(),
+    right_view.num_rows(),
+    join_result->num_rows());
   emit_result(std::move(join_result));
   remove_dependencies();
 }

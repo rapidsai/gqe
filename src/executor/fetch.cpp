@@ -49,15 +49,20 @@ void fetch_task::execute()
   }
 
   auto end_idx = _offset + _count;
-
-  if (start_idx >= input_table.num_rows() || start_idx >= end_idx) {
-    emit_result(cudf::empty_like(input_table));
-    return;
-  }
-
   if (end_idx > input_table.num_rows()) { end_idx = input_table.num_rows(); }
 
-  emit_result(std::make_unique<cudf::table>(cudf::slice(input_table, {start_idx, end_idx})[0]));
+  std::unique_ptr<cudf::table> result;
+  if (start_idx >= end_idx) {
+    result = cudf::empty_like(input_table);
+  } else {
+    result = std::make_unique<cudf::table>(cudf::slice(input_table, {start_idx, end_idx})[0]);
+  }
+
+  GQE_LOG_TRACE("Execute fetch task: task_id={}, stage_id={}, output_size={}.",
+                task_id(),
+                stage_id(),
+                result->num_rows());
+  emit_result(std::move(result));
   remove_dependencies();
 }
 

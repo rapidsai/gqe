@@ -12,6 +12,7 @@
 
 #include <gqe/executor/gen_ident_col.hpp>
 #include <gqe/utility/cuda.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <cudf/table/table_view.hpp>
 
@@ -54,7 +55,13 @@ void gen_ident_col_task::execute()
   cudf::table initial_table(input_table);
   auto result_cols = initial_table.release();
   result_cols.push_back(std::move(row_id_col));
-  emit_result(std::make_unique<cudf::table>(std::move(result_cols)));
+  auto result = std::make_unique<cudf::table>(std::move(result_cols));
+
+  GQE_LOG_TRACE("Execute gen_ident_col task: task_id={}, stage_id={}, output_size={}.",
+                task_id(),
+                stage_id(),
+                result->num_rows());
+  emit_result(std::move(result));
   remove_dependencies();
 }
 

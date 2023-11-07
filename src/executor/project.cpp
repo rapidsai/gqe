@@ -14,6 +14,7 @@
 #include <gqe/executor/project.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/helpers.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
@@ -49,7 +50,13 @@ void project_task::execute()
   // In theory, a copy is not necessary in certain scenarios. For example, if a project
   // relation is only used to reorder columns, we could simply let the input task release its
   // ownership of the table, change the order of the columns and assemble into a new table.
-  emit_result(std::make_unique<cudf::table>(eval_table));
+  auto result = std::make_unique<cudf::table>(eval_table);
+
+  GQE_LOG_TRACE("Execute project task: task_id={}, stage_id={}, output_size={}.",
+                task_id(),
+                stage_id(),
+                result->num_rows());
+  emit_result(std::move(result));
   remove_dependencies();
 }
 

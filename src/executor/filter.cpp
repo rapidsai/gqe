@@ -13,6 +13,7 @@
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/filter.hpp>
 #include <gqe/utility/cuda.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <cudf/stream_compaction.hpp>
 #include <cudf/table/table_view.hpp>
@@ -46,7 +47,14 @@ void filter_task::execute()
   auto input_table          = dependent_tasks[0]->result().value();
   auto [mask, column_cache] = evaluate_expressions(input_table, condition_expr);
 
-  emit_result(cudf::apply_boolean_mask(input_table, mask[0]));
+  auto result = cudf::apply_boolean_mask(input_table, mask[0]);
+
+  GQE_LOG_TRACE("Execute filter task: task_id={}, stage_id={}, input_size={}, output_size={}.",
+                task_id(),
+                stage_id(),
+                input_table.num_rows(),
+                result->num_rows());
+  emit_result(std::move(result));
   remove_dependencies();
 }
 

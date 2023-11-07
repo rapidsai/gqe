@@ -251,9 +251,11 @@ void parquet_read_task::execute()
 
   auto loaded_table = table_from_parquet(filtered_file_paths);
 
-  GQE_LOG_TRACE(
-    "Load {0} from files with {1} rows.", print_column_names(), loaded_table->num_rows());
-
+  GQE_LOG_TRACE("Execute Parquet read task: task_id={}, stage_id={}, columns={}, output_size={}.",
+                task_id(),
+                stage_id(),
+                print_column_names(),
+                loaded_table->num_rows());
   emit_result(std::move(loaded_table));
   remove_dependencies();
 }
@@ -309,6 +311,10 @@ void parquet_write_task::execute()
 
   cudf::io::parquet_chunked_writer(builder).write(input_table).close();
 
+  GQE_LOG_TRACE("Execute Parquet write task: task_id={}, stage_id={}, input_size={}.",
+                task_id(),
+                stage_id(),
+                input_table.num_rows());
   remove_dependencies();
 }
 

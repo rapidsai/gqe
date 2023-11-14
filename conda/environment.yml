@@ -7,15 +7,16 @@ dependencies:
   - libcudf=23.10
   - libnuma
   - python=3.10
-  - cuda-cccl=11.8
-  - cuda-cudart=11.8
-  - cuda-cudart-dev=11.8
-  - cuda-nvcc=11.8
+  - cuda-cccl=12.2
+  - cuda-cudart=12.2
+  - cuda-cudart-static  # nvidia channel CUDA misses this dependency, so added manually
+  - cuda-cudart-dev=12.2
+  - cuda-nvcc=12.2
+  - cuda-version=12.2
   - cmake
   - c-compiler
   - cxx-compiler
   - clang-tools=11.1.0
-  - ptxcompiler
   - gcc_linux-64=11.*
   - sysroot_linux-64==2.17
   - libprotobuf=4.*

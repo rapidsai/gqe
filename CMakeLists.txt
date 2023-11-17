@@ -27,6 +27,9 @@ rapids_cpm_init()
 
 project(gqe LANGUAGES CXX CUDA)
 
+# ##################################################################################################
+# * compiler options ------------------------------------------------------------------------------
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CUDA_STANDARD 17)
 
@@ -41,7 +44,14 @@ add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--generate-line-info>")
 # needed for clang-tidy
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Setup CPM dependencies
+# ##################################################################################################
+# * build options ---------------------------------------------------------------------------------
+
+option(GQE_ENABLE_CUSTOMIZED_PARQUET "Enable the customized Parquet reader" OFF)
+
+# ##################################################################################################
+# * dependencies ----------------------------------------------------------------------------------
+
 include(${rapids-cmake-dir}/cpm/gtest.cmake)
 include(${rapids-cmake-dir}/cpm/spdlog.cmake)
 include(${rapids-cmake-dir}/cpm/cuco.cmake)
@@ -69,6 +79,14 @@ rapids_find_package(Protobuf QUIET CONFIG)
 if (NOT Protobuf_FOUND)
   rapids_find_package(Protobuf REQUIRED MODULE)
 endif()
+
+if(GQE_ENABLE_CUSTOMIZED_PARQUET)
+  rapids_find_package(Thrift CONFIG REQUIRED)
+  rapids_find_package(nvcomp CONFIG REQUIRED)
+endif()
+
+# ##################################################################################################
+# * targets ---------------------------------------------------------------------------------------
 
 add_subdirectory(src)
 if(PROJECT_IS_TOP_LEVEL)

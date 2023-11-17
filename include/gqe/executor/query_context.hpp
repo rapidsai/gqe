@@ -13,6 +13,9 @@
 #pragma once
 
 #include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/memory_resource/pinned_memory_resource.hpp>
+
+#include <rmm/mr/device/fixed_size_memory_resource.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -32,9 +35,19 @@ namespace gqe {
 struct query_context {
   query_context() = delete;
 
-  explicit query_context(optimization_parameters const* parameters) : parameters(parameters) {}
+  explicit query_context(optimization_parameters const* parameters);
+  query_context(query_context const&) = delete;
+  query_context& operator=(query_context const&) = delete;
 
   gqe::optimization_parameters const* parameters;
+
+  // Memory resource used to allocate host-accessible bounce buffers for the customized Parquet
+  // reader.
+  std::unique_ptr<rmm::mr::fixed_size_memory_resource<gqe::memory_resource::pinned_memory_resource>>
+    io_bounce_buffer_mr = nullptr;
+
+ private:
+  gqe::memory_resource::pinned_memory_resource _pinned_mr;
 };
 
 }  // namespace gqe

@@ -116,6 +116,12 @@ optimization_parameters::optimization_parameters(bool only_defaults)
       parse_env_variable("GQE_JOIN_USE_HASH_MAP_CACHE", join_use_hash_map_cache);
 
     read_zero_copy_enable = parse_env_variable("GQE_READ_USE_ZERO_COPY", read_zero_copy_enable);
+
+    use_customized_io = parse_env_variable("GQE_USE_CUSTOMIZED_IO", use_customized_io);
+
+    io_bounce_buffer_size = parse_env_variable("GQE_IO_BOUNCE_BUFFER_SIZE", io_bounce_buffer_size);
+
+    io_auxiliary_threads = parse_env_variable("GQE_IO_AUXILIARY_THREADS", io_auxiliary_threads);
   }
 }
 

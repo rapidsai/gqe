@@ -2,8 +2,30 @@
 
 `GQE` is a C++ proof-of-concept SQL query engine for running data analytics queries on the GPUs.
 
-## Substrait Producer
-`GQE` uses the producer from [datafusion-substrait](https://github.com/datafusion-contrib/datafusion-substrait). The `datafusion-substrait` project relies on the `SQL` parser and optimizer from [DataFusion](https://github.com/apache/arrow-datafusion). The code is written in Rust and all dependencies managed by Cargo.
+## Build GQE
+
+The easiest way to install the dependencies is through conda. Within the top-level directory of the repo, run
+```
+conda env create -f conda/environment.yml
+```
+
+Then, to compile, run
+```
+conda activate gqe
+mkdir build
+cd build
+cmake ..
+make -j8
+```
+
+GQE has the following CMake flags to control what to build.
+- GQE implements a prototype Parquet reader that is limited in functionality but more performant. By default, this reader will not be built and GQE will rely on cuDF's Parquet reader. Specify `-DGQE_ENABLE_CUSTOMIZED_PARQUET=ON` to build the prototype Parquet reader.
+
+## Generate Query Plan
+
+`GQE` does not have a SQL parser. Instead, it can import a logical plan from a [Substrait](https://substrait.io) file.
+
+To generate a Substrait query plan, `GQE` uses the producer from [datafusion-substrait](https://github.com/datafusion-contrib/datafusion-substrait). The `datafusion-substrait` project relies on the `SQL` parser and optimizer from [DataFusion](https://github.com/apache/arrow-datafusion). The code is written in Rust and all dependencies managed by Cargo.
 
 ### Pre-requisites
 #### Install Rust
@@ -71,5 +93,8 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | GQE_LOG_LEVEL | info | Enable log messages for this level or higher |
 | GQE_JOIN_USE_HASH_MAP_CACHE | false | Allow multiple join tasks to reuse the same hash map. Enabling this option may increase device-memory usage in some circumstances. If `MAX_NUM_WORKERS` is set to more than 1, this option is disabled. |
 | GQE_READ_USE_ZERO_COPY | true | Enable zero-copy reads for in-memory table. When disabled, read tasks copy input data to a temporary output buffer. |
+| GQE_USE_CUSTOMIZED_IO | false | Whether to use the customized Parquet reader if supported. |
+| GQE_IO_BOUNCE_BUFFER_SIZE | 4 | Size in GB per worker of the page-locked CPU memory bounce buffer used for the customized Parquet reader. |
+| GQE_IO_AUXILIARY_THREADS | 8 | Number of auxiliary threads per worker launched by the customized Parquet reader. |
 
 Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-23.10/CONTRIBUTING.md#build-cudf-from-source).

@@ -22,3 +22,7 @@ dependencies:
   - libprotobuf=4.*
   - pandas
   - pyarrow
+  - thrift-compiler
+  - libthrift
+  - zlib  # libthrift checks zlib during CMake configuration, but conda-forge doesn't install it automatically
+  - nvcomp

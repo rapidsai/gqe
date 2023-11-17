@@ -49,6 +49,7 @@ add_library(
     executor/join.cpp
     executor/optimization_parameters.cpp
     executor/project.cpp
+    executor/query_context.cpp
     executor/read.cpp
     executor/sort.cpp
     executor/task.cpp
@@ -61,6 +62,7 @@ add_library(
     optimizer/estimator.cpp
     storage/in_memory.cpp
     storage/parquet.cpp
+    storage/parquet_reader.cu
     utility/cuda.cpp
     utility/linux.cpp
     utility/tpcds.cpp
@@ -77,3 +79,20 @@ target_link_libraries(gqe PRIVATE nvtx3-cpp)
 target_link_libraries(gqe PUBLIC spdlog::spdlog)
 target_link_libraries(gqe PUBLIC substrait)
 target_link_libraries(gqe PRIVATE Threads::Threads)
+
+# Download and configure Parquet format
+if(GQE_ENABLE_CUSTOMIZED_PARQUET)
+    file(DOWNLOAD
+        https://raw.githubusercontent.com/apache/parquet-format/c185faf0c4fc0c7d3075d1abd4ed0985cdbe5d87/src/main/thrift/parquet.thrift
+        ${CMAKE_BINARY_DIR}/parquet/parquet.thrift)
+    execute_process(
+        COMMAND thrift -r --gen cpp -out ${CMAKE_BINARY_DIR}/parquet ${CMAKE_BINARY_DIR}/parquet/parquet.thrift
+        COMMAND_ERROR_IS_FATAL ANY)
+    add_library(parquet ${CMAKE_BINARY_DIR}/parquet/parquet_types.cpp)
+    target_include_directories(parquet PUBLIC ${CMAKE_BINARY_DIR}/parquet)
+    target_link_libraries(parquet PUBLIC thrift::thrift)
+
+    target_link_libraries(gqe PRIVATE parquet)
+    target_link_libraries(gqe PRIVATE nvcomp::nvcomp)
+    add_compile_definitions(ENABLE_CUSTOMIZED_PARQUET)
+endif()

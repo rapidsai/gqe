@@ -18,6 +18,10 @@
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/logger.hpp>
 
+#ifdef ENABLE_CUSTOMIZED_PARQUET
+#include <gqe/storage/parquet_reader.hpp>
+#endif
+
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -27,6 +31,9 @@
 #include <cudf/stream_compaction.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/unary.hpp>
+
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/device_buffer.hpp>
 
 #include <cassert>
 #include <cstdint>
@@ -111,6 +118,23 @@ struct file_filter_functor {
   }
 };
 
+namespace {
+
+std::vector<std::unique_ptr<cudf::column>> cudf_read_parquet(
+  std::vector<std::string> const& file_paths, std::vector<std::string> const& column_names)
+{
+  auto source = cudf::io::source_info(file_paths);
+
+  auto options = cudf::io::parquet_reader_options::builder(source);
+  options.columns(column_names);
+
+  auto table_with_metadata = cudf::io::read_parquet(options);
+
+  return table_with_metadata.tbl->release();
+}
+
+}  // namespace
+
 std::unique_ptr<cudf::table> parquet_read_task::table_from_parquet(
   std::vector<std::string> const& file_paths) const
 {
@@ -121,14 +145,41 @@ std::unique_ptr<cudf::table> parquet_read_task::table_from_parquet(
     return std::make_unique<cudf::table>(std::move(empty_columns));
   }
 
+  std::vector<std::unique_ptr<cudf::column>> read_columns;
+
+#ifdef ENABLE_CUSTOMIZED_PARQUET
+  auto qctx = get_query_context();
+
+  if (qctx->parameters->use_customized_io) {
+    try {
+      auto const bounce_buffer_size = qctx->io_bounce_buffer_mr->get_block_size();
+      // Note that we use `device_buffer` only as a RAII wrapper. `bounce_buffer` is located in the
+      // pinned host memory, not device memory.
+      rmm::device_buffer bounce_buffer(
+        bounce_buffer_size, rmm::cuda_stream_default, qctx->io_bounce_buffer_mr.get());
+
+      auto const num_auxiliary_threads = qctx->parameters->io_auxiliary_threads;
+
+      read_columns = gqe::storage::read_parquet(file_paths,
+                                                _column_names,
+                                                bounce_buffer.data(),
+                                                bounce_buffer_size,
+                                                num_auxiliary_threads)
+                       ->release();
+    } catch (gqe::storage::unsupported_error const& error) {
+      GQE_LOG_TRACE(error.what());
+      GQE_LOG_TRACE("Fallback to cuDF's Parquet reader when loading: " + file_paths[0]);
+
+      read_columns = cudf_read_parquet(file_paths, _column_names);
+    }
+  } else {
+    read_columns = cudf_read_parquet(file_paths, _column_names);
+  }
+#else
+  read_columns = cudf_read_parquet(file_paths, _column_names);
+#endif
+
   auto const num_columns = _column_names.size();
-  auto source            = cudf::io::source_info(file_paths);
-
-  auto options = cudf::io::parquet_reader_options::builder(source);
-  options.columns(_column_names);
-
-  auto table_with_metadata = cudf::io::read_parquet(options);
-  auto read_columns        = table_with_metadata.tbl->release();
   assert(read_columns.size() == num_columns);
 
   // Convert the read columns into the specified types if necessary

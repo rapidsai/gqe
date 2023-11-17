@@ -66,8 +66,6 @@ std::vector<task*> task::dependencies() const noexcept
 
 std::vector<task*> task::subqueries() const noexcept { return utility::to_raw_ptrs(_subqueries); }
 
-query_context& task::get_query_context() const noexcept { return *_query_context; }
-
 const optimization_parameters& task::get_optimization_parameters() const noexcept
 {
   return *_query_context->parameters;

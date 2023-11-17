@@ -37,7 +37,7 @@ class InMemoryReadTest : public testing::TestWithParam<bool> {
 
     opms->read_zero_copy_enable = GetParam();
 
-    qctx = std::make_unique<gqe::query_context>(gqe::query_context(opms.get()));
+    qctx = std::make_unique<gqe::query_context>(opms.get());
   }
 
   void SetUp() override

@@ -147,7 +147,7 @@ class task {
   /**
    * @brief Return the query context.
    */
-  [[nodiscard]] query_context& get_query_context() const noexcept;
+  [[nodiscard]] query_context* get_query_context() const noexcept { return _query_context; }
 
   /**
    * @brief Return the optimization parameters.

@@ -46,6 +46,12 @@ struct optimization_parameters {
   bool read_zero_copy_enable =
     true;  ///< Enable zero-copy reads for in-memory table. When disabled, read tasks copy input
            ///< data to a temporary output buffer.
+  bool use_customized_io = false;  ///< Use the customized Parquet reader if supported.
+  int32_t io_bounce_buffer_size =
+    4;  ///< Size in GB per worker of the page-locked CPU memory bounce
+        ///< buffer used by the customized Parquet reader. Default to 4 (GB).
+  std::size_t io_auxiliary_threads =
+    8;  ///< Number of auxiliary threads per worker launched by the customized Parquet reader.
 };
 
 }  // namespace gqe

@@ -12,6 +12,12 @@
 
 #pragma once
 
+#ifdef __CUDACC__
+#define GQE_HOST_DEVICE __host__ __device__
+#else
+#define GQE_HOST_DEVICE
+#endif
+
 #include <gqe/utility/logger.hpp>
 
 #include <cassert>
@@ -47,7 +53,7 @@ overloaded(Ts...) -> overloaded<Ts...>;
  * @brief Helper function for integer division by rounding up to next-higher integer.
  */
 template <typename type, std::enable_if_t<std::is_integral_v<type>>* = nullptr>
-inline type divide_round_up(type dividend, type divisor)
+constexpr GQE_HOST_DEVICE type divide_round_up(type dividend, type divisor)
 {
   assert(divisor != 0);
 
@@ -102,5 +108,26 @@ inline void time_function(Func func, Args&&... args)
   auto duration  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_time - start_time);
   GQE_LOG_INFO("Query execution time: {} ms.", duration.count());
 }
+
+/**
+ * @brief Convert a type to an unsigned integer type with the same size.
+ */
+template <typename T>
+struct make_unsigned {
+  using type = std::make_unsigned_t<T>;
+};
+
+template <>
+struct make_unsigned<float> {
+  using type = uint32_t;
+};
+
+template <>
+struct make_unsigned<double> {
+  using type = uint64_t;
+};
+
+template <typename T>
+using make_unsigned_t = typename make_unsigned<T>::type;
 
 }  // namespace gqe::utility

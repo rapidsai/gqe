@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 colored = "2.0.0"
-datafusion = {git = "https://github.com/apache/arrow-datafusion.git", ref = "4881b5d"}
-datafusion-substrait = {git = "https://github.com/apache/arrow-datafusion.git", ref = "4881b5d"}
+datafusion = {git = "https://github.com/apache/arrow-datafusion.git", rev = "e18c709"}
+datafusion-substrait = {git = "https://github.com/apache/arrow-datafusion.git", rev = "e18c709"}
 tokio = "1.17"
 yaml-rust = "0.4"

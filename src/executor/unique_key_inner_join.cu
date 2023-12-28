@@ -227,8 +227,8 @@ using join_hash_map_type = cuco::experimental::static_map<
   thrust::equal_to<T>,
   cuco::experimental::
     double_hashing<1, cuco::detail::MurmurHash3_32<T>, cuco::detail::MurmurHash3_32<T>>,
-  rmm::mr::stream_allocator_adaptor<rmm::mr::polymorphic_allocator<cuco::pair<T, cudf::size_type>>>,
-  cuco::experimental::aow_storage<1>>;
+  rmm::mr::stream_allocator_adaptor<
+    rmm::mr::polymorphic_allocator<cuco::pair<T, cudf::size_type>>>>;
 
 template <typename KernelType>
 void set_grid_size(int* grid_size, int block_size, KernelType kernel)

@@ -7,7 +7,7 @@ WORKDIR /
 SHELL ["/bin/bash", "-c"]
 
 # Compile libcudf from source
-RUN git clone --branch branch-23.10 https://github.com/rapidsai/cudf.git /cudf \
+RUN git clone --branch branch-23.12 https://github.com/rapidsai/cudf.git /cudf \
     && cd /cudf \
     && PARALLEL_LEVEL=16 CUDF_CMAKE_CUDA_ARCHITECTURES="70;80;90" ./build.sh libcudf benchmarks --ptds --cmake-args=\" -DCUDF_ENABLE_ARROW_S3=OFF -DBUILD_BENCHMARKS=ON -DCUDA_ENABLE_LINEINFO=ON \"
 

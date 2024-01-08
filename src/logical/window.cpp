@@ -13,6 +13,7 @@
 #include <cudf/aggregation.hpp>
 #include <gqe/logical/utility.hpp>
 #include <gqe/logical/window.hpp>
+#include <gqe/utility/helpers.hpp>
 
 #include <cudf/detail/aggregation/aggregation.hpp>
 
@@ -98,6 +99,71 @@ window_frame_bound::type window_relation::window_lower_bound() const noexcept
 window_frame_bound::type window_relation::window_upper_bound() const noexcept
 {
   return _window_upper_bound;
+}
+
+bool window_relation::operator==(const relation& other) const
+{
+  auto this_type = this->type();
+  if (this_type != other.type()) {
+    utility::log_relation_comparison_message(
+      this_type,
+      "operator==() relation type mismatch with " + utility::relation_type_str(other.type()));
+    return false;
+  }
+  auto other_window_relation = dynamic_cast<const window_relation*>(&other);
+  // Compare attributes
+  if (this->aggr_func() != other_window_relation->aggr_func()) {
+    utility::log_relation_comparison_message(this_type,
+                                             "operator==(): aggregate function kind mismatch");
+    return false;
+  }
+  if (this->window_lower_bound() != other_window_relation->window_lower_bound()) {
+    utility::log_relation_comparison_message(this_type,
+                                             "operator==(): window lower bound mismatch");
+    return false;
+  }
+  if (this->window_upper_bound() != other_window_relation->window_upper_bound()) {
+    utility::log_relation_comparison_message(this_type,
+                                             "operator==(): window upper bound mismatch");
+    return false;
+  }
+  if (!gqe::utility::compare_pointer_vectors(this->arguments_unsafe(),
+                                             other_window_relation->arguments_unsafe())) {
+    utility::log_relation_comparison_message(this_type, "operator==(): arguments mismatch");
+    return false;
+  }
+  if (!gqe::utility::compare_pointer_vectors(this->order_by_unsafe(),
+                                             other_window_relation->order_by_unsafe())) {
+    utility::log_relation_comparison_message(this_type, "operator==(): order keys mismatch");
+    return false;
+  }
+  if (!gqe::utility::compare_pointer_vectors(this->partition_by_unsafe(),
+                                             other_window_relation->partition_by_unsafe())) {
+    utility::log_relation_comparison_message(this_type, "operator==(): partition keys mismatch");
+    return false;
+  }
+  if (this->order_dirs() != other_window_relation->order_dirs()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): order directions mismatch");
+    return false;
+  }
+  if (this->data_types() != other_window_relation->data_types()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): data types mismatch");
+    return false;
+  }
+  // Compare children
+  if (!gqe::utility::compare_pointer_vectors(this->children_unsafe(),
+                                             other_window_relation->children_unsafe())) {
+    utility::log_relation_comparison_message(this_type, "operator==(): children mismatch");
+    return false;
+  }
+  // Compare subquery_relations
+  if (!gqe::utility::compare_pointer_vectors(this->subqueries_unsafe(),
+                                             other_window_relation->subqueries_unsafe())) {
+    utility::log_relation_comparison_message(this_type,
+                                             "operator==(): subquery relations mismatch");
+    return false;
+  }
+  return true;
 }
 
 }  // namespace logical

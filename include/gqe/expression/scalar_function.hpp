@@ -136,6 +136,11 @@ class datepart_expression : public scalar_function_expression {
     return std::make_unique<datepart_expression>(*this);
   }
 
+  /**
+   * @copydoc expression::operator==(const relation& other)
+   */
+  bool operator==(const expression& other) const override;
+
  private:
   datetime_component _component;
 };
@@ -192,6 +197,8 @@ class like_expression : public scalar_function_expression {
     return std::make_unique<like_expression>(*this);
   }
 
+  bool operator==(const expression& other) const override;
+
  private:
   std::string _pattern;
   std::string _escape_character;
@@ -246,6 +253,8 @@ class round_expression : public scalar_function_expression {
     return std::make_unique<round_expression>(*this);
   }
 
+  bool operator==(const expression& other) const override;
+
  private:
   cudf::size_type _decimal_places;
 };
@@ -295,6 +304,8 @@ class substr_expression : public scalar_function_expression {
   {
     return std::make_unique<substr_expression>(*this);
   }
+
+  bool operator==(const expression& other) const override;
 
   /**
    * @brief Returns the start index of the substring

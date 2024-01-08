@@ -56,6 +56,11 @@ class filter_relation : public relation {
    */
   [[nodiscard]] expression* condition() const noexcept { return _condition.get(); }
 
+  /**
+   * @copydoc relation::operator==(const relation& other)
+   */
+  bool operator==(const relation& other) const override;
+
  private:
   std::vector<cudf::data_type> _data_types;
   std::unique_ptr<expression> _condition;

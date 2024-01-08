@@ -58,6 +58,11 @@ class set_relation : public relation {
    */
   [[nodiscard]] std::string to_string() const override;
 
+  /**
+   * @copydoc relation::operator==(const relation& other)
+   */
+  bool operator==(const relation& other) const override;
+
  private:
   set_operator_type _op;
 };

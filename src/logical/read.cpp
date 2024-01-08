@@ -12,6 +12,7 @@
 
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/utility.hpp>
+#include <gqe/utility/helpers.hpp>
 
 namespace gqe {
 namespace logical {
@@ -48,6 +49,47 @@ std::string read_relation::to_string() const
   read_relation_str += "\t\"children\" : " + utility::list_to_string(children_unsafe()) + "\n";
   read_relation_str += "}}";
   return read_relation_str;
+}
+
+bool read_relation::operator==(const relation& other) const
+{
+  auto this_type = this->type();
+  if (this_type != other.type()) {
+    utility::log_relation_comparison_message(
+      this_type,
+      "operator==() relation type mismatch with " + utility::relation_type_str(other.type()));
+    return false;
+  }
+  auto other_read_relation = dynamic_cast<const read_relation*>(&other);
+  // Compare attributes
+  if (this->table_name() != other_read_relation->table_name()) {
+    utility::log_relation_comparison_message(
+      this_type,
+      "operator==(): table name mismatch: " + this->table_name() + " vs. " +
+        other_read_relation->table_name());
+    return false;
+  }
+  if (this->column_names() != other_read_relation->column_names()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): column names mismatch");
+    return false;
+  }
+  if (this->data_types() != other_read_relation->data_types()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): data types mismatch");
+    return false;
+  }
+  if ((this->partial_filter_unsafe() && other_read_relation->partial_filter_unsafe()) &&
+      !(*this->partial_filter_unsafe() == *other_read_relation->partial_filter_unsafe())) {
+    utility::log_relation_comparison_message(this_type, "operator==(): data types mismatch");
+    return false;
+  }
+  // Compare subquery_relations
+  if (!gqe::utility::compare_pointer_vectors(this->subqueries_unsafe(),
+                                             other_read_relation->subqueries_unsafe())) {
+    utility::log_relation_comparison_message(this_type,
+                                             "operator==(): subquery relations mismatch");
+    return false;
+  }
+  return true;
 }
 
 }  // namespace logical

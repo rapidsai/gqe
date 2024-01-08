@@ -78,6 +78,11 @@ class if_then_else_expression : public expression {
   {
     return std::make_unique<if_then_else_expression>(*this);
   }
+
+  /**
+   * @copydoc expression::operator==(const relation& other)
+   */
+  bool operator==(const expression& other) const override;
 };
 
 }  // namespace gqe

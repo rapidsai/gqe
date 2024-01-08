@@ -57,7 +57,11 @@ add_library(
     executor/write.cpp
     executor/task_graph.cpp
     expression/binary_op.cpp
+    expression/cast.cpp
+    expression/if_then_else.cpp
     expression/scalar_function.cpp
+    expression/subquery.cpp
+    expression/unary_op.cpp
     optimizer/physical_transformation.cpp
     optimizer/estimator.cpp
     storage/in_memory.cpp

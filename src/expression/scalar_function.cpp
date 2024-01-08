@@ -11,6 +11,7 @@
  */
 
 #include <gqe/expression/scalar_function.hpp>
+#include <gqe/utility/helpers.hpp>
 
 namespace {
 /**
@@ -49,4 +50,53 @@ std::string datetime_component_str(gqe::datepart_expression::datetime_component 
   std::string fn_name = _ignore_case ? "ilike" : "like";
   return fn_name + "(" + child_exprs[0]->to_string() + ", '" + _pattern + "', '" +
          _escape_character + "')";
+}
+
+bool gqe::datepart_expression::operator==(const expression& other) const
+{
+  if (this->type() != other.type()) { return false; }
+  auto other_datepart_expr = dynamic_cast<const datepart_expression&>(other);
+  // Compare attributes
+  if (this->fn_kind() != other_datepart_expr.fn_kind() ||
+      this->component() != other_datepart_expr.component()) {
+    return false;
+  }
+  // Recuresively compare children
+  return utility::compare_pointer_vectors(this->children(), other_datepart_expr.children());
+}
+
+bool gqe::like_expression::operator==(const expression& other) const
+{
+  if (this->type() != other.type()) { return false; }
+  auto other_like_expr = dynamic_cast<const like_expression&>(other);
+  // Compare attributes
+  if (this->pattern() != other_like_expr.pattern() ||
+      this->escape_character() != other_like_expr.escape_character() ||
+      this->ignore_case() != other_like_expr.ignore_case()) {
+    return false;
+  }
+  // Recuresively compare children
+  return utility::compare_pointer_vectors(this->children(), other_like_expr.children());
+}
+
+bool gqe::round_expression::operator==(const expression& other) const
+{
+  if (this->type() != other.type()) { return false; }
+  auto other_round_expr = dynamic_cast<const round_expression&>(other);
+  // Compare attributes
+  if (this->decimal_places() != other_round_expr.decimal_places()) { return false; }
+  // Recuresively compare children
+  return utility::compare_pointer_vectors(this->children(), other_round_expr.children());
+}
+
+bool gqe::substr_expression::operator==(const expression& other) const
+{
+  if (this->type() != other.type()) { return false; }
+  auto other_substr_expr = dynamic_cast<const substr_expression&>(other);
+  // Compare attributes
+  if (this->start() != other_substr_expr.start() || this->length() != other_substr_expr.length()) {
+    return false;
+  }
+  // Recuresively compare children
+  return utility::compare_pointer_vectors(this->children(), other_substr_expr.children());
 }

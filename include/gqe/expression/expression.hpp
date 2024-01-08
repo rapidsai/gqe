@@ -235,6 +235,20 @@ class expression {
    */
   [[nodiscard]] virtual std::unique_ptr<expression> clone() const = 0;
 
+  /**
+   * @brief Overloading == operator to compare this expression with another.
+   *
+   * @note This function compares the expressions recursively and literally. It does not
+   * compare whether two expressions are logically equivalent.
+   *
+   * @param other The other expression to compare to
+   * @return true if this and other expression have the same structure and members
+   * @return false otherwise
+   */
+  virtual bool operator==(const expression& other) const = 0;
+
+  bool operator!=(const expression& other) const { return !(*this == other); }
+
  private:
   // Child nodes of the current expression
   std::vector<std::shared_ptr<expression>> _children;

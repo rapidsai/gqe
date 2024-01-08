@@ -45,6 +45,11 @@ class unary_op_expression : public expression {
    */
   void accept(expression_visitor& visitor) const override { visitor.visit(this); }
 
+  /**
+   * @copydoc expression::operator==(const relation& other)
+   */
+  bool operator==(const expression& other) const override;
+
  private:
   cudf::unary_operator _unary_operator;
 };

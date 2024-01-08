@@ -78,6 +78,11 @@ class read_relation : public relation {
    */
   [[nodiscard]] expression* partial_filter_unsafe() const { return _partial_filter.get(); }
 
+  /**
+   * @copydoc relation::operator==(const relation& other)
+   */
+  bool operator==(const relation& other) const override;
+
  private:
   std::vector<std::string> _column_names;
   std::vector<cudf::data_type> _data_types;

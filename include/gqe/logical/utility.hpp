@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -13,11 +13,14 @@
 #pragma once
 
 #include <gqe/logical/relation.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <cudf/types.hpp>
 
 #include <regex>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace gqe {
@@ -172,6 +175,39 @@ inline std::string join_type_str(join_type_type join_type)
       throw std::runtime_error("Join type enum " + std::to_string(static_cast<int>(join_type)) +
                                " not supported");
   }
+}
+
+/**
+ * @brief Turn relation::relation_type into string for logging
+ */
+inline std::string relation_type_str(relation::relation_type relation_type)
+{
+  std::string prefix = "logical ";
+  switch (relation_type) {
+    case relation::relation_type::fetch: return prefix + "fetch";
+    case relation::relation_type::sort: return prefix + "sort";
+    case relation::relation_type::project: return prefix + "project";
+    case relation::relation_type::aggregate: return prefix + "aggregate";
+    case relation::relation_type::join: return prefix + "join";
+    case relation::relation_type::window: return prefix + "window";
+    case relation::relation_type::read: return prefix + "read";
+    case relation::relation_type::write: return prefix + "write";
+    case relation::relation_type::filter: return prefix + "filter";
+    case relation::relation_type::set: return prefix + "set";
+    case relation::relation_type::user_defined: return prefix + "user defined";
+    default:
+      throw std::runtime_error("Logical relation type enum " +
+                               std::to_string(static_cast<int>(relation_type)) + " not supported");
+  }
+}
+
+/**
+ * @brief Log the message with the input relation type information
+ */
+inline void log_relation_comparison_message(relation::relation_type relation_type,
+                                            std::string message)
+{
+  GQE_LOG_TRACE(relation_type_str(relation_type) + ": " + message);
 }
 
 }  // namespace utility

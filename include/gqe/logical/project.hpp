@@ -61,6 +61,11 @@ class project_relation : public relation {
     return gqe::utility::to_raw_ptrs(_output_expressions);
   }
 
+  /**
+   * @copydoc relation::operator==(const relation& other)
+   */
+  bool operator==(const relation& other) const override;
+
  private:
   void _init_data_types() const;
   //! List of one or more expressions to add to the input

@@ -12,6 +12,7 @@
 
 #include <gqe/logical/set.hpp>
 #include <gqe/logical/utility.hpp>
+#include <gqe/utility/helpers.hpp>
 
 namespace gqe {
 namespace logical {
@@ -58,6 +59,35 @@ std::string set_relation::to_string() const
   set_relation_string += "\t\"children\" : " + utility::list_to_string(children_unsafe()) + "\n";
   set_relation_string += "}}";
   return set_relation_string;
+}
+
+bool set_relation::operator==(const relation& other) const
+{
+  auto this_type = this->type();
+  if (this_type != other.type()) {
+    utility::log_relation_comparison_message(
+      this_type,
+      "operator==() relation type mismatch with " + utility::relation_type_str(other.type()));
+    return false;
+  }
+  auto other_set_relation = dynamic_cast<const set_relation*>(&other);
+  // Compare attributes
+  if (this->set_operator() != other_set_relation->set_operator()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): operator mismatch");
+    return false;
+  }
+  if (this->data_types() != other_set_relation->data_types()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): data types mismatch");
+    return false;
+  }
+  // Compare children
+  if (!gqe::utility::compare_pointer_vectors(this->children_unsafe(),
+                                             other_set_relation->children_unsafe())) {
+    utility::log_relation_comparison_message(this_type, "operator==(): children mismatch");
+    return false;
+  }
+
+  return true;
 }
 
 }  // namespace logical

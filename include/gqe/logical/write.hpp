@@ -65,6 +65,11 @@ class write_relation : public relation {
    */
   [[nodiscard]] std::vector<std::string> column_names() const;
 
+  /**
+   * @copydoc relation::operator==(const relation& other)
+   */
+  bool operator==(const relation& other) const override;
+
  private:
   std::vector<std::string> _column_names;
   std::vector<cudf::data_type> _column_types;

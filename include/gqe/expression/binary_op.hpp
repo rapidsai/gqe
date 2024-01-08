@@ -55,6 +55,11 @@ class binary_op_expression : public expression {
    */
   void accept(expression_visitor& visitor) const override { visitor.visit(this); }
 
+  /**
+   * @copydoc expression::operator==(const relation& other)
+   */
+  bool operator==(const expression& other) const override;
+
  private:
   cudf::binary_operator _binary_operator;
 };

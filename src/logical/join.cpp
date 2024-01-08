@@ -12,6 +12,7 @@
 
 #include <gqe/logical/join.hpp>
 #include <gqe/logical/utility.hpp>
+#include <gqe/utility/helpers.hpp>
 
 namespace gqe {
 namespace logical {
@@ -77,6 +78,51 @@ std::string join_relation::to_string() const
   join_relation_string += "\t\"children\" : " + utility::list_to_string(children_unsafe()) + "\n";
   join_relation_string += "}}";
   return join_relation_string;
+}
+
+bool join_relation::operator==(const relation& other) const
+{
+  auto this_type = this->type();
+  if (this_type != other.type()) {
+    utility::log_relation_comparison_message(
+      this_type,
+      "operator==() relation type mismatch with " + utility::relation_type_str(other.type()));
+    return false;
+  }
+  auto other_join_relation = dynamic_cast<const join_relation*>(&other);
+  // Compare attributes
+  if (this->join_type() != other_join_relation->join_type()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): join type mismatch");
+    return false;
+  }
+  if (*this->condition() != *other_join_relation->condition()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): condition mismatch");
+    return false;
+  }
+  if (this->projection_indices() != other_join_relation->projection_indices()) {
+    utility::log_relation_comparison_message(this_type,
+                                             "operator==(): projection indices mismatch");
+    return false;
+  }
+  if (this->data_types() != other_join_relation->data_types()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): data types mismatch");
+    return false;
+  }
+  // Compare children
+  if (!gqe::utility::compare_pointer_vectors(this->children_unsafe(),
+                                             other_join_relation->children_unsafe())) {
+    utility::log_relation_comparison_message(this_type, "operator==(): children mismatch");
+    return false;
+  }
+  // Compare subquery_relations
+  if (!gqe::utility::compare_pointer_vectors(this->subqueries_unsafe(),
+                                             other_join_relation->subqueries_unsafe())) {
+    utility::log_relation_comparison_message(this_type,
+                                             "operator==(): subquery relations mismatch");
+    return false;
+  }
+
+  return true;
 }
 
 }  // namespace logical

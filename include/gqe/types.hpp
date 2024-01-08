@@ -369,6 +369,9 @@ namespace window_frame_bound {
  * @brief Windows which do not have finite bounds but instead extend to the end of the partition.
  */
 struct unbounded {
+  bool operator==(const unbounded& other) const { return true; }
+
+  bool operator!=(const unbounded& other) const { return false; }
 };
 
 /**
@@ -378,6 +381,10 @@ struct bounded {
   bounded(int64_t bound) : _bound(bound) {}
 
   [[nodiscard]] int64_t get_bound() const noexcept { return _bound; }
+
+  bool operator==(const bounded& other) const { return _bound == other.get_bound(); }
+
+  bool operator!=(const bounded& other) const { return _bound != other.get_bound(); }
 
  private:
   int64_t _bound;

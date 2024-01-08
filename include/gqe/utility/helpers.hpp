@@ -87,6 +87,22 @@ inline std::vector<typename SmartPtr::element_type const*> to_const_raw_ptrs(
   return raw_ptrs;
 }
 
+/**
+ * @brief Helper function to compare the data stored in each element (pointer) of the vectors.
+ *
+ * @tparam T Type of pointers
+ * @param v1 First vector to compare
+ * @param v2 Second vector to compare
+ * @return true if the content of each vector at each index are the same, false otherwise
+ */
+template <typename T>
+inline bool compare_pointer_vectors(const std::vector<T*>& v1, const std::vector<T*>& v2)
+{
+  return equal(begin(v1), end(v1), begin(v2), end(v2), [](const T* lhs, const T* rhs) {
+    return *lhs == *rhs;
+  });
+}
+
 // Return all parquet files in `path` including its subdirectories
 inline std::vector<std::string> get_parquet_files(std::string path)
 {

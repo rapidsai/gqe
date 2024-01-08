@@ -72,6 +72,11 @@ class window_relation : public relation {
   [[nodiscard]] window_frame_bound::type window_lower_bound() const noexcept;
   [[nodiscard]] window_frame_bound::type window_upper_bound() const noexcept;
 
+  /**
+   * @copydoc relation::operator==(const relation& other)
+   */
+  bool operator==(const relation& other) const override;
+
  private:
   std::vector<cudf::data_type> _data_types;
   cudf::aggregation::Kind _aggr_func;

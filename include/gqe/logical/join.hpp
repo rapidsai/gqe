@@ -80,6 +80,11 @@ class join_relation : public relation {
     return _projection_indices;
   }
 
+  /**
+   * @copydoc relation::operator==(const relation& other)
+   */
+  bool operator==(const relation& other) const override;
+
  private:
   void _init_data_types() const;
   std::unique_ptr<expression> _condition;

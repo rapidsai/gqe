@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -11,6 +11,7 @@
  */
 
 #include <gqe/expression/binary_op.hpp>
+#include <gqe/utility/helpers.hpp>
 
 #include <cudf/utilities/traits.hpp>
 
@@ -57,6 +58,15 @@ cudf::data_type multiply_expression::data_type(
   assert(child_exprs.size() == 2);
   return arithmetic_output_type(child_exprs[0]->data_type(column_types),
                                 child_exprs[1]->data_type(column_types));
+}
+
+bool binary_op_expression::operator==(const expression& other) const
+{
+  if (this->type() != other.type()) { return false; }
+  auto other_binary_expr = dynamic_cast<const binary_op_expression*>(&other);
+  if (this->binary_operator() != other_binary_expr->binary_operator()) { return false; }
+  // Recuresively compare children
+  return utility::compare_pointer_vectors(this->children(), other_binary_expr->children());
 }
 
 }  // namespace gqe

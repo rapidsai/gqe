@@ -12,6 +12,7 @@
 
 #include <gqe/logical/filter.hpp>
 #include <gqe/logical/utility.hpp>
+#include <gqe/utility/helpers.hpp>
 
 namespace gqe {
 namespace logical {
@@ -38,6 +39,42 @@ std::string filter_relation::to_string() const
   filter_relation_string += "\t\"children\" : " + utility::list_to_string(children_unsafe()) + "\n";
   filter_relation_string += "}}";
   return filter_relation_string;
+}
+
+bool filter_relation::operator==(const relation& other) const
+{
+  auto this_type = this->type();
+  if (this_type != other.type()) {
+    utility::log_relation_comparison_message(
+      this_type,
+      "operator==() relation type mismatch with " + utility::relation_type_str(other.type()));
+    return false;
+  }
+  auto other_filter_relation = dynamic_cast<const filter_relation*>(&other);
+  // Compare attributes
+  if (*this->condition() != *other_filter_relation->condition()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): condition mismatch");
+    return false;
+  }
+  if (this->data_types() != other_filter_relation->data_types()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): data types mismatch");
+    return false;
+  }
+  // Compare children
+  if (!gqe::utility::compare_pointer_vectors(this->children_unsafe(),
+                                             other_filter_relation->children_unsafe())) {
+    utility::log_relation_comparison_message(this_type, "operator==(): children mismatch");
+    return false;
+  }
+  // Compare subquery_relations
+  if (!gqe::utility::compare_pointer_vectors(this->subqueries_unsafe(),
+                                             other_filter_relation->subqueries_unsafe())) {
+    utility::log_relation_comparison_message(this_type,
+                                             "operator==(): subquery relations mismatch");
+    return false;
+  }
+
+  return true;
 }
 
 }  // namespace logical

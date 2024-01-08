@@ -75,6 +75,11 @@ class sort_relation : public relation {
    */
   [[nodiscard]] std::vector<cudf::null_order> null_orders() const noexcept { return _null_orders; }
 
+  /**
+   * @copydoc relation::operator==(const relation& other)
+   */
+  bool operator==(const relation& other) const override;
+
  private:
   std::vector<std::unique_ptr<expression>> _expressions;
   std::vector<cudf::order> _column_orders;

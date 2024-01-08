@@ -19,6 +19,7 @@ namespace logical {
 
 class aggregate_relation : public relation {
  public:
+  using measure_type = std::pair<cudf::aggregation::Kind, expression*>;
   /**
    * @brief Construct a new aggregate relation object
    *
@@ -79,8 +80,12 @@ class aggregate_relation : public relation {
    *
    * @return List of aggregate measures
    */
-  [[nodiscard]] std::vector<std::pair<cudf::aggregation::Kind, expression*>> measures_unsafe()
-    const noexcept;
+  [[nodiscard]] std::vector<measure_type> measures_unsafe() const noexcept;
+
+  /**
+   * @copydoc relation::operator==(const relation& other)
+   */
+  bool operator==(const relation& other) const override;
 
  private:
   void _init_data_types() const;

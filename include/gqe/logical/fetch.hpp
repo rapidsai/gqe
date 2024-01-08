@@ -63,6 +63,11 @@ class fetch_relation : public relation {
    */
   [[nodiscard]] int64_t count() const noexcept { return _count; };
 
+  /**
+   * @copydoc relation::operator==(const relation& other)
+   */
+  bool operator==(const relation& other) const override;
+
  private:
   int64_t _offset;
   int64_t _count;

@@ -15,6 +15,7 @@
 #include <gqe/expression/expression.hpp>
 
 #include <cudf/types.hpp>
+#include <string>
 
 namespace gqe {
 
@@ -74,6 +75,17 @@ class column_reference_expression : public expression {
    * @copydoc gqe::expression::accept()
    */
   void accept(expression_visitor& visitor) const override { visitor.visit(this); }
+
+  /**
+   * @copydoc expression::operator==(const relation& other)
+   */
+  bool operator==(const expression& other) const override
+  {
+    if (this->type() != other.type()) { return false; }
+    auto other_cast_expr = dynamic_cast<const column_reference_expression&>(other);
+    if (this->column_idx() != other_cast_expr.column_idx()) { return false; }
+    return true;
+  }
 
  private:
   cudf::size_type _column_idx;

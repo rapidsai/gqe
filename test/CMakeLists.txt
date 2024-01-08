@@ -129,6 +129,18 @@ target_link_libraries(in_memory_read_task_test PUBLIC GTest::gtest_main GTest::g
 target_link_libraries(in_memory_read_task_test PUBLIC cudf::cudftestutil)
 add_test(NAME in_memory_read_task COMMAND in_memory_read_task_test)
 
+add_executable(expression_equal_test logical/expression_equal_test.cpp)
+target_include_directories(expression_equal_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(expression_equal_test PUBLIC gqe)
+target_link_libraries(expression_equal_test PUBLIC GTest::gtest_main GTest::gmock)
+add_test(NAME expression_equal_test COMMAND expression_equal_test)
+
+add_executable(relation_equal_test logical/relation_equal_test.cpp)
+target_include_directories(relation_equal_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(relation_equal_test PUBLIC gqe)
+target_link_libraries(relation_equal_test PUBLIC GTest::gtest_main GTest::gmock)
+add_test(NAME relation_equal_test COMMAND relation_equal_test)
+
 if(GQE_ENABLE_CUSTOMIZED_PARQUET)
     add_executable(parquet_reader_test storage/parquet_reader.cpp)
     target_include_directories(parquet_reader_test PUBLIC ${CMAKE_SOURCE_DIR}/include)

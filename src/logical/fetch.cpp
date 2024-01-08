@@ -40,5 +40,33 @@ std::string fetch_relation::to_string() const
   fetch_relation_string += "}}";
   return fetch_relation_string;
 }
+
+bool fetch_relation::operator==(const relation& other) const
+{
+  auto this_type = this->type();
+  if (this_type != other.type()) {
+    utility::log_relation_comparison_message(
+      this_type,
+      "operator==() relation type mismatch with " + utility::relation_type_str(other.type()));
+    return false;
+  }
+  auto other_fetch_relation = dynamic_cast<const fetch_relation*>(&other);
+  // Compare attributes
+  if (this->offset() != other_fetch_relation->offset()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): offset mismatch");
+    return false;
+  }
+  if (this->count() != other_fetch_relation->count()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): count mismatch");
+    return false;
+  }
+  if (this->data_types() != other_fetch_relation->data_types()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): data types mismatch");
+    return false;
+  }
+
+  return true;
+}
+
 }  // namespace logical
 }  // namespace gqe

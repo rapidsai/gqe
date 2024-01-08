@@ -145,6 +145,19 @@ class relation {
    */
   [[nodiscard]] std::size_t subqueries_size() const noexcept { return _subqueries.size(); }
 
+  /**
+   * @brief Overloading == operator to compare this relation with another.
+   *
+   * @note This function compares the logical logical plans rooted at `this` and `other`
+   * recursively and literally. It does not compare whether the two plans are semantically
+   * equivalent.
+   *
+   * @param other The other relation to compare to
+   * @return true if this and other relation have the same structure and members
+   * @return false otherwise
+   */
+  virtual bool operator==(const relation& other) const = 0;
+
  private:
   // Child nodes of the current relation
   std::vector<std::shared_ptr<relation>> _children;

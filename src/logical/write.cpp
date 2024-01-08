@@ -12,6 +12,7 @@
 
 #include <gqe/logical/utility.hpp>
 #include <gqe/logical/write.hpp>
+#include <gqe/utility/helpers.hpp>
 
 #include <sstream>
 
@@ -56,6 +57,39 @@ std::string write_relation::to_string() const
 std::string write_relation::table_name() const { return _table_name; }
 
 std::vector<std::string> write_relation::column_names() const { return _column_names; }
+
+bool write_relation::operator==(const relation& other) const
+{
+  auto this_type = this->type();
+  if (this_type != other.type()) {
+    utility::log_relation_comparison_message(
+      this_type,
+      "operator==() relation type mismatch with " + utility::relation_type_str(other.type()));
+    return false;
+  }
+  auto other_write_relation = dynamic_cast<const write_relation*>(&other);
+  // Compare attributes
+  if (this->column_names() != other_write_relation->column_names()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): column names mismatch");
+    return false;
+  }
+  if (this->table_name() != other_write_relation->table_name()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): table names mismatch");
+    return false;
+  }
+  if (this->data_types() != other_write_relation->data_types()) {
+    utility::log_relation_comparison_message(this_type, "operator==(): data types mismatch");
+    return false;
+  }
+  // Compare children
+  if (!gqe::utility::compare_pointer_vectors(this->children_unsafe(),
+                                             other_write_relation->children_unsafe())) {
+    utility::log_relation_comparison_message(this_type, "operator==(): children mismatch");
+    return false;
+  }
+
+  return true;
+}
 
 }  // namespace logical
 }  // namespace gqe

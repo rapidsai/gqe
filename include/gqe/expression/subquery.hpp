@@ -53,6 +53,11 @@ class subquery_expression : public expression {
    */
   [[nodiscard]] std::size_t relation_index() const noexcept { return _relation_index; }
 
+  /**
+   * @copydoc expression::operator==(const relation& other)
+   */
+  bool operator==(const expression& other) const override;
+
  private:
   std::size_t _relation_index;
 };

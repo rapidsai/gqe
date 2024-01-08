@@ -77,6 +77,11 @@ class user_defined_relation : public relation {
     return _last_child_break_pipeline;
   }
 
+  /**
+   * @copydoc relation::operator==(const relation& other)
+   */
+  bool operator==(const relation& other) const override { return false; }
+
  private:
   user_defined_task_functor _task_functor;
   std::vector<cudf::data_type> _data_types;

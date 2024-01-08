@@ -68,6 +68,11 @@ class cast_expression : public expression {
   }
 
   /**
+   * @copydoc expression::operator==(const relation& other)
+   */
+  bool operator==(const expression& other) const override;
+
+  /**
    * @copydoc gqe::expression::accept()
    */
   void accept(expression_visitor& visitor) const override { visitor.visit(this); }

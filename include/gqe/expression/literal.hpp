@@ -105,6 +105,18 @@ class literal_expression : public gqe::expression {
    */
   void accept(expression_visitor& visitor) const override { visitor.visit(this); }
 
+  /**
+   * @copydoc expression::operator==(const relation& other)
+   */
+  bool operator==(const expression& other) const override
+  {
+    if (this->type() != other.type()) { return false; }
+    if (this->_data_type != other.data_type({})) { return false; }
+    auto other_literal_expr = dynamic_cast<const literal_expression<T>&>(other);
+    if (this->value() != other_literal_expr.value()) { return false; }
+    return true;
+  }
+
  private:
   /**
    * @brief Return the corresponding cuDF type from a C++ type

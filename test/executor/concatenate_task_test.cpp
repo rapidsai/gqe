@@ -32,8 +32,7 @@ TEST(ConcatenateTaskTest, MixTypes)
   // created and executed. The correctness is verified by comparing against the hand-coded reference
   // result.
 
-  gqe::optimization_parameters opms(true);
-  gqe::query_context qctx(&opms);
+  gqe::query_context qctx(gqe::optimization_parameters(true));
   constexpr int32_t stage_id = 0;
 
   cudf::test::fixed_width_column_wrapper<int64_t> table_0_col_0({1, 2});

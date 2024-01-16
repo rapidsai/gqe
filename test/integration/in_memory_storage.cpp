@@ -102,8 +102,7 @@ TEST(InMemoryStorage, CopyTable)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(write_relation.get());
 
-  gqe::optimization_parameters opms(true);
-  gqe::query_context qctx(&opms);
+  gqe::query_context qctx(gqe::optimization_parameters(true));
 
   // Generate the task graph and execute on a single GPU
   gqe::task_graph_builder graph_builder(&qctx, &catalog);
@@ -209,8 +208,7 @@ TEST(InMemoryStorage, CopyTableParallel)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(write_relation.get());
 
-  gqe::optimization_parameters opms(true);
-  gqe::query_context qctx(&opms);
+  gqe::query_context qctx(gqe::optimization_parameters(true));
 
   // Generate the task graph and execute on a single GPU
   gqe::task_graph_builder graph_builder(&qctx, &catalog);

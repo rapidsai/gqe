@@ -274,7 +274,7 @@ void in_memory_read_task::execute()
   bool is_single_row_group = _row_groups.size() <= 1;
 
   // Execute read.
-  if (!_force_zero_copy_disable && get_optimization_parameters().read_zero_copy_enable &&
+  if (!_force_zero_copy_disable && get_query_context()->parameters.read_zero_copy_enable &&
       is_gpu_accessible && is_single_row_group) {
     execute_read_by_reference();
   } else {

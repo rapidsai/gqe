@@ -12,7 +12,6 @@
 
 #pragma once
 
-#include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/query_context.hpp>
 
 #include <cudf/table/table.hpp>
@@ -148,11 +147,6 @@ class task {
    * @brief Return the query context.
    */
   [[nodiscard]] query_context* get_query_context() const noexcept { return _query_context; }
-
-  /**
-   * @brief Return the optimization parameters.
-   */
-  [[nodiscard]] const optimization_parameters& get_optimization_parameters() const noexcept;
 
   /**
    * @brief Make the results of all dependencies (including subqueries) available to the local GPU.

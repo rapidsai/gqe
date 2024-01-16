@@ -36,8 +36,7 @@ class SingleKeyColumnSortTest : public ::testing::Test {
     constexpr int32_t input_task_id = 0;
     constexpr int32_t sort_task_id  = 1;
 
-    gqe::optimization_parameters opms(true);
-    gqe::query_context qctx(&opms);
+    gqe::query_context qctx(gqe::optimization_parameters(true));
 
     int64_column_wrapper input_col_0({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
     int64_column_wrapper input_col_1({5, 3, 4, 8, 1, 9, 6, 7, 2, 0},

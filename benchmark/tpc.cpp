@@ -284,7 +284,7 @@ int main(int argc, char* argv[])
   gqe::optimization_parameters read_opms{};
   read_opms.max_num_partitions = parse_num_row_groups();
 
-  gqe::query_context qctx(&read_opms);
+  gqe::query_context qctx(read_opms);
   gqe::catalog catalog;
 
   // register all tables
@@ -343,7 +343,7 @@ int main(int argc, char* argv[])
     assert(logical_plan.size() == 1);
 
     gqe::optimization_parameters execute_opms{};
-    qctx.parameters = &execute_opms;
+    qctx.parameters = execute_opms;
 
     query_result_writer result_writer(&qctx, &catalog);
     auto const cached_result_name = "query_result_" + query_identifier;

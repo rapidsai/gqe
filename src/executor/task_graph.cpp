@@ -99,7 +99,7 @@ void execute_task_graph_single_gpu(query_context* query_context,
     auto const num_tasks_current_stage = tasks_current_stage.size();
 
     std::size_t num_workers =
-      std::min(query_context->parameters->max_num_workers, num_tasks_current_stage);
+      std::min(query_context->parameters.max_num_workers, num_tasks_current_stage);
     if (num_tasks_current_stage) {
       GQE_LOG_TRACE(
         "Execute stage {} with {} workers.", tasks_current_stage.front()->stage_id(), num_workers);
@@ -168,7 +168,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::read_relat
   if (!readable_view) { throw std::logic_error("table \"" + table_name + "\" is not readable"); }
 
   const auto npartitions = std::min(_builder->_catalog->max_concurrent_readers(table_name),
-                                    _builder->_query_context->parameters->max_num_partitions);
+                                    _builder->_query_context->parameters.max_num_partitions);
 
   std::vector<storage::readable_view::task_parameters> task_parameters(npartitions);
   std::generate(task_parameters.begin(),
@@ -254,8 +254,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
 
   // If MAX_NUM_WORKERS is set to more than 1, we disable the use of join cache because `pair_count`
   // in cuCollection is not thread safe.
-  bool cache_enabled = _builder->_query_context->parameters->join_use_hash_map_cache &&
-                       _builder->_query_context->parameters->max_num_workers == 1;
+  bool cache_enabled = _builder->_query_context->parameters.join_use_hash_map_cache &&
+                       _builder->_query_context->parameters.max_num_workers == 1;
 
   std::shared_ptr<gqe::join_hash_map_cache> hash_map_cache = nullptr;
 

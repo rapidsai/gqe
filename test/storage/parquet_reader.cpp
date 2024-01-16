@@ -129,7 +129,7 @@ std::unique_ptr<cudf::table> write_file_and_load_back(cudf::table_view table,
   gqe::optimization_parameters opms{};
   opms.max_num_workers   = 1;
   opms.use_customized_io = true;
-  gqe::query_context qctx(&opms);
+  gqe::query_context qctx(opms);
 
   auto const bounce_buffer_size = qctx.io_bounce_buffer_mr->get_block_size();
   rmm::device_buffer bounce_buffer(

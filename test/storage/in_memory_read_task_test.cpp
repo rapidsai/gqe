@@ -33,11 +33,10 @@ class InMemoryReadTest : public testing::TestWithParam<bool> {
   InMemoryReadTest()
 
   {
-    opms = std::make_unique<gqe::optimization_parameters>(true);
+    gqe::optimization_parameters opms(true);
+    opms.read_zero_copy_enable = GetParam();
 
-    opms->read_zero_copy_enable = GetParam();
-
-    qctx = std::make_unique<gqe::query_context>(opms.get());
+    qctx = std::make_unique<gqe::query_context>(opms);
   }
 
   void SetUp() override
@@ -75,7 +74,6 @@ class InMemoryReadTest : public testing::TestWithParam<bool> {
 
   void TearDown() override { table = nullptr; }
 
-  std::unique_ptr<gqe::optimization_parameters> opms;
   std::unique_ptr<gqe::query_context> qctx;
   std::unique_ptr<gqe::storage::in_memory_table> table;
   std::unique_ptr<cudf::table> test_table;

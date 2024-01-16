@@ -44,8 +44,7 @@ class FetchTest : public ::testing::Test {
     input_columns.push_back(input_col_0.release());
     input_columns.push_back(input_col_1.release());
 
-    gqe::optimization_parameters opms(true);
-    gqe::query_context qctx(&opms);
+    gqe::query_context qctx(gqe::optimization_parameters(true));
 
     auto input_task = std::make_shared<gqe::test::executed_task>(
       &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));

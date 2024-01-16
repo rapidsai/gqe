@@ -50,8 +50,7 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
     int64_column_wrapper right_key({3, 1, 5, 1, 2});
     int64_column_wrapper right_payload({0, 1, 2, 3, 4});
 
-    gqe::optimization_parameters opms(true);
-    gqe::query_context qctx(&opms);
+    gqe::query_context qctx(gqe::optimization_parameters(true));
 
     std::vector<std::unique_ptr<cudf::column>> left_table_columns;
     left_table_columns.push_back(left_key.release());
@@ -304,8 +303,7 @@ class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {
     constexpr int32_t join_task_id  = 2;
     constexpr int32_t stage_id      = 0;
 
-    gqe::optimization_parameters opms(true);
-    gqe::query_context qctx(&opms);
+    gqe::query_context qctx(gqe::optimization_parameters(true));
 
     auto left_task = std::make_shared<gqe::test::executed_task>(
       &qctx, left_task_id, stage_id, std::move(left_table));
@@ -458,8 +456,7 @@ class NonEqualityJoinConditionTest : public ::testing::Test {
     constexpr int32_t join_task_id  = 2;
     constexpr int32_t stage_id      = 0;
 
-    gqe::optimization_parameters opms(true);
-    gqe::query_context qctx(&opms);
+    gqe::query_context qctx(gqe::optimization_parameters(true));
 
     auto left_task = std::make_shared<gqe::test::executed_task>(
       &qctx, left_task_id, stage_id, std::move(left_table));

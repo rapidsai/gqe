@@ -35,11 +35,11 @@ namespace gqe {
 struct query_context {
   query_context() = delete;
 
-  explicit query_context(optimization_parameters const* parameters);
+  explicit query_context(optimization_parameters parameters);
   query_context(query_context const&) = delete;
   query_context& operator=(query_context const&) = delete;
 
-  gqe::optimization_parameters const* parameters;
+  gqe::optimization_parameters parameters;
 
   // Memory resource used to allocate host-accessible bounce buffers for the customized Parquet
   // reader.

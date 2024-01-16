@@ -46,8 +46,7 @@ TEST(ProjectTaskTest, ReorderColumns)
                                 input_table_columns[1]->view(),
                                 input_table_columns[2]->view()});
 
-  gqe::optimization_parameters opms(true);
-  gqe::query_context qctx(&opms);
+  gqe::query_context qctx(gqe::optimization_parameters(true));
 
   auto input_task = std::make_shared<gqe::test::executed_task>(
     &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(input_table));

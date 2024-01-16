@@ -124,8 +124,7 @@ TEST(LogicalToExecution, HardcodePlanAndData)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(join_relation.get());
 
-  gqe::optimization_parameters opms(true);
-  gqe::query_context qctx(&opms);
+  gqe::query_context qctx(gqe::optimization_parameters(true));
 
   // Generate the task graph and execute on a single GPU
   gqe::task_graph_builder graph_builder(&qctx, &catalog);
@@ -214,8 +213,7 @@ TEST(LogicalToExecution, ApplyConcatApply)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(aggregate_relation.get());
 
-  gqe::optimization_parameters opms(true);
-  gqe::query_context qctx(&opms);
+  gqe::query_context qctx(gqe::optimization_parameters(true));
 
   gqe::task_graph_builder graph_builder(&qctx, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
@@ -309,8 +307,7 @@ TEST(LogicalToExecution, Window)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(window_relation.get());
 
-  gqe::optimization_parameters opms(true);
-  gqe::query_context qctx(&opms);
+  gqe::query_context qctx(gqe::optimization_parameters(true));
 
   gqe::task_graph_builder graph_builder(&qctx, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
@@ -414,8 +411,7 @@ TEST(LogicalToExecution, WindowWithOrderBy)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(window_relation.get());
 
-  gqe::optimization_parameters opms(true);
-  gqe::query_context qctx(&opms);
+  gqe::query_context qctx(gqe::optimization_parameters(true));
 
   gqe::task_graph_builder graph_builder(&qctx, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());

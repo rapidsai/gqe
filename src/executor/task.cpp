@@ -66,11 +66,6 @@ std::vector<task*> task::dependencies() const noexcept
 
 std::vector<task*> task::subqueries() const noexcept { return utility::to_raw_ptrs(_subqueries); }
 
-const optimization_parameters& task::get_optimization_parameters() const noexcept
-{
-  return *_query_context->parameters;
-}
-
 void task::prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent_tasks)
 {
   for (auto const& dependent_task : dependent_tasks) {

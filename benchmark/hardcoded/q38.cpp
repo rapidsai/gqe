@@ -280,8 +280,7 @@ int main(int argc, char* argv[])
   gqe::physical_plan_builder plan_builder(&tpcds_catalog);
   auto physical_plan = plan_builder.build(logical_plan.get());
 
-  gqe::optimization_parameters opms{};
-  gqe::query_context qctx(&opms);
+  gqe::query_context qctx(gqe::optimization_parameters{});
 
   gqe::task_graph_builder graph_builder(&qctx, &tpcds_catalog);
   auto task_graph = graph_builder.build(physical_plan.get());

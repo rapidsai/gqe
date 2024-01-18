@@ -150,7 +150,7 @@ std::unique_ptr<cudf::table> parquet_read_task::table_from_parquet(
 #ifdef ENABLE_CUSTOMIZED_PARQUET
   auto qctx = get_query_context();
 
-  if (qctx->parameters->use_customized_io) {
+  if (qctx->parameters.use_customized_io) {
     try {
       auto const bounce_buffer_size = qctx->io_bounce_buffer_mr->get_block_size();
       // Note that we use `device_buffer` only as a RAII wrapper. `bounce_buffer` is located in the
@@ -158,7 +158,7 @@ std::unique_ptr<cudf::table> parquet_read_task::table_from_parquet(
       rmm::device_buffer bounce_buffer(
         bounce_buffer_size, rmm::cuda_stream_default, qctx->io_bounce_buffer_mr.get());
 
-      auto const num_auxiliary_threads = qctx->parameters->io_auxiliary_threads;
+      auto const num_auxiliary_threads = qctx->parameters.io_auxiliary_threads;
 
       read_columns = gqe::storage::read_parquet(file_paths,
                                                 _column_names,

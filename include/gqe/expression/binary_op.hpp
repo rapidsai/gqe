@@ -202,7 +202,7 @@ class divide_expression : public binary_op_expression {
 class logical_and_expression : public binary_op_expression {
  public:
   logical_and_expression(std::shared_ptr<expression> lhs, std::shared_ptr<expression> rhs)
-    : binary_op_expression(cudf::binary_operator::LOGICAL_AND, std::move(lhs), std::move(rhs))
+    : binary_op_expression(cudf::binary_operator::NULL_LOGICAL_AND, std::move(lhs), std::move(rhs))
   {
   }
 
@@ -237,7 +237,7 @@ class logical_and_expression : public binary_op_expression {
 class logical_or_expression : public binary_op_expression {
  public:
   logical_or_expression(std::shared_ptr<expression> lhs, std::shared_ptr<expression> rhs)
-    : binary_op_expression(cudf::binary_operator::LOGICAL_OR, std::move(lhs), std::move(rhs))
+    : binary_op_expression(cudf::binary_operator::NULL_LOGICAL_OR, std::move(lhs), std::move(rhs))
   {
   }
 

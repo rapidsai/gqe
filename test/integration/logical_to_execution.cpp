@@ -315,10 +315,10 @@ TEST(LogicalToExecution, Window)
   gqe::execute_task_graph_single_gpu(&qctx, task_graph.get());
 
   // Compare against reference result
-  cudf::test::fixed_width_column_wrapper<int32_t> ref_c0({1, 2, 1});
+  cudf::test::fixed_width_column_wrapper<int32_t> ref_c0({1, 1, 2});
   cudf::test::fixed_width_column_wrapper<int32_t> ref_c1({0, 0, 0});
-  cudf::test::fixed_width_column_wrapper<int32_t> ref_c2({1, 2, 3});
-  cudf::test::fixed_width_column_wrapper<int64_t> ref_c3({4, 2, 4});
+  cudf::test::fixed_width_column_wrapper<int32_t> ref_c2({1, 3, 2});
+  cudf::test::fixed_width_column_wrapper<int64_t> ref_c3({4, 4, 2});
   std::vector<std::unique_ptr<cudf::column>> ref_columns;
   ref_columns.push_back(ref_c0.release());
   ref_columns.push_back(ref_c1.release());
@@ -329,8 +329,9 @@ TEST(LogicalToExecution, Window)
   ASSERT_EQ(task_graph->root_tasks.size(), 1);
   auto execute_result = task_graph->root_tasks[0]->result();
   ASSERT_EQ(execute_result.has_value(), true);
+  auto execute_result_sorted = cudf::sort(*execute_result);
 
-  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*execute_result, ref_table->view());
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(execute_result_sorted->view(), ref_table->view());
 }
 
 TEST(LogicalToExecution, WindowWithOrderBy)

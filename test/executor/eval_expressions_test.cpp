@@ -460,3 +460,28 @@ TEST(EvalExpressionTest, ScalarFunctionDatepart)
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
+
+TEST(EvalExpressionsTest, LogicalOperators)
+{
+  // [true, false, null]
+  auto c_0 = column_wrapper<bool>{{true, false, true}, {true, true, false}};
+  // [null, null, null]
+  auto c_1   = column_wrapper<bool>{{false, true, true}, {false, false, false}};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto and_expr =
+    gqe::logical_and_expression(std::make_shared<gqe::column_reference_expression>(0),
+                                std::make_shared<gqe::column_reference_expression>(1));
+  auto or_expr = gqe::logical_or_expression(std::make_shared<gqe::column_reference_expression>(0),
+                                            std::make_shared<gqe::column_reference_expression>(1));
+  std::vector<gqe::expression const*> expressions = {&and_expr, &or_expr};
+
+  // [null, false, null]
+  auto expected_and = column_wrapper<bool>{{false, false, false}, {false, true, false}};
+  // [true, null, null]
+  auto expected_or = column_wrapper<bool>{{true, true, true}, {true, false, false}};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_and, evaluated_results[0]);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_or, evaluated_results[1]);
+}

@@ -28,6 +28,7 @@ class binary_op_expression;
 class cast_expression;
 class column_reference_expression;
 class if_then_else_expression;
+class is_null_expression;
 template <typename T>
 class literal_expression;
 class scalar_function_expression;
@@ -112,6 +113,11 @@ struct expression_visitor {
   virtual void visit(unary_op_expression const* expression)
   {
     throw std::logic_error("Visiting unary_op_expression is not implemented");
+  }
+
+  virtual void visit(is_null_expression const* expression)
+  {
+    throw std::logic_error("Visiting is_null_expression is not implemented");
   }
 };
 

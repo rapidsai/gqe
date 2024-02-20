@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -15,6 +15,7 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/if_then_else.hpp>
+#include <gqe/expression/is_null.hpp>
 #include <gqe/expression/literal.hpp>
 #include <gqe/expression/scalar_function.hpp>
 #include <gqe/expression/unary_op.hpp>
@@ -472,6 +473,11 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::_parse_scalar_function_e
       auto input = parse_expression(arg_expressions[0], subquery_relations);
       if (function_name == "not")
         return std::make_unique<gqe::not_expression>(std::move(input));
+      else if (function_name == "is_null")
+        return std::make_unique<gqe::is_null_expression>(std::move(input));
+      else if (function_name == "is_not_null")
+        return std::make_unique<gqe::not_expression>(
+          std::move(std::make_unique<gqe::is_null_expression>(std::move(input))));
       else
         throw std::runtime_error("SubstraitParser cannot parse unary scalar function \"" +
                                  function_name + "\"");

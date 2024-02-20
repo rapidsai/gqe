@@ -451,6 +451,40 @@ void expression_evaluator::visit(unary_op_expression const* expression)
   }
 }
 
+void expression_evaluator::visit(is_null_expression const* expression)
+{
+  // Emplace context in the context map
+  auto [context, is_new] = this->emplace_context(expression, expression->clone());
+
+  if (is_new) {
+    auto const child = expression->_children[0];
+    // compute AST for the child expression
+    child->accept(*this);
+
+    // Store a reference to the child context in the parent context
+    auto& child_context = this->find_context(child.get());
+    context.child_contexts.emplace_back(&child_context);
+
+    bool const child_is_column = child_context.column_idx.has_value();
+    auto const op              = cudf::ast::ast_operator::IS_NULL;
+
+    // IS NULL expression always returns a BOOL8, which is fixed width so we can use cudf ast
+    // same logic as in visit(unary_op_expression const*)
+    if (child_is_column) {
+      auto const child_column_idx = child_context.column_idx.value();
+      context.gqe_expression->_children[0] =
+        std::make_shared<column_reference_expression>(child_column_idx);
+      auto new_child              = std::make_unique<cudf::ast::column_reference>(child_column_idx);
+      context.cudf_ast_expression = std::make_unique<cudf::ast::operation>(op, *new_child);
+      context.cudf_ast_dependencies.emplace_back(std::move(new_child));
+    } else {
+      context.gqe_expression->_children[0] = child_context.gqe_expression;
+      context.cudf_ast_expression =
+        std::make_unique<cudf::ast::operation>(op, *child_context.cudf_ast_expression.value());
+    }
+  }
+}
+
 void expression_evaluator::visit(binary_op_expression const* expression)
 {
   auto [context, is_new] = this->emplace_context(expression, expression->clone());

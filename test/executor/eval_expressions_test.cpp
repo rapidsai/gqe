@@ -485,3 +485,26 @@ TEST(EvalExpressionsTest, LogicalOperators)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_and, evaluated_results[0]);
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_or, evaluated_results[1]);
 }
+
+TEST(EvalExpressionsTest, IsNull)
+{
+  auto c_0 = column_wrapper<int32_t>({1, 2, 3, 4, 5}, {false, true, false, true, false});
+  auto c_1 = cudf::test::strings_column_wrapper({"azaa", "ababaabba", "aaxa", "fsadfsa", "dsfdsaf"},
+                                                {true, false, true, false, true});
+
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto is_null_expr_0 =
+    gqe::is_null_expression(std::make_shared<gqe::column_reference_expression>(0));
+  auto is_null_expr_1 =
+    gqe::is_null_expression(std::make_shared<gqe::column_reference_expression>(1));
+
+  std::vector<gqe::expression const*> expressions = {&is_null_expr_0, &is_null_expr_1};
+  auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
+
+  auto expected_0 = column_wrapper<bool>{{true, false, true, false, true}, {1, 1, 1, 1, 1}};
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_0, evaluated_results[0]);
+
+  auto expected_1 = column_wrapper<bool>{{false, true, false, true, false}, {1, 1, 1, 1, 1}};
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_1, evaluated_results[1]);
+}

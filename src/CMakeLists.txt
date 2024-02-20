@@ -62,6 +62,7 @@ add_library(
     expression/scalar_function.cpp
     expression/subquery.cpp
     expression/unary_op.cpp
+    expression/is_null.cpp
     optimizer/physical_transformation.cpp
     optimizer/estimator.cpp
     storage/in_memory.cpp

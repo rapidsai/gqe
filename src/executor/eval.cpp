@@ -46,6 +46,7 @@ namespace gqe {
       {cudf::binary_operator::GREATER, cudf::ast::ast_operator::GREATER},
       {cudf::binary_operator::LESS_EQUAL, cudf::ast::ast_operator::LESS_EQUAL},
       {cudf::binary_operator::GREATER_EQUAL, cudf::ast::ast_operator::GREATER_EQUAL},
+      {cudf::binary_operator::NULL_EQUALS, cudf::ast::ast_operator::NULL_EQUAL},
       {cudf::unary_operator::NOT,
        cudf::ast::ast_operator::NOT}};  ///> Emum mapper between cudf::{unary|binary}_op and
                                         /// cudf::ast::ast_operator.

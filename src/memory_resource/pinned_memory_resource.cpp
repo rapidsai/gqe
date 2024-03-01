@@ -32,7 +32,7 @@ void* pinned_memory_resource::do_allocate(std::size_t bytes, rmm::cuda_stream_vi
   auto status = cudaMallocHost(&ptr, bytes);
   if (cudaSuccess != status) { throw std::bad_alloc{}; }
 
-  assert(rmm::detail::is_aligned(reinterpret_cast<std::size_t>(ptr), _allocation_alignment));
+  assert(rmm::is_pointer_aligned(ptr, _allocation_alignment));
 
   return ptr;
 }

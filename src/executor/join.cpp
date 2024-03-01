@@ -121,6 +121,7 @@ class join_keys_container {
           update_null_equality(cudf::null_equality::EQUAL);
           break;
         case cudf::binary_operator::LOGICAL_AND:
+        case cudf::binary_operator::NULL_LOGICAL_AND:
           // If the top-level expression is AND, we recursively parse the two children expressions
           parse_join_condition(child_exprs[0], left_key_exprs, right_key_exprs, non_equality_exprs);
           parse_join_condition(child_exprs[1], left_key_exprs, right_key_exprs, non_equality_exprs);

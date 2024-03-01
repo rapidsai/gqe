@@ -51,7 +51,7 @@ TYPED_TEST(MemoryResourceTest, AllocateKB)
   void* ptr = nullptr;
   EXPECT_NO_THROW(ptr = this->mr->allocate(allocation_size));
   ASSERT_NE(nullptr, ptr);
-  EXPECT_TRUE(rmm::detail::is_pointer_aligned(ptr));
+  EXPECT_TRUE(rmm::is_pointer_aligned(ptr));
   EXPECT_NO_THROW(this->mr->deallocate(ptr, allocation_size));
 }
 
@@ -62,7 +62,7 @@ TYPED_TEST(MemoryResourceTest, AllocateNonaligned)
   void* ptr = nullptr;
   EXPECT_NO_THROW(ptr = this->mr->allocate(allocation_size));
   ASSERT_NE(nullptr, ptr);
-  EXPECT_TRUE(rmm::detail::is_pointer_aligned(ptr));
+  EXPECT_TRUE(rmm::is_pointer_aligned(ptr));
   EXPECT_NO_THROW(this->mr->deallocate(ptr, allocation_size));
 }
 
@@ -73,7 +73,7 @@ TYPED_TEST(MemoryResourceTest, AllocateLargerThanPagesize)
   void* ptr = nullptr;
   EXPECT_NO_THROW(ptr = this->mr->allocate(allocation_size));
   ASSERT_NE(nullptr, ptr);
-  EXPECT_TRUE(rmm::detail::is_pointer_aligned(ptr));
+  EXPECT_TRUE(rmm::is_pointer_aligned(ptr));
   EXPECT_NO_THROW(this->mr->deallocate(ptr, allocation_size));
 }
 
@@ -84,7 +84,7 @@ TYPED_TEST(MemoryResourceTest, AllocateMultipleOfPageize)
   void* ptr = nullptr;
   EXPECT_NO_THROW(ptr = this->mr->allocate(allocation_size));
   ASSERT_NE(nullptr, ptr);
-  EXPECT_TRUE(rmm::detail::is_pointer_aligned(ptr));
+  EXPECT_TRUE(rmm::is_pointer_aligned(ptr));
   EXPECT_NO_THROW(this->mr->deallocate(ptr, allocation_size));
 }
 

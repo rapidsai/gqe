@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+#include "../utility.hpp"
+
 #include <gqe/catalog.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/query_context.hpp>
@@ -76,8 +78,10 @@ int main(int argc, char* argv[])
 
   // Configure the memory pool
   // FIXME: For multi-GPU, we need to construct a memory pool for each device
+  auto const pool_size = gqe::benchmark::get_memory_pool_size();
   rmm::mr::cuda_memory_resource cuda_mr;
-  rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource> pool_mr{&cuda_mr};
+  rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource> pool_mr{
+    &cuda_mr, pool_size, pool_size};
   rmm::mr::set_current_device_resource(&pool_mr);
 
   // Register the input tables

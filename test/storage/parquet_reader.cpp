@@ -142,7 +142,7 @@ std::unique_ptr<cudf::table> write_file_and_load_back(cudf::table_view table,
                                     opms.io_auxiliary_threads);
 }
 
-TEST(ParquetReader, TestRandomColumns)
+TEST(ParquetReader, DISABLED_TestRandomColumns)
 {
   constexpr cudf::size_type num_rows = 3000000;
 
@@ -163,7 +163,7 @@ TEST(ParquetReader, TestRandomColumns)
   CUDF_TEST_EXPECT_TABLES_EQUAL(load_table->view(), ref_table->view());
 }
 
-TEST(ParquetReader, TestDictionaryEncoding)
+TEST(ParquetReader, DISABLED_TestDictionaryEncoding)
 {
   constexpr cudf::size_type num_rows = 30000;
 

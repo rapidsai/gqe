@@ -44,6 +44,7 @@
 #include <gqe/utility/logger.hpp>
 
 #include <algorithm>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -115,18 +116,35 @@ void execute_task_graph_single_gpu(query_context* query_context,
     } else {
       std::vector<std::thread> workers;
       workers.reserve(num_workers);
+      std::vector<std::exception_ptr> worker_exceptions(num_workers, nullptr);
 
       for (std::size_t worker_idx = 0; worker_idx < num_workers; worker_idx++) {
-        workers.emplace_back([=, &tasks_current_stage]() {
-          for (std::size_t task_idx = worker_idx; task_idx < num_tasks_current_stage;
-               task_idx += num_workers) {
-            tasks_current_stage[task_idx]->execute();
+        auto& worker_exception = worker_exceptions[worker_idx];
+
+        workers.emplace_back([=, &tasks_current_stage, &worker_exception]() {
+          try {
+            for (std::size_t task_idx = worker_idx; task_idx < num_tasks_current_stage;
+                 task_idx += num_workers) {
+              tasks_current_stage[task_idx]->execute();
+            }
+          } catch (const std::exception&) {
+            worker_exception = std::current_exception();
           }
         });
       }
 
       for (auto& worker : workers)
         worker.join();
+
+      // Handle exceptions thrown in the worker threads. The main thread
+      // rethrows the first exception it encounters. The rethrown exception can
+      // be caught by the external function calling GQE.
+      //
+      // All workers _must_ be joined before rethrowing an exception to avoid a
+      // "terminate called without an active exception" error!
+      for (auto& exception : worker_exceptions) {
+        if (exception != nullptr) { std::rethrow_exception(exception); }
+      }
     }
   }
 }

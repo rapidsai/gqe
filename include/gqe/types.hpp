@@ -60,6 +60,11 @@ class cpu_set {
   explicit cpu_set(int cpu_id);
 
   /**
+   * @brief Copy-construct from a `cpu_set_t`.
+   */
+  explicit cpu_set(const cpu_set_t& other, const int32_t num_cpus);
+
+  /**
    * @brief Copy-construct from the other CPU set.
    */
   cpu_set(const cpu_set& other);

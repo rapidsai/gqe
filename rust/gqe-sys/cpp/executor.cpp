@@ -1,0 +1,84 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+#include <cxx_gqe/executor.hpp>
+
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/task_graph.hpp>
+
+// Include types declared in Rust by the gqe-sys crate.
+#include <gqe-sys/src/lib.rs.h>
+
+// Include wrappers of Rust std library types.
+#include "rust/cxx.h"
+
+#include <exception>
+#include <memory>
+
+namespace cxx_gqe {
+
+cxx_gqe::optimization_parameters new_optimization_parameters()
+{
+  auto p = gqe::optimization_parameters(false);
+
+  return {p.max_num_workers,
+          p.max_num_partitions,
+          p.log_level,
+          p.join_use_hash_map_cache,
+          p.read_zero_copy_enable,
+          p.use_customized_io,
+          p.io_bounce_buffer_size,
+          p.io_auxiliary_threads};
+}
+
+gqe::optimization_parameters to_gqe(cxx_gqe::optimization_parameters const& p)
+{
+  gqe::optimization_parameters n(true);
+
+  n.max_num_workers         = p.max_num_workers;
+  n.max_num_partitions      = p.max_num_partitions;
+  n.log_level               = std::string(p.log_level);
+  n.join_use_hash_map_cache = p.join_use_hash_map_cache;
+  n.read_zero_copy_enable   = p.read_zero_copy_enable;
+  n.use_customized_io       = p.use_customized_io;
+  n.io_bounce_buffer_size   = p.io_bounce_buffer_size;
+  n.io_auxiliary_threads    = p.io_auxiliary_threads;
+
+  return n;
+}
+
+std::unique_ptr<query_context> new_query_context(cxx_gqe::optimization_parameters const& parameters)
+{
+  auto opms = to_gqe(parameters);
+  auto qc   = gqe::query_context(std::move(opms));
+  return std::make_unique<query_context>(std::move(qc));
+}
+
+std::unique_ptr<task_graph> task_graph_builder::build(
+  std::shared_ptr<physical_relation> root_relation)
+{
+  return _builder.build(root_relation.get());
+}
+
+std::unique_ptr<task_graph_builder> new_task_graph_builder(query_context& query_context,
+                                                           catalog& catalog)
+{
+  return std::make_unique<task_graph_builder>(
+    std::move(gqe::task_graph_builder(&query_context.get(), &catalog.get())));
+}
+
+void execute_task_graph_single_gpu(query_context& query_context, task_graph const& task_graph)
+{
+  gqe::execute_task_graph_single_gpu(&query_context.get(), &task_graph);
+}
+
+}  // namespace cxx_gqe

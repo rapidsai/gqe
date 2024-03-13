@@ -1,0 +1,19 @@
+[package]
+name = "gqe-rs"
+version = "0.1.0"
+description = "Idiomatic Rust API for GQE"
+authors = ["NVIDIA"]
+edition = "2021"
+
+license = "LicenseRef-NvidiaProprietary"
+readme = "README.md"
+
+homepage = "https://confluence.nvidia.com/pages/viewpage.action?spaceKey=DevtechCompute&title=GQE"
+repository = "https://gitlab-master.nvidia.com/Devtech-Compute/gqe"
+
+[dependencies]
+cxx = "~1.0"
+thiserror = "~1.0"
+
+[dependencies.gqe-sys]
+path = "../gqe-sys"

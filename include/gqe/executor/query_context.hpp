@@ -33,9 +33,10 @@ namespace gqe {
  * Each member must have a default setting.
  */
 struct query_context {
-  query_context() = delete;
-
+  query_context(query_context&& other) = default;
   explicit query_context(optimization_parameters parameters);
+
+  query_context()                     = delete;
   query_context(query_context const&) = delete;
   query_context& operator=(query_context const&) = delete;
 

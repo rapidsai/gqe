@@ -1,0 +1,11 @@
+[workspace]
+members = [
+  "gqe-rs",
+  "gqe-sys",
+  "pg-server",
+  "producer",
+]
+
+[profile.release]
+debug = true
+opt-level = 3

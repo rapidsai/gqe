@@ -16,6 +16,7 @@
 #include <gqe/utility/helpers.hpp>
 
 #include <bitset>
+#include <cstring>  // memcpy
 #include <sstream>
 
 #include <sched.h>   // CPU_SET
@@ -36,6 +37,19 @@ cpu_set::cpu_set(int cpu_id)
   auto cpu_set = CPU_ALLOC(max_count);
   CPU_ZERO_S(CPU_ALLOC_SIZE(max_count), cpu_set);
   CPU_SET_S(cpu_id, CPU_ALLOC_SIZE(max_count), cpu_set);
+
+  _cpu_set = cpu_set;
+}
+
+cpu_set::cpu_set(const cpu_set_t& other, const int32_t num_cpus)
+{
+  assert(num_cpus <= cpu_set::max_count);
+
+  auto cpu_set = CPU_ALLOC(max_count);
+  CPU_ZERO_S(CPU_ALLOC_SIZE(max_count), cpu_set);
+
+  auto bytes = CPU_ALLOC_SIZE(num_cpus);
+  std::memcpy(cpu_set, &other, bytes);
 
   _cpu_set = cpu_set;
 }

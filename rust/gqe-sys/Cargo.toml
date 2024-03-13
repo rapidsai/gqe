@@ -1,0 +1,19 @@
+[package]
+name = "gqe-sys"
+version = "0.1.0"
+description = "Low-level Rust bindings for GQE"
+authors = ["NVIDIA"]
+edition = "2021"
+
+license = "LicenseRef-NvidiaProprietary"
+readme = "README.md"
+
+homepage = "https://confluence.nvidia.com/pages/viewpage.action?spaceKey=DevtechCompute&title=GQE"
+repository = "https://gitlab-master.nvidia.com/Devtech-Compute/gqe"
+
+[dependencies]
+cxx = "1.0"
+
+[build-dependencies]
+cmake = "~0.1"
+cxx-build = "~1.0"

@@ -5,9 +5,9 @@
 /proto/
 .devcontainer
 compile_commands.json
-/rust/producer/target/
-/rust/producer/output/
-/rust/producer/Cargo.lock
+/rust/target/
+/rust/output/
+Cargo.lock
 
 # Emacs directory configuration
 .dir-locals.el

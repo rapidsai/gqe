@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -274,19 +274,23 @@ void in_memory_read_task::execute()
   bool is_single_row_group = _row_groups.size() <= 1;
 
   // Execute read.
-  if (!_force_zero_copy_disable && get_query_context()->parameters.read_zero_copy_enable &&
-      is_gpu_accessible && is_single_row_group) {
-    execute_read_by_reference();
-  } else {
-    if (!_force_zero_copy_disable && !is_gpu_accessible) {
+  if (get_query_context()->parameters.read_zero_copy_enable) {
+    if (_force_zero_copy_disable) {
+      GQE_LOG_INFO("Disabling zero-copy read due to override by the executor for performance.");
+      execute_read_by_value();
+    } else if (!is_gpu_accessible) {
       GQE_LOG_WARN(
         "Disabling zero-copy read because the GPU cannot access pageable memory on this "
         "system.");
-    }
-    if (!_force_zero_copy_disable && !is_single_row_group) {
+      execute_read_by_value();
+    } else if (!is_single_row_group) {
       GQE_LOG_WARN("Disabling zero-copy because cannot handle more than one row group per task.");
+      execute_read_by_value();
+    } else {
+      GQE_LOG_DEBUG("Performing zero-copy read.");
+      execute_read_by_reference();
     }
-
+  } else {
     execute_read_by_value();
   }
 

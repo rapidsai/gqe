@@ -12,7 +12,8 @@
 
 #pragma once
 
-#include <gqe/executor/query_context.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/query_context.hpp>
 
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>

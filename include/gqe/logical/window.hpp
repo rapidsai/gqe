@@ -15,10 +15,14 @@
 #include <gqe/logical/relation.hpp>
 
 namespace gqe {
-
+namespace optimizer {
+class optimization_rule;
+}  // namespace optimizer
 namespace logical {
 
 class window_relation : public relation {
+  friend class gqe::optimizer::optimization_rule;
+
  public:
   /**
    *
@@ -54,10 +58,7 @@ class window_relation : public relation {
    */
   [[nodiscard]] relation_type type() const noexcept override { return relation_type::window; }
 
-  [[nodiscard]] std::vector<cudf::data_type> data_types() const noexcept override
-  {
-    return _data_types;
-  }
+  [[nodiscard]] std::vector<cudf::data_type> data_types() const override;
 
   /**
    * @copydoc relation::to_string()
@@ -78,7 +79,6 @@ class window_relation : public relation {
   bool operator==(const relation& other) const override;
 
  private:
-  std::vector<cudf::data_type> _data_types;
   cudf::aggregation::Kind _aggr_func;
   std::vector<std::unique_ptr<expression>> _arguments;
   std::vector<std::unique_ptr<expression>> _order_by;

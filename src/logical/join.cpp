@@ -28,14 +28,10 @@ join_relation::join_relation(std::shared_ptr<relation> left,
     _join_type(join_type),
     _projection_indices(std::move(projection_indices))
 {
-  _init_data_types();
 }
 
-void join_relation::_init_data_types() const
+std::vector<cudf::data_type> join_relation::data_types() const
 {
-  if (_data_types.size() > 0)
-    throw std::runtime_error("Reinitialization of _data_types not allowed");
-
   auto children = children_unsafe();
   auto left     = children[0];
   auto right    = children[1];
@@ -54,12 +50,12 @@ void join_relation::_init_data_types() const
     throw std::runtime_error("JoinRelation: Unsupported join type");
   }
 
-  _data_types.reserve(_projection_indices.size());
+  std::vector<cudf::data_type> data_types;
+  data_types.reserve(_projection_indices.size());
   for (auto const& column_idx : _projection_indices)
-    _data_types.push_back(full_data_types[column_idx]);
+    data_types.push_back(full_data_types[column_idx]);
+  return data_types;
 }
-
-std::vector<cudf::data_type> join_relation::data_types() const { return _data_types; }
 
 std::string join_relation::to_string() const
 {

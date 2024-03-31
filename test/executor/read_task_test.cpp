@@ -11,9 +11,9 @@
  */
 
 #include <gqe/executor/optimization_parameters.hpp>
-#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/read.hpp>
 #include <gqe/expression/column_reference.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/storage/parquet.hpp>
 
 #include <cudf/column/column.hpp>

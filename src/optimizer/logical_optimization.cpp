@@ -1,0 +1,250 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+#include <gqe/logical/aggregate.hpp>
+#include <gqe/logical/filter.hpp>
+#include <gqe/logical/join.hpp>
+#include <gqe/logical/project.hpp>
+#include <gqe/logical/read.hpp>
+#include <gqe/logical/relation.hpp>
+#include <gqe/logical/sort.hpp>
+#include <gqe/logical/window.hpp>
+#include <gqe/optimizer/logical_optimization.hpp>
+#include <gqe/optimizer/rules/join_children_swap.hpp>
+#include <gqe/optimizer/rules/not_not.hpp>
+#include <gqe/physical/join.hpp>
+
+#include <cstddef>
+#include <memory>
+#include <string>
+#include <sys/types.h>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+std::shared_ptr<gqe::logical::relation> gqe::optimizer::logical_optimizer::optimize(
+  std::shared_ptr<logical::relation> logical_relation)
+{
+  for (auto& rule : _rules) {
+    bool rule_applied = false;
+    // Attempt to apply the rule given the direction
+    switch (rule->direction()) {
+      case optimization_rule::transform_direction::NONE:
+        logical_relation = _optimize(logical_relation, *rule, rule_applied);
+      case optimization_rule::transform_direction::DOWN:
+        logical_relation = _optimize_down(logical_relation, *rule, rule_applied);
+      case optimization_rule::transform_direction::UP:
+        logical_relation = _optimize_up(logical_relation, *rule, rule_applied);
+    }
+    // Update rule application counts
+    if (rule_applied) {
+      _applied_rule_counts[rule->type()] = _applied_rule_counts[rule->type()] + 1;
+    }
+  }
+
+  return logical_relation;
+}
+
+std::shared_ptr<gqe::logical::relation> gqe::optimizer::logical_optimizer::_optimize(
+  std::shared_ptr<logical::relation> logical_relation,
+  const optimization_rule& rule,
+  bool& rule_applied)
+{
+  // Try to apply the rule
+  auto optimized_plan = rule.try_optimize(logical_relation, rule_applied);
+  assert(optimized_plan);
+  return optimized_plan;
+}
+
+std::shared_ptr<gqe::logical::relation> gqe::optimizer::logical_optimizer::_optimize_down(
+  std::shared_ptr<logical::relation> logical_relation,
+  const optimization_rule& rule,
+  bool& rule_applied)
+{
+  // Try to optimize the current relation
+  logical_relation = this->_optimize(logical_relation, rule, rule_applied);
+  // Recursively trying optimize children
+  auto children = logical_relation->children_safe();
+  for (size_t index = 0; index < logical_relation->children_size(); index++) {
+    logical_relation->_children[index] = this->_optimize(children[index], rule, rule_applied);
+  }
+  return logical_relation;
+}
+
+std::shared_ptr<gqe::logical::relation> gqe::optimizer::logical_optimizer::_optimize_up(
+  std::shared_ptr<logical::relation> logical_relation,
+  const optimization_rule& rule,
+  bool& rule_applied)
+{
+  // Recursively trying optimize children
+  auto children = logical_relation->children_safe();
+  for (size_t index = 0; index < logical_relation->children_size(); index++) {
+    logical_relation->_children[index] = this->_optimize(children[index], rule, rule_applied);
+  }
+  // Try to optimize the current relation
+  return this->_optimize(logical_relation, rule, rule_applied);
+}
+
+std::unique_ptr<gqe::optimizer::optimization_rule> gqe::optimizer::logical_optimizer::_make_rule(
+  logical_optimization_rule_type rule_type, catalog const* cat)
+{
+  switch (rule_type) {
+    case logical_optimization_rule_type::not_not_rewrite:
+      return std::make_unique<not_not_rewrite>(cat);
+    case logical_optimization_rule_type::join_children_swap:
+      return std::make_unique<join_children_swap>(cat, gqe::physical::broadcast_policy::right);
+    default:
+      throw std::runtime_error("Logical Optimizer: logical_optimization_rule_type " +
+                               std::to_string(static_cast<size_t>(rule_type)) + " not supported");
+  }
+}
+
+namespace {
+void traverse_expression_list(
+  std::vector<std::unique_ptr<gqe::expression>>& expressions,
+  gqe::optimizer::optimization_rule::expression_modifier_functor traverse_f) noexcept
+{
+  for (auto& expression : expressions) {
+    auto new_expr = traverse_f(expression.get());
+    if (new_expr) { expression = std::move(new_expr); }
+  }
+}
+}  // namespace
+
+void gqe::optimizer::optimization_rule::rewrite_relation_expressions(logical::relation* relation,
+                                                                     expression_modifier_functor f,
+                                                                     transform_direction direction)
+{
+  if (!relation) return;
+
+  expression_modifier_functor traverse;
+  if (direction == transform_direction::UP) {
+    traverse = [&](expression* expr) { return _expression_rewrite_up(expr, f); };
+  } else if (direction == transform_direction::DOWN) {
+    traverse = [&](expression* expr) { return _expression_rewrite_down(expr, f); };
+  } else {
+    traverse = [&](expression* expr) { return _expression_rewrite(expr, f); };
+  }
+
+  switch (relation->type()) {
+    case relation_t::aggregate: {
+      auto agg = dynamic_cast<logical::aggregate_relation*>(relation);
+      // Apply to keys
+      traverse_expression_list(agg->_keys, traverse);
+      // Apply to measures
+      auto measures = agg->measures_unsafe();
+      for (size_t m_idx = 0; m_idx < measures.size(); m_idx++) {
+        auto new_expr = traverse(measures[m_idx].second);
+        if (new_expr) { agg->_measures[m_idx].second = std::move(new_expr); }
+      }
+
+      break;
+    }
+    case relation_t::filter: {
+      auto filter = dynamic_cast<logical::filter_relation*>(relation);
+      // Apply to condition
+      auto condition     = filter->condition();
+      auto new_condition = traverse(condition);
+      if (new_condition) { filter->_condition = std::move(new_condition); }
+      break;
+    }
+    case relation_t::join: {
+      auto join = dynamic_cast<logical::join_relation*>(relation);
+      // Apply to condition
+      auto condition     = join->condition();
+      auto new_condition = traverse(condition);
+      if (new_condition) { join->_condition = std::move(new_condition); }
+      break;
+    }
+    case relation_t::project: {
+      auto project = dynamic_cast<logical::project_relation*>(relation);
+      // Apply to output expressions
+      traverse_expression_list(project->_output_expressions, traverse);
+      break;
+    }
+    case relation_t::read: {
+      auto read = dynamic_cast<logical::read_relation*>(relation);
+      // Apply to partial filter
+      auto partial_filter = read->partial_filter_unsafe();
+      if (partial_filter) {
+        auto new_partial_filter = traverse(partial_filter);
+        if (new_partial_filter) { read->_partial_filter = std::move(new_partial_filter); }
+      }
+      break;
+    }
+    case relation_t::sort: {
+      auto sort = dynamic_cast<logical::sort_relation*>(relation);
+      // Apply to expressions
+      traverse_expression_list(sort->_expressions, traverse);
+      break;
+    }
+    case relation_t::window: {
+      auto window = dynamic_cast<logical::window_relation*>(relation);
+      // Apply to arguments
+      traverse_expression_list(window->_arguments, traverse);
+      // Apply to order-by keys
+      traverse_expression_list(window->_order_by, traverse);
+      // Apply to partition-by keys
+      traverse_expression_list(window->_partition_by, traverse);
+      break;
+    }
+    case relation_t::fetch:
+    case relation_t::set:
+    case relation_t::user_defined:
+    default: return;
+  }
+}
+
+std::unique_ptr<gqe::expression> gqe::optimizer::optimization_rule::_expression_rewrite(
+  expression* expr, expression_modifier_functor f)
+{
+  // Try to apply the rewrite rule define in the expression modifier functor
+  auto new_expr = f(expr);
+  return new_expr;
+}
+
+std::unique_ptr<gqe::expression> gqe::optimizer::optimization_rule::_expression_rewrite_down(
+  expression* expr, expression_modifier_functor f)
+{
+  // Try to rewrite the current expression in the expression tree
+  auto new_expr = _expression_rewrite(expr, f);
+  if (new_expr) { expr = new_expr.get(); }
+  // Recursively trying optimize children
+  auto children = expr->children();
+  for (size_t index = 0; index < children.size(); index++) {
+    auto new_child = _expression_rewrite_down(children[index], f);
+    if (new_child) { expr->_children[index] = std::move(new_child); }
+  }
+  return new_expr;
+}
+
+std::unique_ptr<gqe::expression> gqe::optimizer::optimization_rule::_expression_rewrite_up(
+  expression* expr, expression_modifier_functor f)
+{
+  // Recursively trying optimize children
+  auto children = expr->children();
+  for (size_t index = 0; index < children.size(); index++) {
+    auto new_child = _expression_rewrite_up(children[index], f);
+    if (new_child) { expr->_children[index] = std::move(new_child); }
+  }
+  // Try to rewrite the current expression in the expression tree
+  auto new_expr = _expression_rewrite(expr, f);
+  if (new_expr) { expr = new_expr.get(); }
+  return new_expr;
+}
+
+void gqe::optimizer::optimization_rule::replace_child_at(logical::relation* relation,
+                                                         std::size_t child_idx,
+                                                         std::shared_ptr<logical::relation> child)
+{
+  relation->_children[child_idx] = child;
+}

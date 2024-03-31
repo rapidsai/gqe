@@ -10,12 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-#include <cudf/aggregation.hpp>
 #include <gqe/logical/utility.hpp>
 #include <gqe/logical/window.hpp>
 #include <gqe/utility/helpers.hpp>
 
+#include <cudf/aggregation.hpp>
 #include <cudf/detail/aggregation/aggregation.hpp>
+#include <cudf/types.hpp>
+
+#include <vector>
 
 namespace gqe {
 namespace logical {
@@ -38,19 +41,6 @@ window_relation::window_relation(std::shared_ptr<relation> input_relation,
     _window_lower_bound(window_lower_bound),
     _window_upper_bound(window_upper_bound)
 {
-  _data_types = this->children_unsafe()[0]->data_types();
-  auto args   = arguments_unsafe();
-  if (args.size() > 0) {
-    cudf::data_type output_type =
-      cudf::detail::target_type(args[0]->data_type(_data_types), aggr_func);
-    _data_types.push_back(output_type);
-  } else {
-    // If no arguments, we can assume the aggregation function is RANK
-    if (aggr_func != cudf::aggregation::RANK) {
-      throw std::runtime_error("Only RANK is supported for window relations with no arguments.");
-    }
-    _data_types.emplace_back(cudf::data_type(cudf::type_to_id<cudf::size_type>()));
-  }
 }
 
 std::string window_relation::to_string() const
@@ -164,6 +154,24 @@ bool window_relation::operator==(const relation& other) const
     return false;
   }
   return true;
+}
+
+std::vector<cudf::data_type> window_relation::data_types() const
+{
+  auto data_types = this->children_unsafe()[0]->data_types();
+  auto args       = arguments_unsafe();
+  if (args.size() > 0) {
+    cudf::data_type output_type =
+      cudf::detail::target_type(args[0]->data_type(data_types), _aggr_func);
+    data_types.push_back(output_type);
+  } else {
+    // If no arguments, we can assume the aggregation function is RANK
+    if (_aggr_func != cudf::aggregation::RANK) {
+      throw std::runtime_error("Only RANK is supported for window relations with no arguments.");
+    }
+    data_types.emplace_back(cudf::data_type(cudf::type_to_id<cudf::size_type>()));
+  }
+  return data_types;
 }
 
 }  // namespace logical

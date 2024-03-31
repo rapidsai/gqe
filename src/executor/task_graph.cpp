@@ -17,7 +17,6 @@
 #include <gqe/executor/gen_ident_col.hpp>
 #include <gqe/executor/join.hpp>
 #include <gqe/executor/project.hpp>
-#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/read.hpp>
 #include <gqe/executor/sort.hpp>
 #include <gqe/executor/task.hpp>
@@ -38,6 +37,7 @@
 #include <gqe/physical/user_defined.hpp>
 #include <gqe/physical/window.hpp>
 #include <gqe/physical/write.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/writeable_view.hpp>
 #include <gqe/utility/helpers.hpp>

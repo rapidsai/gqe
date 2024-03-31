@@ -12,8 +12,8 @@
 
 #pragma once
 
-#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task.hpp>
+#include <gqe/query_context.hpp>
 
 #include <cstdint>
 #include <memory>

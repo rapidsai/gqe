@@ -14,7 +14,6 @@
 
 #include <gqe/catalog.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
-#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
@@ -28,6 +27,7 @@
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/sort.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/utility/helpers.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>

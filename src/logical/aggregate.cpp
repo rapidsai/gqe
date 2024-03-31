@@ -46,30 +46,6 @@ aggregate_relation::aggregate_relation(
 {
 }
 
-void aggregate_relation::_init_data_types() const
-{
-  auto input_relation = children_unsafe()[0];
-  _data_types         = std::vector<cudf::data_type>();
-  for (auto const& key : _keys)
-    _data_types.value().push_back(key->data_type(input_relation->data_types()));
-
-  for (auto [aggregation_kind, value] : measures_unsafe()) {
-    if (aggregation_kind == cudf::aggregation::MEAN) {
-      // The `mean` aggregation needs to divide the sum by the count during post-processing, so we
-      // treat it as a special case.
-      _data_types.value().emplace_back(cudf::type_id::FLOAT64);
-    } else {
-      // All other aggregations do not need post-processing, so the output type is the data type of
-      // the second aggregation in apply-concat-apply.
-      cudf::data_type output_type =
-        cudf::detail::target_type(value->data_type(input_relation->data_types()), aggregation_kind);
-      output_type =
-        cudf::detail::target_type(output_type, get_second_aggregation_kind(aggregation_kind));
-      _data_types.value().push_back(output_type);
-    }
-  }
-}
-
 std::vector<expression*> aggregate_relation::keys_unsafe() const noexcept
 {
   return gqe::utility::to_raw_ptrs(_keys);
@@ -87,8 +63,27 @@ std::vector<aggregate_relation::measure_type> aggregate_relation::measures_unsaf
 
 [[nodiscard]] std::vector<cudf::data_type> aggregate_relation::data_types() const
 {
-  if (!this->_data_types.has_value()) { this->_init_data_types(); }
-  return this->_data_types.value();
+  auto input_relation = children_unsafe()[0];
+  std::vector<cudf::data_type> data_types;
+  for (auto const& key : _keys)
+    data_types.push_back(key->data_type(input_relation->data_types()));
+
+  for (auto [aggregation_kind, value] : measures_unsafe()) {
+    if (aggregation_kind == cudf::aggregation::MEAN) {
+      // The `mean` aggregation needs to divide the sum by the count during post-processing, so we
+      // treat it as a special case.
+      data_types.emplace_back(cudf::type_id::FLOAT64);
+    } else {
+      // All other aggregations do not need post-processing, so the output type is the data type of
+      // the second aggregation in apply-concat-apply.
+      cudf::data_type output_type =
+        cudf::detail::target_type(value->data_type(input_relation->data_types()), aggregation_kind);
+      output_type =
+        cudf::detail::target_type(output_type, get_second_aggregation_kind(aggregation_kind));
+      data_types.push_back(output_type);
+    }
+  }
+  return data_types;
 }
 
 [[nodiscard]] std::string aggregate_relation::to_string() const

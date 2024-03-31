@@ -12,9 +12,9 @@
 
 #pragma once
 
-#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/read.hpp>
 #include <gqe/executor/write.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/table.hpp>
 #include <gqe/storage/writeable_view.hpp>

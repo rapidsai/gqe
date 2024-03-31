@@ -12,9 +12,9 @@
 
 #pragma once
 
-#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/types.hpp>
 
 #include <cudf/detail/aggregation/aggregation.hpp>

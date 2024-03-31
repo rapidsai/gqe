@@ -15,9 +15,14 @@
 #include <gqe/logical/relation.hpp>
 
 namespace gqe {
+namespace optimizer {
+class optimization_rule;
+}  // namespace optimizer
 namespace logical {
 
 class aggregate_relation : public relation {
+  friend class gqe::optimizer::optimization_rule;
+
  public:
   using measure_type = std::pair<cudf::aggregation::Kind, expression*>;
   /**
@@ -88,10 +93,8 @@ class aggregate_relation : public relation {
   bool operator==(const relation& other) const override;
 
  private:
-  void _init_data_types() const;
   std::vector<std::unique_ptr<expression>> _keys;
   std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> _measures;
-  mutable std::optional<std::vector<cudf::data_type>> _data_types;
 };
 
 }  // namespace logical

@@ -30,9 +30,16 @@
 #include <vector>
 
 namespace gqe {
+namespace optimizer {
+class logical_optimizer;
+class optimization_rule;
+}  // namespace optimizer
 namespace logical {
-
 class relation {
+  // TODO: implement visitor pattern to handle logical relation modification
+  friend class gqe::optimizer::logical_optimizer;
+  friend class gqe::optimizer::optimization_rule;
+
  public:
   enum class relation_type {
     fetch,
@@ -101,12 +108,12 @@ class relation {
    * only be used in place of its `_unsafe` counterpart if sharing of ownership
    * is absolutely necessary.
    */
-  [[nodiscard]] std::vector<std::shared_ptr<relation const>> children_safe() const noexcept
+  [[nodiscard]] std::vector<std::shared_ptr<relation>> children_safe() const noexcept
   {
-    std::vector<std::shared_ptr<const relation>> children_to_return;
+    std::vector<std::shared_ptr<relation>> children_to_return;
     children_to_return.reserve(_children.size());
 
-    for (auto const& child : _children) {
+    for (auto& child : _children) {
       children_to_return.push_back(child);
     }
 

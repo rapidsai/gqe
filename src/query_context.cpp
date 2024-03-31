@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-#include <gqe/executor/query_context.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/utility/error.hpp>
 
 #include <cstdlib>
@@ -18,7 +18,9 @@
 
 namespace gqe {
 
-query_context::query_context(optimization_parameters parameters) : parameters(parameters)
+query_context::query_context(optimization_parameters parameters,
+                             optimizer::optimization_configuration logical_rule_config)
+  : parameters(parameters), logical_rule_config(std::move(logical_rule_config))
 {
   if (parameters.use_customized_io) {
     // Allocate page-locked CPU bounce buffers

@@ -14,6 +14,7 @@
 
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
+#include <gqe/optimizer/optimization_configuration.hpp>
 
 #include <rmm/mr/device/fixed_size_memory_resource.hpp>
 
@@ -34,13 +35,17 @@ namespace gqe {
  */
 struct query_context {
   query_context(query_context&& other) = default;
-  explicit query_context(optimization_parameters parameters);
+  explicit query_context(optimization_parameters parameters,
+                         optimizer::optimization_configuration logical_rule_config =
+                           optimizer::optimization_configuration());
 
   query_context()                     = delete;
   query_context(query_context const&) = delete;
   query_context& operator=(query_context const&) = delete;
 
   gqe::optimization_parameters parameters;
+
+  gqe::optimizer::optimization_configuration logical_rule_config;
 
   // Memory resource used to allocate host-accessible bounce buffers for the customized Parquet
   // reader.

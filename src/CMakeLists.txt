@@ -49,7 +49,6 @@ add_library(
     executor/join.cpp
     executor/optimization_parameters.cpp
     executor/project.cpp
-    executor/query_context.cpp
     executor/read.cpp
     executor/sort.cpp
     executor/task.cpp
@@ -63,8 +62,12 @@ add_library(
     expression/subquery.cpp
     expression/unary_op.cpp
     expression/is_null.cpp
-    optimizer/physical_transformation.cpp
     optimizer/estimator.cpp
+    optimizer/logical_optimization.cpp
+    optimizer/optimization_configuration.cpp
+    optimizer/physical_transformation.cpp
+    optimizer/rules/join_children_swap.cpp
+    optimizer/rules/not_not.cpp
     storage/in_memory.cpp
     storage/parquet.cpp
     storage/parquet_reader.cu
@@ -73,6 +76,7 @@ add_library(
     utility/tpcds.cpp
     utility/tpch.cpp
     catalog.cpp
+    query_context.cpp
     types.cpp
 )
 

@@ -15,9 +15,14 @@
 #include <gqe/logical/relation.hpp>
 
 namespace gqe {
+namespace optimizer {
+class optimization_rule;
+}  // namespace optimizer
 namespace logical {
 
 class project_relation : public relation {
+  friend class gqe::optimizer::optimization_rule;
+
  public:
   /**
    * @brief Construct a new project relation object
@@ -46,7 +51,7 @@ class project_relation : public relation {
   /**
    * @copydoc relation::to_string()
    */
-  std::string to_string() const override;
+  [[nodiscard]] std::string to_string() const override;
 
   /**
    * @brief Return a list of raw pointers to the output expressions.
@@ -56,7 +61,7 @@ class project_relation : public relation {
    * @note The returned expressions do not share ownership. This object must be kept alive for the
    * returned expressions to be valid.
    */
-  std::vector<expression*> output_expressions_unsafe() const
+  [[nodiscard]] std::vector<expression*> output_expressions_unsafe() const
   {
     return gqe::utility::to_raw_ptrs(_output_expressions);
   }
@@ -67,13 +72,11 @@ class project_relation : public relation {
   bool operator==(const relation& other) const override;
 
  private:
-  void _init_data_types() const;
   //! List of one or more expressions to add to the input
   /*!
     This is usually used in SELECT and its order of selection.
   */
   std::vector<std::unique_ptr<expression>> _output_expressions;
-  mutable std::optional<std::vector<cudf::data_type>> _data_types;
 };
 
 }  // namespace logical

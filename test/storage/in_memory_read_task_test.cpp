@@ -11,7 +11,7 @@
  */
 
 #include <gqe/executor/optimization_parameters.hpp>
-#include <gqe/executor/query_context.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/storage/in_memory.hpp>
 #include <gqe/types.hpp>
 

@@ -15,9 +15,14 @@
 #include <gqe/logical/relation.hpp>
 
 namespace gqe {
+namespace optimizer {
+class optimization_rule;
+}  // namespace optimizer
 namespace logical {
 
 class read_relation : public relation {
+  friend class gqe::optimizer::optimization_rule;
+
  public:
   /**
    * @brief Construct a new read relation object

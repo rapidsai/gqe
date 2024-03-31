@@ -14,7 +14,7 @@
 
 #include <gqe/executor/concatenate.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
-#include <gqe/executor/query_context.hpp>
+#include <gqe/query_context.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/table/table.hpp>

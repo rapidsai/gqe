@@ -12,10 +12,10 @@
 
 #pragma once
 
-#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/subquery.hpp>
+#include <gqe/query_context.hpp>
 
 #include <memory>
 #include <vector>

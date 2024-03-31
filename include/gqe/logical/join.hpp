@@ -15,9 +15,16 @@
 #include <gqe/logical/relation.hpp>
 
 namespace gqe {
+namespace optimizer {
+class join_children_swap;
+class optimization_rule;
+}  // namespace optimizer
 namespace logical {
 
 class join_relation : public relation {
+  friend class gqe::optimizer::join_children_swap;
+  friend class gqe::optimizer::optimization_rule;
+
  public:
   /**
    * @brief Construct a new join relation object
@@ -86,11 +93,9 @@ class join_relation : public relation {
   bool operator==(const relation& other) const override;
 
  private:
-  void _init_data_types() const;
   std::unique_ptr<expression> _condition;
   join_type_type _join_type;
   std::vector<cudf::size_type> _projection_indices;
-  mutable std::vector<cudf::data_type> _data_types;
 };
 
 }  // namespace logical

@@ -16,7 +16,6 @@
 #include <gqe/executor/concatenate.hpp>
 #include <gqe/executor/join.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
-#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
@@ -29,6 +28,7 @@
 #include <gqe/logical/sort.hpp>
 #include <gqe/logical/user_defined.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/utility/helpers.hpp>
 
 #include <cuco/static_map.cuh>

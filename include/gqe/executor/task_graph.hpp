@@ -13,9 +13,10 @@
 #pragma once
 
 #include <gqe/catalog.hpp>
-#include <gqe/executor/query_context.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/physical/relation.hpp>
+#include <gqe/query_context.hpp>
 
 #include <memory>
 #include <unordered_map>

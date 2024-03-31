@@ -14,6 +14,10 @@
 #include <gqe/logical/utility.hpp>
 #include <gqe/utility/helpers.hpp>
 
+#include <cudf/types.hpp>
+
+#include <vector>
+
 namespace gqe {
 namespace logical {
 
@@ -24,8 +28,6 @@ filter_relation::filter_relation(std::shared_ptr<relation> input_relation,
     _condition(std::move(condition))
 {
   assert(this->children_size() == 1);
-  // Output data types are the same as input data types
-  _data_types = this->children_unsafe()[0]->data_types();
 }
 
 std::string filter_relation::to_string() const
@@ -75,6 +77,12 @@ bool filter_relation::operator==(const relation& other) const
   }
 
   return true;
+}
+
+std::vector<cudf::data_type> filter_relation::data_types() const
+{
+  // Output data types are the same as input data types
+  return this->children_unsafe()[0]->data_types();
 }
 
 }  // namespace logical

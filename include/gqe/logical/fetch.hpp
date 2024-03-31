@@ -42,7 +42,7 @@ class fetch_relation : public relation {
   /**
    * @copydoc relation::data_types()
    */
-  [[nodiscard]] std::vector<cudf::data_type> data_types() const override { return _data_types; };
+  [[nodiscard]] std::vector<cudf::data_type> data_types() const override;
 
   /**
    * @copydoc relation::to_string()
@@ -71,7 +71,6 @@ class fetch_relation : public relation {
  private:
   int64_t _offset;
   int64_t _count;
-  std::vector<cudf::data_type> _data_types;
 };
 
 }  // namespace logical

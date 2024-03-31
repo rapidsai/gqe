@@ -13,6 +13,10 @@
 #include <gqe/logical/fetch.hpp>
 #include <gqe/logical/utility.hpp>
 
+#include <cudf/types.hpp>
+
+#include <vector>
+
 namespace gqe {
 namespace logical {
 
@@ -22,8 +26,6 @@ fetch_relation::fetch_relation(std::shared_ptr<relation> input_relation,
   : relation({std::move(input_relation)}, {}), _offset(offset), _count(count)
 {
   assert(this->children_size() == 1);
-  // Output data types are the same as input data types
-  _data_types = this->children_unsafe()[0]->data_types();
 }
 
 std::string fetch_relation::to_string() const
@@ -66,6 +68,12 @@ bool fetch_relation::operator==(const relation& other) const
   }
 
   return true;
+}
+
+std::vector<cudf::data_type> fetch_relation::data_types() const
+{
+  // Output data types are the same as input data types
+  return this->children_unsafe()[0]->data_types();
 }
 
 }  // namespace logical

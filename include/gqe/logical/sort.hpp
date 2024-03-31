@@ -15,9 +15,14 @@
 #include <gqe/logical/relation.hpp>
 
 namespace gqe {
+namespace optimizer {
+class optimization_rule;
+}  // namespace optimizer
 namespace logical {
 
 class sort_relation : public relation {
+  friend class gqe::optimizer::optimization_rule;
+
  public:
   /**
    * @brief Construct a new sort relation object
@@ -44,7 +49,7 @@ class sort_relation : public relation {
   /**
    * @copydoc relation::data_types()
    */
-  [[nodiscard]] std::vector<cudf::data_type> data_types() const override { return _data_types; };
+  [[nodiscard]] std::vector<cudf::data_type> data_types() const override;
 
   /**
    * @copydoc relation::to_string()
@@ -84,7 +89,6 @@ class sort_relation : public relation {
   std::vector<std::unique_ptr<expression>> _expressions;
   std::vector<cudf::order> _column_orders;
   std::vector<cudf::null_order> _null_orders;
-  std::vector<cudf::data_type> _data_types;
 };
 
 }  // namespace logical

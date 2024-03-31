@@ -14,6 +14,10 @@
 #include <gqe/logical/utility.hpp>
 #include <gqe/utility/helpers.hpp>
 
+#include <cudf/types.hpp>
+
+#include <vector>
+
 namespace gqe {
 namespace logical {
 
@@ -28,8 +32,6 @@ sort_relation::sort_relation(std::shared_ptr<relation> input_relation,
     _null_orders(std::move(null_precedences))
 {
   assert(this->children_size() == 1);
-  // Output data types are the same as input data types
-  _data_types = this->children_unsafe()[0]->data_types();
 }
 
 std::string sort_relation::to_string() const
@@ -96,6 +98,12 @@ bool sort_relation::operator==(const relation& other) const
     return false;
   }
   return true;
+}
+
+std::vector<cudf::data_type> sort_relation::data_types() const
+{
+  // Output data types are the same as input data types
+  return this->children_unsafe()[0]->data_types();
 }
 
 }  // namespace logical

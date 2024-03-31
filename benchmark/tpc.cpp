@@ -14,13 +14,13 @@
 
 #include <gqe/catalog.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
-#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/logical/from_substrait.hpp>
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/relation.hpp>
 #include <gqe/logical/write.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/tpcds.hpp>

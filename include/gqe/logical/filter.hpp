@@ -15,9 +15,14 @@
 #include <gqe/logical/relation.hpp>
 
 namespace gqe {
+namespace optimizer {
+class optimization_rule;
+}  // namespace optimizer
 namespace logical {
 
 class filter_relation : public relation {
+  friend class gqe::optimizer::optimization_rule;
+
  public:
   /**
    * @brief Construct a new filter relation object
@@ -37,7 +42,7 @@ class filter_relation : public relation {
   /**
    * @copydoc relation::data_types()
    */
-  [[nodiscard]] std::vector<cudf::data_type> data_types() const override { return _data_types; };
+  [[nodiscard]] std::vector<cudf::data_type> data_types() const override;
 
   /**
    * @copydoc relation::to_string()
@@ -62,7 +67,6 @@ class filter_relation : public relation {
   bool operator==(const relation& other) const override;
 
  private:
-  std::vector<cudf::data_type> _data_types;
   std::unique_ptr<expression> _condition;
 };
 

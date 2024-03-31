@@ -24,6 +24,10 @@
 
 namespace gqe {
 
+namespace optimizer {
+class optimization_rule;
+}  // namespace optimizer
+
 class binary_op_expression;
 class cast_expression;
 class column_reference_expression;
@@ -141,6 +145,8 @@ struct expression_visitor {
  * provided.
  */
 class expression {
+  friend class optimizer::optimization_rule;
+
  public:
   enum class expression_type {
     // An expression referencing a column

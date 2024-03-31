@@ -25,23 +25,18 @@ project_relation::project_relation(std::shared_ptr<relation> child,
 {
 }
 
-void project_relation::_init_data_types() const
+[[nodiscard]] std::vector<cudf::data_type> project_relation::data_types() const
 {
   assert(this->children_size() ==
          1);  // There should only be one input relation to a projection relation
-  this->_data_types = std::vector<cudf::data_type>();
+  std::vector<cudf::data_type> data_types;
   for (auto const& output_expression : _output_expressions) {
     auto child_rel        = this->children_unsafe()[0];
     auto child_rel_dtypes = child_rel->data_types();
     auto exp_data_types   = output_expression->data_type(child_rel_dtypes);
-    this->_data_types.value().push_back(exp_data_types);
+    data_types.push_back(exp_data_types);
   }
-}
-
-[[nodiscard]] std::vector<cudf::data_type> project_relation::data_types() const
-{
-  if (!this->_data_types.has_value()) { this->_init_data_types(); }
-  return this->_data_types.value();
+  return data_types;
 }
 
 std::string project_relation::to_string() const

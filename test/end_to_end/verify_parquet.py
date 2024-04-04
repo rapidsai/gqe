@@ -23,6 +23,7 @@ def normalize_type(df1: pd.DataFrame, df2: pd.DataFrame, col: str):
 def verify(test_file: str, ref_file: str):
     df_gqe = pd.read_parquet(test_file)
     df_ref = pd.read_parquet(ref_file)
+    print("Start verification...")
 
     # normalize column names
     df_gqe.columns = df_ref.columns

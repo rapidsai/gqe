@@ -141,6 +141,23 @@ target_link_libraries(relation_equal_test PUBLIC gqe)
 target_link_libraries(relation_equal_test PUBLIC GTest::gtest_main GTest::gmock)
 add_test(NAME relation_equal_test COMMAND relation_equal_test)
 
+add_executable(groupby_test executor/groupby/argmax_tests.cpp 
+                            executor/groupby/argmin_tests.cpp 
+                            executor/groupby/count_tests.cpp 
+                            executor/groupby/groupby_test_util.cpp
+                            executor/groupby/keys_tests.cpp
+                            executor/groupby/max_tests.cpp 
+                            executor/groupby/min_tests.cpp 
+                            executor/groupby/product_tests.cpp
+                            executor/groupby/stress_test.cpp
+                            executor/groupby/sum_of_squares_tests.cpp
+                            executor/groupby/sum_tests.cpp
+                            )
+target_link_libraries(groupby_test PUBLIC gqe)
+target_link_libraries(groupby_test PUBLIC GTest::gtest_main GTest::gmock)
+target_link_libraries(groupby_test PUBLIC cudf::cudftestutil)
+add_test(NAME groupby_test COMMAND groupby_test)
+
 if(GQE_ENABLE_CUSTOMIZED_PARQUET)
     add_executable(parquet_reader_test storage/parquet_reader.cpp)
     target_include_directories(parquet_reader_test PUBLIC ${CMAKE_SOURCE_DIR}/include)

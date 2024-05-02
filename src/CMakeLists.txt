@@ -39,6 +39,7 @@ add_library(
     memory_resource/numa_memory_resource.cpp
     memory_resource/pinned_memory_resource.cpp
     memory_resource/system_memory_resource.cpp
+    executor/groupby/groupby.cu
     executor/aggregate.cpp
     executor/concatenate.cpp
     executor/eval.cpp

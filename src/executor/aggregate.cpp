@@ -22,6 +22,7 @@
 #include <cudf/reduction.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/table/table.hpp>
+#include <gqe/executor/groupby.hpp>
 
 #include <algorithm>
 #include <cassert>
@@ -161,11 +162,9 @@ void aggregate_task::execute()
 
     // In SQL standard, two NULL values are not equal, but for the purpose of grouping, two or more
     // values with NULL should be grouped together.
-    cudf::groupby::groupby groupby_obj(cudf::table_view(key_columns), cudf::null_policy::INCLUDE);
-
+    gqe::groupby::groupby groupby_obj{cudf::table_view(key_columns)};
     auto [key_outputs, agg_results] = groupby_obj.aggregate(agg_requests);
-
-    result_columns = key_outputs->release();
+    result_columns                  = key_outputs->release();
 
     for (auto& agg_result : agg_results) {
       assert(agg_result.results.size() == 1);

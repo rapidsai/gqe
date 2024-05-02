@@ -36,6 +36,7 @@
 #include <rmm/device_uvector.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
+#include <rmm/mr/device/polymorphic_allocator.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
 
 #include <cudf/column/column_device_view.cuh>
@@ -77,16 +78,12 @@ std::shared_ptr<gqe::logical::read_relation> read_table(
     std::move(partial_filter));  // partial_filter
 }
 
-// Use static_map instead of static_multimap because the join key is a primary key
-// The hash map stores (join_key, row_idx) pairs.
-using join_hash_map_type = cuco::static_map<int64_t, int64_t>;
 // Assume the join keys are never max int64_t.
 // This is likely okay since Spark uses 4-byte signed integers to represent `d_date_sk` and
 // `i_item_sk`.
-constexpr cuco::sentinel::empty_key<int64_t> empty_key_sentinel(
-  std::numeric_limits<int64_t>::max());
+constexpr cuco::empty_key<int64_t> empty_key_sentinel(std::numeric_limits<int64_t>::max());
 // Row indices are non-negative in nature.
-constexpr cuco::sentinel::empty_value<int64_t> empty_value_sentinel(-1);
+constexpr cuco::empty_value<int64_t> empty_value_sentinel(-1);
 
 // A customized task to use a fused kernel for the three-way join between "date_dim", "item" and
 // "store_sales" tables.
@@ -129,9 +126,9 @@ constexpr int warp_size = 32;
  * The warp will not write beyond `(idx + 1) * in_rows_per_warp` because the static map can generate
  * at most one output. The number of output rows for each warp is stored in *out_rows_per_warp*.
  */
-template <int block_size>
-__global__ void probe_hash_maps(join_hash_map_type::device_view item_map,
-                                join_hash_map_type::device_view date_dim_map,
+template <int block_size, typename ItemMapRef, typename DateDimMapRef>
+__global__ void probe_hash_maps(ItemMapRef item_map,
+                                DateDimMapRef date_dim_map,
                                 cudf::column_device_view ss_item_sk_column,
                                 cudf::column_device_view ss_sold_date_sk_column,
                                 cudf::size_type const in_rows_per_warp,
@@ -242,30 +239,48 @@ void custom_task::execute()
   std::size_t const date_dim_capacity = std::ceil(date_dim_table.num_rows() / load_factor);
   std::size_t const item_capacity     = std::ceil(item_table.num_rows() / load_factor);
 
-  // Construct a hash map for the date_dim table
-  join_hash_map_type date_dim_map(date_dim_capacity, empty_key_sentinel, empty_value_sentinel);
+  // Use static_maps instead of static_multimap because the join key is a primary key
+  // The hash map stores (join_key, row_idx) pairs.
 
+  // Construct a hash map for the date_dim table
+  rmm::mr::polymorphic_allocator<cuco::pair<int64_t, int64_t>> polly_alloc;
+  auto stream_alloc = rmm::mr::make_stream_allocator_adaptor(polly_alloc, rmm::cuda_stream_default);
+
+  auto date_dim_map =
+    cuco::static_map{date_dim_capacity,
+                     empty_key_sentinel,
+                     empty_value_sentinel,
+                     thrust::equal_to<int64_t>{},
+                     cuco::linear_probing<1, cuco::default_hash_function<int64_t>>{},
+                     {},
+                     {},
+                     stream_alloc};
   auto d_date_sk_column = cudf::column_device_view::create(date_dim_table.column(0));
 
   thrust::for_each(
     thrust::make_counting_iterator<cudf::size_type>(0),
     thrust::make_counting_iterator<cudf::size_type>(d_date_sk_column->size()),
-    [map  = date_dim_map.get_device_mutable_view(),
+    [map  = date_dim_map.ref(cuco::insert),
      keys = *d_date_sk_column] __device__(auto row_idx) mutable {
       // We don't need to check for NULLs because "d_date_sk" is not NULL per TPC-DS specification.
       map.insert(thrust::pair<int64_t, int64_t>(keys.element<int64_t>(row_idx), row_idx));
     });
 
   // Similarly, construct a hash map for the item table
-  join_hash_map_type item_map(item_capacity, empty_key_sentinel, empty_value_sentinel);
-
+  auto item_map         = cuco::static_map{item_capacity,
+                                   empty_key_sentinel,
+                                   empty_value_sentinel,
+                                   thrust::equal_to<int64_t>{},
+                                   cuco::linear_probing<1, cuco::default_hash_function<int64_t>>{},
+                                   {},
+                                   {},
+                                   stream_alloc};
   auto i_item_sk_column = cudf::column_device_view::create(item_table.column(0));
 
   thrust::for_each(
     thrust::make_counting_iterator<cudf::size_type>(0),
     thrust::make_counting_iterator<cudf::size_type>(i_item_sk_column->size()),
-    [map  = item_map.get_device_mutable_view(),
-     keys = *i_item_sk_column] __device__(auto row_idx) mutable {
+    [map = item_map.ref(cuco::insert), keys = *i_item_sk_column] __device__(auto row_idx) mutable {
       // We don't need to check for NULLs because "i_item_sk" is not NULL per TPC-DS specification.
       map.insert(thrust::pair<int64_t, int64_t>(keys.element<int64_t>(row_idx), row_idx));
     });
@@ -289,8 +304,8 @@ void custom_task::execute()
   auto const in_rows_per_warp = (ss_num_rows + num_warps - 1) / num_warps;
   rmm::device_uvector<cudf::size_type> out_rows_per_warp(num_warps, rmm::cuda_stream_default);
 
-  probe_hash_maps<block_size><<<grid_size, block_size>>>(item_map.get_device_view(),
-                                                         date_dim_map.get_device_view(),
+  probe_hash_maps<block_size><<<grid_size, block_size>>>(item_map.ref(cuco::find),
+                                                         date_dim_map.ref(cuco::find),
                                                          *ss_item_sk_column,
                                                          *ss_sold_date_sk_column,
                                                          in_rows_per_warp,

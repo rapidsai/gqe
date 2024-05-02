@@ -72,7 +72,7 @@ template <typename MapInsertRef, typename MapFindRef, typename T>
 struct hash_map_view {
   hash_map_view(MapInsertRef map_insert_ref,
                 MapFindRef map_find_ref,
-                cuco::sentinel::empty_key<T> empty_key_sentinel,
+                cuco::empty_key<T> empty_key_sentinel,
                 bool* empty_key_bit,
                 cudf::size_type* empty_key_row,
                 cudf::null_equality compare_nulls,
@@ -134,7 +134,7 @@ struct hash_map_view {
   MapInsertRef _map_insert_ref;
   MapFindRef _map_find_ref;
 
-  cuco::sentinel::empty_key<T> _empty_key_sentinel;
+  cuco::empty_key<T> _empty_key_sentinel;
   bool* _empty_key_bit;
   cudf::size_type* _empty_key_row;
 
@@ -217,18 +217,6 @@ __global__ void probe_hash_maps(MapView build_map_view,
   }
 }
 
-template <typename T>
-using join_hash_map_type = cuco::experimental::static_map<
-  T,
-  cudf::size_type,
-  cuco::experimental::extent<T>,
-  cuda::thread_scope_device,
-  thrust::equal_to<T>,
-  cuco::experimental::
-    double_hashing<1, cuco::detail::MurmurHash3_32<T>, cuco::detail::MurmurHash3_32<T>>,
-  rmm::mr::stream_allocator_adaptor<
-    rmm::mr::polymorphic_allocator<cuco::pair<T, cudf::size_type>>>>;
-
 template <typename KernelType>
 void set_grid_size(int* grid_size, int block_size, KernelType kernel)
 {
@@ -255,14 +243,21 @@ std::optional<cudf::size_type> build_map(cudf::table_view build_keys,
   std::size_t const map_capacity = std::ceil(build_keys.num_rows() / load_factor);
   auto build_column              = cudf::column_device_view::create(build_keys.column(0));
 
-  constexpr cuco::sentinel::empty_key<T> empty_key_sentinel(std::numeric_limits<T>::min());
+  constexpr cuco::empty_key<T> empty_key_sentinel(std::numeric_limits<T>::min());
   // Row indices are non-negative in nature.
-  constexpr cuco::sentinel::empty_value<cudf::size_type> empty_value_sentinel(-1);
+  constexpr cuco::empty_value<cudf::size_type> empty_value_sentinel(-1);
 
   rmm::mr::polymorphic_allocator<cuco::pair<T, cudf::size_type>> polly_alloc;
   auto stream_alloc = rmm::mr::make_stream_allocator_adaptor(polly_alloc, stream);
-  join_hash_map_type<T> build_map(
-    map_capacity, empty_key_sentinel, empty_value_sentinel, {}, {}, stream_alloc);
+  auto build_map    = cuco::static_map{
+    map_capacity,
+    empty_key_sentinel,
+    empty_value_sentinel,
+    thrust::equal_to<T>{},
+    cuco::double_hashing<1, cuco::detail::MurmurHash3_32<T>, cuco::detail::MurmurHash3_32<T>>{},
+    {},
+    {},
+    stream_alloc};
 
   rmm::device_scalar<bool> empty_key_bit(false, stream);
   rmm::device_scalar<cudf::size_type> empty_key_row(stream);
@@ -270,8 +265,8 @@ std::optional<cudf::size_type> build_map(cudf::table_view build_keys,
   rmm::device_scalar<bool> null_key_bit(false, stream);
   rmm::device_scalar<cudf::size_type> null_key_row(stream);
 
-  hash_map_view build_map_view(build_map.ref(cuco::experimental::insert),
-                               build_map.ref(cuco::experimental::find),
+  hash_map_view build_map_view(build_map.ref(cuco::insert),
+                               build_map.ref(cuco::find),
                                empty_key_sentinel,
                                empty_key_bit.data(),
                                empty_key_row.data(),

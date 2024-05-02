@@ -54,10 +54,18 @@ option(GQE_ENABLE_CUSTOMIZED_PARQUET "Enable the customized Parquet reader" OFF)
 
 include(${rapids-cmake-dir}/cpm/gtest.cmake)
 include(${rapids-cmake-dir}/cpm/spdlog.cmake)
-include(${rapids-cmake-dir}/cpm/cuco.cmake)
 rapids_cpm_gtest()
 rapids_cpm_spdlog()
-rapids_cpm_cuco()
+
+CPMAddPackage(
+  NAME cuco
+  GITHUB_REPOSITORY NVIDIA/cuCollections
+  GIT_TAG 2101cb31d0210b609cd02c88f9b538e10881d91d
+  OPTIONS
+     "BUILD_TESTS OFF"
+     "BUILD_BENCHMARKS OFF"
+     "BUILD_EXAMPLES OFF"
+)
 
 CPMAddPackage(
     NAME NVTX

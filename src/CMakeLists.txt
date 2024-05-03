@@ -71,6 +71,8 @@ add_library(
     optimizer/rules/not_not.cpp
     storage/in_memory.cpp
     storage/parquet.cpp
+    storage/parquet.cu
+    storage/parquet_reader.cpp
     storage/parquet_reader.cu
     utility/cuda.cpp
     utility/linux.cpp

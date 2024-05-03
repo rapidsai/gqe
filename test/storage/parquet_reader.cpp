@@ -36,27 +36,14 @@
 auto const temp_env = static_cast<cudf::test::TempDirTestEnvironment*>(
   ::testing::AddGlobalTestEnvironment(new cudf::test::TempDirTestEnvironment));
 
-std::unique_ptr<cudf::table> write_file_and_load_back(cudf::table_view table,
-                                                      bool use_dictionary_encoding)
+gqe::storage::table_with_metadata write_file_and_load_back(cudf::table_view table,
+                                                           bool use_dictionary_encoding,
+                                                           bool load_columns = true)
 {
-  std::vector<std::string> column_names;
-  column_names.reserve(table.num_columns());
-
-  cudf::io::table_input_metadata table_metadata(table);
-  for (cudf::size_type column_idx = 0; column_idx < table.num_columns(); column_idx++) {
-    auto const column_name = "column_" + std::to_string(column_idx);
-    column_names.push_back(column_name);
-    table_metadata.column_metadata[column_idx].set_name(column_name);
-  }
-
+  auto column_names   = get_column_names(table.num_columns());
   auto table_filepath = temp_env->get_temp_filepath("table.parquet");
-  auto table_options =
-    cudf::io::parquet_writer_options::builder(cudf::io::sink_info(table_filepath), table);
-  table_options.metadata(table_metadata);
-  table_options.compression(cudf::io::compression_type::SNAPPY);
-  table_options.dictionary_policy(use_dictionary_encoding ? cudf::io::dictionary_policy::ALWAYS
-                                                          : cudf::io::dictionary_policy::NEVER);
-  cudf::io::write_parquet(table_options);
+
+  write_table_to_file(table, column_names, table_filepath, use_dictionary_encoding);
 
   gqe::optimization_parameters opms{};
   opms.max_num_workers   = 1;
@@ -67,11 +54,23 @@ std::unique_ptr<cudf::table> write_file_and_load_back(cudf::table_view table,
   rmm::device_buffer bounce_buffer(
     bounce_buffer_size, rmm::cuda_stream_default, qctx.io_bounce_buffer_mr.get());
 
-  return gqe::storage::read_parquet({table_filepath},
-                                    column_names,
-                                    bounce_buffer.data(),
-                                    bounce_buffer_size,
-                                    opms.io_auxiliary_threads);
+  gqe::storage::table_with_metadata result_table;
+
+  if (load_columns) {
+    result_table = gqe::storage::read_parquet_custom({table_filepath},
+                                                     column_names,
+                                                     bounce_buffer.data(),
+                                                     bounce_buffer_size,
+                                                     opms.io_auxiliary_threads);
+  } else {
+    result_table = gqe::storage::read_parquet_custom({table_filepath},
+                                                     std::vector<std::string>(),
+                                                     bounce_buffer.data(),
+                                                     bounce_buffer_size,
+                                                     opms.io_auxiliary_threads);
+  }
+
+  return result_table;
 }
 
 TEST(ParquetReader, TestRandomColumns)
@@ -91,8 +90,10 @@ TEST(ParquetReader, TestRandomColumns)
   //  generate_fixed_point_column<int32_t>(num_rows, 0.1, 0, 30, numeric::scale_type{-2}));
   auto ref_table = std::make_unique<cudf::table>(std::move(columns));
 
-  auto load_table = write_file_and_load_back(ref_table->view(), false);
-  CUDF_TEST_EXPECT_TABLES_EQUAL(load_table->view(), ref_table->view());
+  auto loaded_table = write_file_and_load_back(ref_table->view(), false);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(loaded_table.table->view(), ref_table->view());
+  ASSERT_EQ(loaded_table.rows_per_file.size(), 1);
+  ASSERT_EQ(loaded_table.rows_per_file[0], num_rows);
 }
 
 TEST(ParquetReader, TestDictionaryEncoding)
@@ -107,4 +108,18 @@ TEST(ParquetReader, TestDictionaryEncoding)
   // Currently, the customized Parquet reader does not support dictionary encoding. This test checks
   // the correct exception is thrown so that the read task can fallback to cuDF's Parquet reader.
   ASSERT_THROW(write_file_and_load_back(ref_table->view(), true), gqe::storage::unsupported_error);
+}
+
+TEST(ParquetReader, TestEmptyColumnMetadata)
+{
+  constexpr cudf::size_type num_rows = 30000;
+
+  std::vector<std::unique_ptr<cudf::column>> columns;
+  columns.push_back(generate_fixed_width_column<int64_t>(num_rows, 0.1, -30, 30));
+  auto ref_table = std::make_unique<cudf::table>(std::move(columns));
+
+  auto loaded_table = write_file_and_load_back(ref_table->view(), false, false);
+  ASSERT_EQ(loaded_table.table->num_columns(), 0);
+  ASSERT_EQ(loaded_table.rows_per_file.size(), 1);
+  ASSERT_EQ(loaded_table.rows_per_file[0], num_rows);
 }

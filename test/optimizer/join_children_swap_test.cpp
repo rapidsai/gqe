@@ -33,6 +33,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -60,12 +61,21 @@ class JoinChildrenSwapTest : public ::testing::Test {
     columns_mixed.push_back(generate_fixed_width_column<int64_t>(num_rows, 0.01, -30, 30));
     columns_mixed.push_back(generate_fixed_width_column<double>(num_rows, 0.01, -30, 30));
     auto table_mixed = std::make_unique<cudf::table>(std::move(columns_mixed));
+
     // Write tables
     auto file_dir_small = temp_env->get_temp_dir() + "small";
-    write_table_to_files(table_ints->view(), file_dir_small, false);
+    std::filesystem::create_directory(file_dir_small);
+    write_table_to_file(table_ints->view(),
+                        get_column_names(table_ints->num_columns()),
+                        file_dir_small + "/table.parquet");
+
     auto file_dir_large = temp_env->get_temp_dir() + "large";
-    for (cudf::size_type file_number = 0; file_number < num_files_large; file_number++)
-      write_table_to_files(table_mixed->view(), file_dir_large, false, std::to_string(file_number));
+    std::filesystem::create_directory(file_dir_large);
+    for (cudf::size_type file_number = 0; file_number < num_files_large; file_number++) {
+      write_table_to_file(table_mixed->view(),
+                          get_column_names(table_mixed->num_columns()),
+                          file_dir_large + "/table" + std::to_string(file_number) + ".parquet");
+    }
 
     catalog.register_table(
       "big_table",

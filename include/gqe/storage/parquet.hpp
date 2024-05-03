@@ -19,6 +19,8 @@
 #include <gqe/storage/table.hpp>
 #include <gqe/storage/writeable_view.hpp>
 
+#include <cudf/column/column.hpp>
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -83,6 +85,10 @@ class parquet_read_task : public read_task_base {
    *
    * A read task is used for loading a table from a file.
    *
+   * We can pass an in-predicate expression as `partial_filter` to support predicate pushdown on a
+   * Hive-partitioned dataset. Currently, only a single partition key column with integer type is
+   * supported.
+   *
    * @param[in] query_context The query context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
@@ -117,10 +123,28 @@ class parquet_read_task : public read_task_base {
   void execute() override;
 
  private:
-  [[nodiscard]] std::unique_ptr<cudf::table> table_from_parquet(
-    std::vector<std::string> const& file_paths) const;
-
   [[nodiscard]] std::string print_column_names() const;
+
+  struct partial_filter_info {
+    // partitioned files that satisfy the partial filter predicate
+    std::vector<std::pair<size_t, std::shared_ptr<void>>>
+      partitioned_files;         // pairs of (file_index, partition_key)
+    cudf::size_type column_idx;  // partition key column index
+
+    // non-partitioned files
+    std::vector<size_t> non_partitioned_files;
+  };
+
+  // Parse the partial filter in a read task to get the files that satisfy the predicate.
+  // Note: this function must be called after `prepare_dependencies()` so the subquery result is
+  // available.
+  [[nodiscard]] partial_filter_info parse_partial_filter() const;
+
+  // Construct a partition key column.
+  // This function is helpful when the dataset is hive partitioned. Instead of loading the
+  // partition-key column from Parquet files, we can construct them explicitly in-memory.
+  static std::unique_ptr<cudf::column> construct_partition_key_column(
+    cudf::data_type dtype, std::vector<int64_t> keys, std::vector<cudf::size_type> num_rows);
 
   std::vector<std::string> _file_paths;
   std::vector<std::string> _column_names;

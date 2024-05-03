@@ -24,6 +24,23 @@
 
 namespace gqe::storage {
 
+struct table_with_metadata {
+  std::unique_ptr<cudf::table> table;
+  std::vector<cudf::size_type> rows_per_file;
+};
+
+/**
+ * @brief Read Parquet files using cuDF's Parquet reader.
+ *
+ * If `column_names` is empty, the loaded table will be empty, but the rows-per-file statistics is
+ * still valid.
+ *
+ * @param[in] file_paths List of Parquet files to read.
+ * @param[in] column_names Columns to read.
+ */
+table_with_metadata read_parquet_cudf(std::vector<std::string> const& file_paths,
+                                      std::vector<std::string> const& column_names);
+
 /**
  * @brief Exception thrown when the input files have features not supported by the customized
  * Parquet reader.
@@ -50,6 +67,9 @@ struct unsupported_error : public std::runtime_error {
  * The reader supports Snappy and uncompressed pages. All other compression formats are not
  * supported.
  *
+ * If `columns` is empty, the loaded table will be empty, but the rows-per-file statistics is still
+ * valid.
+ *
  * @param[in] file_paths List of Parquet files to read.
  * @param[in] columns Columns to read.
  * @param[in] bounce_buffer Page-locked CPU memory used as a bounce buffer by the Parquet reader.
@@ -60,7 +80,7 @@ struct unsupported_error : public std::runtime_error {
  * @param[in] mr Memory resource to use for allocating the result table and temporary device
  * buffers.
  */
-std::unique_ptr<cudf::table> read_parquet(
+table_with_metadata read_parquet_custom(
   std::vector<std::string> file_paths,
   std::vector<std::string> columns,
   void* bounce_buffer,

@@ -948,13 +948,13 @@ void io_batch::decode(rmm::cuda_stream_view stream)
 
 }  // namespace
 
-std::unique_ptr<cudf::table> read_parquet(std::vector<std::string> file_paths,
-                                          std::vector<std::string> column_names,
-                                          void* bounce_buffer,
-                                          int64_t bounce_buffer_size,
-                                          std::size_t num_auxiliary_threads,
-                                          rmm::cuda_stream_view stream,
-                                          rmm::mr::device_memory_resource* mr)
+table_with_metadata read_parquet_custom(std::vector<std::string> file_paths,
+                                        std::vector<std::string> column_names,
+                                        void* bounce_buffer,
+                                        int64_t bounce_buffer_size,
+                                        std::size_t num_auxiliary_threads,
+                                        rmm::cuda_stream_view stream,
+                                        rmm::mr::device_memory_resource* mr)
 {
   const auto num_out_columns = column_names.size();
 
@@ -977,6 +977,10 @@ std::unique_ptr<cudf::table> read_parquet(std::vector<std::string> file_paths,
 
   // Start row index of the row group being processed, invariant in the following loop
   cudf::size_type row_group_row_index = 0;
+
+  // Number of rows in each file
+  std::vector<cudf::size_type> rows_per_file;
+  rows_per_file.reserve(file_paths.size());
 
   for (auto const& file_path : file_paths) {
     // Open the Parquet file and get the file descriptor
@@ -1011,6 +1015,8 @@ std::unique_ptr<cudf::table> read_parquet(std::vector<std::string> file_paths,
 
     parquet::FileMetaData file_metadata;
     file_metadata.read(footer_protocol.get());
+
+    rows_per_file.push_back(file_metadata.num_rows);
 
     // Map from the column name to column index
     std::map<std::string, std::size_t> column_name_to_idx;
@@ -1170,7 +1176,11 @@ std::unique_ptr<cudf::table> read_parquet(std::vector<std::string> file_paths,
     }
   }
 
-  return std::make_unique<cudf::table>(std::move(out_columns));
+  table_with_metadata result;
+  result.table         = std::make_unique<cudf::table>(std::move(out_columns));
+  result.rows_per_file = std::move(rows_per_file);
+
+  return result;
 }
 
 }  // namespace gqe::storage

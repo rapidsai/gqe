@@ -29,3 +29,6 @@ RUN apt-get install -y --no-install-recommends \
 
 # Clean up temporary apt files
 RUN rm -rf /var/lib/apt/lists/*
+
+# Allow users to update Rust's default Cargo directory
+RUN chmod o+rw /usr/local/cargo

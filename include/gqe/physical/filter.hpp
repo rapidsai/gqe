@@ -33,11 +33,15 @@ class filter_relation : public relation {
    * expression.
    * @param[in] condition A boolean expression evaluated on `input` to represent the filter
    * condition.
+   * @param[in] projection_indices Column indices to materialize after the filter.
    */
   filter_relation(std::shared_ptr<relation> input,
                   std::vector<std::shared_ptr<relation>> subquery_relations,
-                  std::unique_ptr<expression> condition)
-    : relation({std::move(input)}, std::move(subquery_relations)), _condition(std::move(condition))
+                  std::unique_ptr<expression> condition,
+                  std::vector<cudf::size_type> projection_indices)
+    : relation({std::move(input)}, std::move(subquery_relations)),
+      _condition(std::move(condition)),
+      _projection_indices(std::move(projection_indices))
   {
   }
 
@@ -51,8 +55,17 @@ class filter_relation : public relation {
    */
   void accept(relation_visitor& visitor) override { visitor.visit(this); }
 
+  /**
+   * @brief Return the column indices to materialize after the filter.
+   */
+  [[nodiscard]] std::vector<cudf::size_type> projection_indices() const noexcept
+  {
+    return _projection_indices;
+  }
+
  private:
   std::unique_ptr<expression> _condition;
+  std::vector<cudf::size_type> _projection_indices;
 };
 
 }  // namespace physical

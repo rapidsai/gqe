@@ -157,7 +157,8 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
       out_physical_relation =
         std::make_shared<physical::filter_relation>(std::move(children_physical[0]),
                                                     std::move(subqueries_physical),
-                                                    logical_filter_relation->condition()->clone());
+                                                    logical_filter_relation->condition()->clone(),
+                                                    logical_filter_relation->projection_indices());
       break;
     }
     case logical::relation::relation_type::sort: {

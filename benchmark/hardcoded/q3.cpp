@@ -115,9 +115,9 @@ int main(int argc, char* argv[])
   date_dim_table = std::make_shared<gqe::logical::filter_relation>(
     std::move(date_dim_table),
     std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
-    std::make_unique<gqe::equal_expression>(
-      std::make_shared<gqe::column_reference_expression>(2),
-      std::make_shared<gqe::literal_expression<int64_t>>(11)));
+    std::make_unique<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(2),
+                                            std::make_shared<gqe::literal_expression<int64_t>>(11)),
+    std::vector<cudf::size_type>({0, 1, 2}));
 
   std::shared_ptr<gqe::logical::relation> item_table =
     read_table("item", {"i_item_sk", "i_brand_id", "i_brand", "i_manufact_id"}, &tpcds_catalog);
@@ -126,7 +126,8 @@ int main(int argc, char* argv[])
     std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
     std::make_unique<gqe::equal_expression>(
       std::make_shared<gqe::column_reference_expression>(3),
-      std::make_shared<gqe::literal_expression<int64_t>>(128)));
+      std::make_shared<gqe::literal_expression<int64_t>>(128)),
+    std::vector<cudf::size_type>({0, 1, 2, 3}));
 
   // predicate pushdown via partial filter
   std::vector<std::unique_ptr<gqe::expression>> col_0_exprs;

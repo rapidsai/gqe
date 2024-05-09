@@ -31,11 +31,9 @@ using bool_column_wrapper  = cudf::test::fixed_width_column_wrapper<bool>;
 
 class FilterTest : public ::testing::Test {
  protected:
-  void construct_filter_task()
+  void construct_input_task(int32_t const stage_id, gqe::query_context& qctx)
   {
-    constexpr int32_t stage_id       = 0;
-    constexpr int32_t input_task_id  = 0;
-    constexpr int32_t filter_task_id = 1;
+    constexpr int32_t input_task_id = 0;
 
     int64_column_wrapper input_col_0({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
     int64_column_wrapper input_col_1({11, 12, 13, 14, 15, 16, 17, 18, 19, 20});
@@ -47,24 +45,38 @@ class FilterTest : public ::testing::Test {
     input_columns.push_back(input_col_1.release());
     input_columns.push_back(input_col_2.release());
 
+    input_task = std::make_shared<gqe::test::executed_task>(
+      &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+  }
+
+  void construct_filter_task(std::vector<cudf::size_type> projection_indices)
+  {
+    constexpr int32_t stage_id       = 0;
+    constexpr int32_t filter_task_id = 1;
+
     gqe::query_context qctx(gqe::optimization_parameters(true));
 
-    auto input_task = std::make_shared<gqe::test::executed_task>(
-      &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+    construct_input_task(stage_id, qctx);
 
     std::unique_ptr<gqe::expression> condition{
       std::make_unique<gqe::column_reference_expression>(2)};
 
-    filter_task = std::make_unique<gqe::filter_task>(
-      &qctx, filter_task_id, stage_id, std::move(input_task), std::move(condition));
+    filter_task = std::make_unique<gqe::filter_task>(&qctx,
+                                                     filter_task_id,
+                                                     stage_id,
+                                                     std::move(input_task),
+                                                     std::move(condition),
+                                                     projection_indices);
   }
 
+  std::shared_ptr<gqe::test::executed_task> input_task;
   std::unique_ptr<gqe::filter_task> filter_task;
 };
 
 TEST_F(FilterTest, FilterOddsOnly)
 {
-  construct_filter_task();
+  std::vector<cudf::size_type> projection_indices{0, 1, 2};
+  construct_filter_task(projection_indices);
 
   filter_task->execute();
   auto filter_result = filter_task->result();
@@ -81,5 +93,41 @@ TEST_F(FilterTest, FilterOddsOnly)
 
   cudf::table ref_table(std::move(ref_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(filter_result.value(), ref_table.view());
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(filter_result.value(), ref_table.view());
+}
+
+TEST_F(FilterTest, MaterializeSubsetOfColumns)
+{
+  std::vector<cudf::size_type> projection_indices{1};
+  construct_filter_task(projection_indices);
+
+  filter_task->execute();
+  auto filter_result = filter_task->result();
+  ASSERT_EQ(filter_result.has_value(), true);
+
+  int64_column_wrapper ref_col_0({11, 13, 15, 17, 19});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_columns;
+  ref_columns.push_back(ref_col_0.release());
+
+  cudf::table ref_table(std::move(ref_columns));
+
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(filter_result.value(), ref_table.view());
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(filter_result.value(), ref_table.view());
+}
+
+TEST_F(FilterTest, EmptyProjectionIndices)
+{
+  std::vector<cudf::size_type> projection_indices{};
+  construct_filter_task(projection_indices);
+
+  filter_task->execute();
+  auto filter_result = filter_task->result();
+  ASSERT_EQ(filter_result.has_value(), true);
+
+  cudf::table ref_table;
+
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(filter_result.value(), ref_table.view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(filter_result.value(), ref_table.view());
 }

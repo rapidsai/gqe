@@ -702,8 +702,14 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_filter_rela
   std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
   auto condition = parse_expression(filter_relation.condition(), subquery_relations);
 
-  return std::make_unique<gqe::logical::filter_relation>(
-    std::move(input_relation), std::move(subquery_relations), std::move(condition));
+  auto const num_output_columns = input_relation->num_columns();
+  std::vector<cudf::size_type> projection_indices(num_output_columns);
+  std::iota(projection_indices.begin(), projection_indices.end(), 0);
+
+  return std::make_unique<gqe::logical::filter_relation>(std::move(input_relation),
+                                                         std::move(subquery_relations),
+                                                         std::move(condition),
+                                                         std::move(projection_indices));
 }
 
 std::pair<cudf::aggregation::Kind, std::unique_ptr<gqe::expression>>
@@ -967,8 +973,12 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_join_relati
   //       will need to reflect the changes
   if (join_relation.has_post_join_filter()) {
     auto join_filter = parse_expression(join_relation.post_join_filter(), subquery_relations);
-    return std::make_unique<gqe::logical::filter_relation>(
-      std::move(join), std::move(subquery_relations), std::move(join_filter));
+    std::vector<cudf::size_type> filter_projection_indices(num_output_columns);
+    std::iota(filter_projection_indices.begin(), filter_projection_indices.end(), 0);
+    return std::make_unique<gqe::logical::filter_relation>(std::move(join),
+                                                           std::move(subquery_relations),
+                                                           std::move(join_filter),
+                                                           std::move(filter_projection_indices));
   }
 
   return join;

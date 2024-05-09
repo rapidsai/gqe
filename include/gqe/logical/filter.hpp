@@ -29,10 +29,12 @@ class filter_relation : public relation {
    *
    * @param input_relation Input relation to apply filter on
    * @param condition Filter expression to apply to the input
+   * @param[in] projection_indices Column indices to materialize after the filter.
    */
   filter_relation(std::shared_ptr<relation> input_relation,
                   std::vector<std::shared_ptr<relation>> subquery_relations,
-                  std::unique_ptr<expression> condition);
+                  std::unique_ptr<expression> condition,
+                  std::vector<cudf::size_type> projection_indices);
 
   /**
    * @copydoc relation::type()
@@ -62,12 +64,21 @@ class filter_relation : public relation {
   [[nodiscard]] expression* condition() const noexcept { return _condition.get(); }
 
   /**
+   * @brief Return the column indices to materialize after the filter.
+   */
+  [[nodiscard]] std::vector<cudf::size_type> projection_indices() const noexcept
+  {
+    return _projection_indices;
+  }
+
+  /**
    * @copydoc relation::operator==(const relation& other)
    */
   bool operator==(const relation& other) const override;
 
  private:
   std::unique_ptr<expression> _condition;
+  std::vector<cudf::size_type> _projection_indices;
 };
 
 }  // namespace logical

@@ -137,7 +137,8 @@ int main(int argc, char* argv[])
         std::make_shared<gqe::literal_expression<int64_t>>(YEAR)),
       std::make_shared<gqe::equal_expression>(
         std::make_shared<gqe::column_reference_expression>(2),
-        std::make_shared<gqe::literal_expression<int64_t>>(MONTH))));
+        std::make_shared<gqe::literal_expression<int64_t>>(MONTH))),
+    std::vector<cudf::size_type>({0, 1, 2, 3}));
 
   // Filter based on d.d_month_seq = (SELECT distinct (d_month_seq) FROM date_dim WHERE d_year =
   // 2001 AND d_moy = 1)
@@ -193,7 +194,8 @@ int main(int argc, char* argv[])
       std::make_shared<gqe::column_reference_expression>(1),
       std::make_shared<gqe::multiply_expression>(
         std::make_shared<gqe::column_reference_expression>(2),
-        std::make_shared<gqe::literal_expression<double>>(1.2))));
+        std::make_shared<gqe::literal_expression<double>>(1.2))),
+    std::vector<cudf::size_type>({0, 1, 2}));
 
   // Join "store_sales" table with `date_dim_table`
   // After this operation, `store_sales_table` contains columns ["ss_item_sk", "ss_customer_sk"]
@@ -288,7 +290,8 @@ int main(int argc, char* argv[])
     std::vector<std::shared_ptr<gqe::logical::relation>>(),
     std::make_unique<gqe::greater_equal_expression>(
       std::make_shared<gqe::column_reference_expression>(1),
-      std::make_shared<gqe::literal_expression<int64_t>>(10)));
+      std::make_shared<gqe::literal_expression<int64_t>>(10)),
+    std::vector<cudf::size_type>({0, 1}));
 
   // ORDER BY cnt
   // After this operation, `store_sales_table` contains columns ["ca_state", count(*)]

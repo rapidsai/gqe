@@ -27,9 +27,11 @@ filter_task::filter_task(query_context* query_context,
                          int32_t stage_id,
                          std::shared_ptr<task> input,
                          std::unique_ptr<expression> condition,
+                         std::vector<cudf::size_type> projection_indices,
                          std::vector<std::shared_ptr<task>> subquery_tasks)
   : task(query_context, task_id, stage_id, {std::move(input)}, std::move(subquery_tasks)),
-    _condition(std::move(condition))
+    _condition(std::move(condition)),
+    _projection_indices(std::move(projection_indices))
 {
 }
 
@@ -44,16 +46,21 @@ void filter_task::execute()
 
   std::vector<expression const*> condition_expr{_condition.get()};
 
-  auto input_table          = dependent_tasks[0]->result().value();
+  auto input_table = dependent_tasks[0]->result().value();
+
   auto [mask, column_cache] = evaluate_expressions(input_table, condition_expr);
+
+  input_table = input_table.select(_projection_indices);
 
   auto result = cudf::apply_boolean_mask(input_table, mask[0]);
 
-  GQE_LOG_TRACE("Execute filter task: task_id={}, stage_id={}, input_size={}, output_size={}.",
-                task_id(),
-                stage_id(),
-                input_table.num_rows(),
-                result->num_rows());
+  GQE_LOG_TRACE(
+    "Execute filter task: task_id={}, stage_id={}, input_rows={}, output_rows={}, output_cols={}",
+    task_id(),
+    stage_id(),
+    input_table.num_rows(),
+    result->num_rows(),
+    result->num_columns());
   emit_result(std::move(result));
   remove_dependencies();
 }

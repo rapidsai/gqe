@@ -125,7 +125,8 @@ int main(int argc, char* argv[])
         std::make_shared<gqe::literal_expression<int64_t>>(DMS)),
       std::make_shared<gqe::less_equal_expression>(
         std::make_shared<gqe::column_reference_expression>(1),
-        std::make_shared<gqe::literal_expression<int64_t>>(DMS + 11))));
+        std::make_shared<gqe::literal_expression<int64_t>>(DMS + 11))),
+    std::vector<cudf::size_type>({0, 1}));
 
   // Join the inventory table with the `date_dim_table`
   // After this operation, `inventory_table` contains columns

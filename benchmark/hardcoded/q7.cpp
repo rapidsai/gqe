@@ -154,7 +154,8 @@ int main(int argc, char* argv[])
     std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
     std::make_unique<gqe::equal_expression>(
       std::make_shared<gqe::column_reference_expression>(1),
-      std::make_shared<gqe::literal_expression<int64_t>>(2000)));
+      std::make_shared<gqe::literal_expression<int64_t>>(2000)),
+    std::vector<cudf::size_type>({0, 1}));
 
   // predicate pushdown via partial filter
   std::vector<std::unique_ptr<gqe::expression>> col_0_exprs;
@@ -202,7 +203,8 @@ int main(int argc, char* argv[])
           std::make_shared<gqe::literal_expression<std::string>>("S")),
         std::make_shared<gqe::equal_expression>(
           std::make_shared<gqe::column_reference_expression>(3),
-          std::make_shared<gqe::literal_expression<std::string>>("College")))));
+          std::make_shared<gqe::literal_expression<std::string>>("College")))),
+    std::vector<cudf::size_type>({0, 1, 2, 3}));
 
   std::shared_ptr<gqe::logical::relation> item_table =
     read_table("item", {"i_item_sk", "i_item_id"}, &tpcds_catalog);
@@ -218,7 +220,8 @@ int main(int argc, char* argv[])
         std::make_shared<gqe::literal_expression<std::string>>("N")),
       std::make_shared<gqe::equal_expression>(
         std::make_shared<gqe::column_reference_expression>(2),
-        std::make_shared<gqe::literal_expression<std::string>>("N"))));
+        std::make_shared<gqe::literal_expression<std::string>>("N"))),
+    std::vector<cudf::size_type>({0, 1, 2}));
 
   // Join store_sales with customer_demographics on condition "ss_cdemo_sk = cd_demo_sk"
   // After this operation, store_sales_table contains columns

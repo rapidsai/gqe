@@ -92,8 +92,11 @@ class RewriteRuleTest : public ::testing::Test {
           std::move(read_rel), std::move(subquery_relations), std::move(keys), std::move(measures));
       }
       case relation_t::filter: {
-        return std::make_unique<gqe::logical::filter_relation>(
-          std::move(read_rel), std::move(subquery_relations), std::move(inner_expr));
+        std::vector<cudf::size_type> projection_indices = {0};
+        return std::make_unique<gqe::logical::filter_relation>(std::move(read_rel),
+                                                               std::move(subquery_relations),
+                                                               std::move(inner_expr),
+                                                               std::move(projection_indices));
       }
       case relation_t::join: {
         // Note that the inner expression does not make sense as a join condition, and is only used

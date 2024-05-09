@@ -415,12 +415,12 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::filter_rel
 
   // Generate the filter tasks
   for (auto& input_task : input_tasks) {
-    _generated_tasks.push_back(
-      std::make_shared<filter_task>(_builder->_query_context,
-                                    _builder->_current_task_id,
-                                    _builder->_current_stage_id,
-                                    std::move(input_task),
-                                    relation->condition_unsafe()->clone()));
+    _generated_tasks.push_back(std::make_shared<filter_task>(_builder->_query_context,
+                                                             _builder->_current_task_id,
+                                                             _builder->_current_stage_id,
+                                                             std::move(input_task),
+                                                             relation->condition_unsafe()->clone(),
+                                                             relation->projection_indices()));
     _builder->_current_task_id++;
   }
 

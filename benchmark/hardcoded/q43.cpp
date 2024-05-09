@@ -138,16 +138,17 @@ int main(int argc, char* argv[])
     std::vector<std::shared_ptr<gqe::logical::relation>>(),
     std::make_unique<gqe::equal_expression>(
       std::make_shared<gqe::column_reference_expression>(2),
-      std::make_shared<gqe::literal_expression<int64_t>>(2000)));  // filter by d_year = 2000
+      std::make_shared<gqe::literal_expression<int64_t>>(2000)),
+    std::vector<cudf::size_type>({0, 1, 2}));  // filter by d_year = 2000
 
   std::shared_ptr<gqe::logical::relation> store_table = read_table(
     "store", {"s_store_sk", "s_store_id", "s_store_name", "s_gmt_offset"}, &tpcds_catalog);
   store_table = std::make_shared<gqe::logical::filter_relation>(
     std::move(store_table),
     std::vector<std::shared_ptr<gqe::logical::relation>>(),
-    std::make_unique<gqe::equal_expression>(
-      std::make_shared<gqe::column_reference_expression>(3),
-      std::make_shared<gqe::literal_expression<double>>(-5)));  // filter by s_gmt_offset = -5
+    std::make_unique<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(3),
+                                            std::make_shared<gqe::literal_expression<double>>(-5)),
+    std::vector<cudf::size_type>({0, 1, 2, 3}));  // filter by s_gmt_offset = -5
 
   // predicate pushdown via partial filter
   std::vector<std::unique_ptr<gqe::expression>> col_0_exprs;

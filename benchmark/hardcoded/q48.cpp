@@ -152,7 +152,8 @@ int main(int argc, char* argv[])
     std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
     std::make_unique<gqe::equal_expression>(
       std::make_shared<gqe::column_reference_expression>(1),
-      std::make_shared<gqe::literal_expression<int64_t>>(YEAR)));
+      std::make_shared<gqe::literal_expression<int64_t>>(YEAR)),
+    std::vector<cudf::size_type>({0, 1}));
 
   // Predicate pushdown via partial filter
   std::vector<std::unique_ptr<gqe::expression>> col_0_exprs;
@@ -250,7 +251,8 @@ int main(int argc, char* argv[])
       std::make_shared<gqe::logical_or_expression>(
         filter_customer_demographics_expr(MS_1, ES_1, 100.0, 150.0),
         filter_customer_demographics_expr(MS_2, ES_2, 50.0, 100.0)),
-      filter_customer_demographics_expr(MS_3, ES_3, 150.0, 200.0)));
+      filter_customer_demographics_expr(MS_3, ES_3, 150.0, 200.0)),
+    std::vector<cudf::size_type>({0, 1, 2, 3, 4, 5}));
 
   // Filter customer_address table with predicate ca_country = 'United States'
   // After this operation, `customer_address_table` contains columns
@@ -263,7 +265,8 @@ int main(int argc, char* argv[])
     std::vector<std::shared_ptr<gqe::logical::relation>>(),
     std::make_unique<gqe::equal_expression>(
       std::make_shared<gqe::column_reference_expression>(1),
-      std::make_shared<gqe::literal_expression<std::string>>("United States")));
+      std::make_shared<gqe::literal_expression<std::string>>("United States")),
+    std::vector<cudf::size_type>({0, 1, 2}));
 
   // Join `store_sales_table` with `customer_address_table`
   // After this operation, `store_sales_table` contains columns
@@ -319,7 +322,8 @@ int main(int argc, char* argv[])
       std::make_shared<gqe::logical_or_expression>(
         filter_customer_address_expr(STATE_1, STATE_2, STATE_3, 0, 2000),
         filter_customer_address_expr(STATE_4, STATE_5, STATE_6, 150, 3000)),
-      filter_customer_address_expr(STATE_7, STATE_8, STATE_9, 50, 25000)));
+      filter_customer_address_expr(STATE_7, STATE_8, STATE_9, 50, 25000)),
+    std::vector<cudf::size_type>({0, 1, 2}));
 
   // Calculate sum (ss_quantity)
   std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<gqe::expression>>> measures;

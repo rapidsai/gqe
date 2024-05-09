@@ -36,6 +36,7 @@ class filter_task : public task {
    * @param[in] input Input table to be filtered.
    * @param[in] condition A boolean expression evaluated on `input` to represent the filter
    * condition.
+   * @param[in] projection_indices Column indices to materialize after the filter.
    * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
    * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
    */
@@ -44,6 +45,7 @@ class filter_task : public task {
               int32_t stage_id,
               std::shared_ptr<task> input,
               std::unique_ptr<expression> condition,
+              std::vector<cudf::size_type> projection_indices,
               std::vector<std::shared_ptr<task>> subquery_tasks = {});
 
   /**
@@ -53,6 +55,7 @@ class filter_task : public task {
 
  private:
   std::unique_ptr<expression> _condition;
+  std::vector<cudf::size_type> _projection_indices;
 };
 
 }  // namespace gqe

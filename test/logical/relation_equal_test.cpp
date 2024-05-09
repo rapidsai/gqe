@@ -181,22 +181,36 @@ TEST_F(RelationEqualTest, Filter)
   auto cond_0 = std::make_unique<gqe::equal_expression>(col_0, int32_literal_one);
   auto cond_1 = std::make_unique<gqe::equal_expression>(col_1, int32_literal_one);
 
+  std::vector<cudf::size_type> projection_indices_0 = {0};
+  std::vector<cudf::size_type> projection_indices_1 = {1};
+  std::vector<cudf::size_type> projection_indices_2 = {0, 1};
+
   std::unique_ptr<gqe::logical::filter_relation> filter_0 =
-    std::make_unique<gqe::logical::filter_relation>(read_rel_0, empty_relations(), cond_0->clone());
+    std::make_unique<gqe::logical::filter_relation>(
+      read_rel_0, empty_relations(), cond_0->clone(), projection_indices_0);
   std::unique_ptr<gqe::logical::filter_relation> filter_0_dup =
     std::make_unique<gqe::logical::filter_relation>(
-      read_rel_0_dup, empty_relations(), cond_0->clone());
+      read_rel_0_dup, empty_relations(), cond_0->clone(), projection_indices_0);
   std::unique_ptr<gqe::logical::filter_relation> filter_1 =
     std::make_unique<gqe::logical::filter_relation>(
-      read_rel_1, empty_relations(), std::move(cond_0));
+      read_rel_1, empty_relations(), std::move(cond_0), projection_indices_0);
   std::unique_ptr<gqe::logical::filter_relation> filter_2 =
-    std::make_unique<gqe::logical::filter_relation>(read_rel_1, empty_relations(), cond_1->clone());
+    std::make_unique<gqe::logical::filter_relation>(
+      read_rel_1, empty_relations(), cond_1->clone(), projection_indices_0);
   std::unique_ptr<gqe::logical::filter_relation> filter_3 =
     std::make_unique<gqe::logical::filter_relation>(
-      read_rel_1, non_empty_relations(), std::move(cond_1));
+      read_rel_1, non_empty_relations(), cond_1->clone(), projection_indices_0);
+  std::unique_ptr<gqe::logical::filter_relation> filter_4 =
+    std::make_unique<gqe::logical::filter_relation>(
+      read_rel_1, non_empty_relations(), cond_1->clone(), projection_indices_1);
+  std::unique_ptr<gqe::logical::filter_relation> filter_5 =
+    std::make_unique<gqe::logical::filter_relation>(
+      read_rel_1, non_empty_relations(), cond_1->clone(), projection_indices_2);
   EXPECT_FALSE(*filter_0 == *filter_1);  // different input
   EXPECT_FALSE(*filter_1 == *filter_2);  // different condition
   EXPECT_FALSE(*filter_2 == *filter_3);  // different suquery_relations
+  EXPECT_FALSE(*filter_3 == *filter_4);  // different projection indices
+  EXPECT_FALSE(*filter_4 == *filter_5);  // different projection indices length
   EXPECT_EQ(*filter_0, *filter_0_dup);
 }
 

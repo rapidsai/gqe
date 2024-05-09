@@ -58,8 +58,8 @@ struct update_target_element_gmem<
     using Target = cudf::detail::target_type_t<Source, cudf::aggregation::MIN>;
 
     Target* source_casted = reinterpret_cast<Target*>(source);
-    atomicMin(&target.element<Target>(target_index),
-              static_cast<Target>(source_casted[source_index]));
+    cudf::detail::atomic_min(&target.element<Target>(target_index),
+                             static_cast<Target>(source_casted[source_index]));
 
     if (target_has_nulls and target.is_null(target_index)) { target.set_valid(target_index); }
   }
@@ -84,8 +84,8 @@ struct update_target_element_gmem<
     using Target              = cudf::detail::target_type_t<Source, cudf::aggregation::MIN>;
     using DeviceType          = cudf::device_storage_type_t<Target>;
     DeviceType* source_casted = reinterpret_cast<DeviceType*>(source);
-    atomicMin(&target.element<DeviceType>(target_index),
-              static_cast<DeviceType>(source_casted[source_index]));
+    cudf::detail::atomic_min(&target.element<DeviceType>(target_index),
+                             static_cast<DeviceType>(source_casted[source_index]));
 
     if (target_has_nulls and target.is_null(target_index)) { target.set_valid(target_index); }
   }
@@ -109,8 +109,8 @@ struct update_target_element_gmem<
     if (source_has_nulls and source_null[source_index]) { return; }
     using Target          = cudf::detail::target_type_t<Source, cudf::aggregation::MAX>;
     Target* source_casted = reinterpret_cast<Target*>(source);
-    atomicMax(&target.element<Target>(target_index),
-              static_cast<Target>(source_casted[source_index]));
+    cudf::detail::atomic_max(&target.element<Target>(target_index),
+                             static_cast<Target>(source_casted[source_index]));
 
     if (target_has_nulls and target.is_null(target_index)) { target.set_valid(target_index); }
   }
@@ -136,8 +136,8 @@ struct update_target_element_gmem<
 
     using DeviceType          = cudf::device_storage_type_t<Target>;
     DeviceType* source_casted = reinterpret_cast<DeviceType*>(source);
-    atomicMax(&target.element<DeviceType>(target_index),
-              static_cast<DeviceType>(source_casted[source_index]));
+    cudf::detail::atomic_max(&target.element<DeviceType>(target_index),
+                             static_cast<DeviceType>(source_casted[source_index]));
 
     if (target_has_nulls and target.is_null(target_index)) { target.set_valid(target_index); }
   }
@@ -162,8 +162,8 @@ struct update_target_element_gmem<
     using Target = cudf::detail::target_type_t<Source, cudf::aggregation::SUM>;
 
     Target* source_casted = reinterpret_cast<Target*>(source);
-    atomicAdd(&target.element<Target>(target_index),
-              static_cast<Target>(source_casted[source_index]));
+    cudf::detail::atomic_add(&target.element<Target>(target_index),
+                             static_cast<Target>(source_casted[source_index]));
 
     if (target_has_nulls and target.is_null(target_index)) { target.set_valid(target_index); }
   }
@@ -189,8 +189,8 @@ struct update_target_element_gmem<
 
     using DeviceType          = cudf::device_storage_type_t<Target>;
     DeviceType* source_casted = reinterpret_cast<DeviceType*>(source);
-    atomicAdd(&target.element<DeviceType>(target_index),
-              static_cast<DeviceType>(source_casted[source_index]));
+    cudf::detail::atomic_add(&target.element<DeviceType>(target_index),
+                             static_cast<DeviceType>(source_casted[source_index]));
     if (target_has_nulls and target.is_null(target_index)) { target.set_valid(target_index); }
   }
 };
@@ -215,7 +215,7 @@ struct update_target_element_gmem<Source,
     Target* source_casted = reinterpret_cast<Target*>(source);
     Target value          = static_cast<Target>(source_casted[source_index]);
 
-    atomicAdd(&target.element<Target>(target_index), value);
+    cudf::detail::atomic_add(&target.element<Target>(target_index), value);
 
     if (target_has_nulls and target.is_null(target_index)) { target.set_valid(target_index); }
   }
@@ -238,8 +238,8 @@ struct update_target_element_gmem<Source,
     using Target = cudf::detail::target_type_t<Source, cudf::aggregation::PRODUCT>;
 
     Target* source_casted = reinterpret_cast<Target*>(source);
-    atomicMul(&target.element<Target>(target_index),
-              static_cast<Target>(source_casted[source_index]));
+    cudf::detail::atomic_mul(&target.element<Target>(target_index),
+                             static_cast<Target>(source_casted[source_index]));
 
     if (target_has_nulls and target.is_null(target_index)) { target.set_valid(target_index); }
   }
@@ -264,8 +264,8 @@ struct update_target_element_gmem<
     using Target = cudf::detail::target_type_t<Source, cudf::aggregation::COUNT_VALID>;
 
     Target* source_casted = reinterpret_cast<Target*>(source);
-    atomicAdd(&target.element<Target>(target_index),
-              static_cast<Target>(source_casted[source_index]));
+    cudf::detail::atomic_add(&target.element<Target>(target_index),
+                             static_cast<Target>(source_casted[source_index]));
 
     // It is assumed the output for COUNT_VALID is initialized to be all valid
   }
@@ -289,8 +289,8 @@ struct update_target_element_gmem<
     using Target = cudf::detail::target_type_t<Source, cudf::aggregation::COUNT_ALL>;
 
     Target* source_casted = reinterpret_cast<Target*>(source);
-    atomicAdd(&target.element<Target>(target_index),
-              static_cast<Target>(source_casted[source_index]));
+    cudf::detail::atomic_add(&target.element<Target>(target_index),
+                             static_cast<Target>(source_casted[source_index]));
 
     // It is assumed the output for COUNT_VALID is initialized to be all valid
   }
@@ -315,12 +315,13 @@ struct update_target_element_gmem<
     using Target             = cudf::detail::target_type_t<Source, cudf::aggregation::ARGMAX>;
     Target* source_casted    = reinterpret_cast<Target*>(source);
     auto source_argmax_index = source_casted[source_index];
-    auto old                 = atomicCAS(
+    auto old                 = cudf::detail::atomic_cas(
       &target.element<Target>(target_index), cudf::detail::ARGMAX_SENTINEL, source_argmax_index);
     if (old != cudf::detail::ARGMAX_SENTINEL) {
       while (source_column.element<Source>(source_argmax_index) >
              source_column.element<Source>(old)) {
-        old = atomicCAS(&target.element<Target>(target_index), old, source_argmax_index);
+        old =
+          cudf::detail::atomic_cas(&target.element<Target>(target_index), old, source_argmax_index);
       }
     }
 
@@ -346,12 +347,13 @@ struct update_target_element_gmem<
     using Target             = cudf::detail::target_type_t<Source, cudf::aggregation::ARGMIN>;
     Target* source_casted    = reinterpret_cast<Target*>(source);
     auto source_argmin_index = source_casted[source_index];
-    auto old                 = atomicCAS(
+    auto old                 = cudf::detail::atomic_cas(
       &target.element<Target>(target_index), cudf::detail::ARGMIN_SENTINEL, source_argmin_index);
     if (old != cudf::detail::ARGMIN_SENTINEL) {
       while (source_column.element<Source>(source_argmin_index) <
              source_column.element<Source>(old)) {
-        old = atomicCAS(&target.element<Target>(target_index), old, source_argmin_index);
+        old =
+          cudf::detail::atomic_cas(&target.element<Target>(target_index), old, source_argmin_index);
       }
     }
 
@@ -408,8 +410,8 @@ struct update_target_element_shmem<
 
     using Target          = cudf::detail::target_type_t<Source, cudf::aggregation::MIN>;
     Target* target_casted = reinterpret_cast<Target*>(target);
-    atomicMin(&target_casted[target_index],
-              static_cast<Target>(source.element<Source>(source_index)));
+    cudf::detail::atomic_min(&target_casted[target_index],
+                             static_cast<Target>(source.element<Source>(source_index)));
 
     if (target_has_nulls and target_null[target_index]) { target_null[target_index] = false; }
   }
@@ -436,8 +438,8 @@ struct update_target_element_shmem<
     using DeviceSource = cudf::device_storage_type_t<Source>;
 
     DeviceTarget* target_casted = reinterpret_cast<DeviceTarget*>(target);
-    atomicMin(&target_casted[target_index],
-              static_cast<DeviceTarget>(source.element<DeviceSource>(source_index)));
+    cudf::detail::atomic_min(&target_casted[target_index],
+                             static_cast<DeviceTarget>(source.element<DeviceSource>(source_index)));
     if (target_has_nulls and target_null[target_index]) { target_null[target_index] = false; }
   }
 };
@@ -460,8 +462,8 @@ struct update_target_element_shmem<
 
     using Target          = cudf::detail::target_type_t<Source, cudf::aggregation::MAX>;
     Target* target_casted = reinterpret_cast<Target*>(target);
-    atomicMax(&target_casted[target_index],
-              static_cast<Target>(source.element<Source>(source_index)));
+    cudf::detail::atomic_max(&target_casted[target_index],
+                             static_cast<Target>(source.element<Source>(source_index)));
     if (target_has_nulls and target_null[target_index]) { target_null[target_index] = false; }
   }
 };
@@ -488,8 +490,8 @@ struct update_target_element_shmem<
     using DeviceSource = cudf::device_storage_type_t<Source>;
 
     DeviceTarget* target_casted = reinterpret_cast<DeviceTarget*>(target);
-    atomicMax(&target_casted[target_index],
-              static_cast<DeviceTarget>(source.element<DeviceSource>(source_index)));
+    cudf::detail::atomic_max(&target_casted[target_index],
+                             static_cast<DeviceTarget>(source.element<DeviceSource>(source_index)));
 
     if (target_has_nulls and target_null[target_index]) { target_null[target_index] = false; }
   }
@@ -513,8 +515,8 @@ struct update_target_element_shmem<
 
     using Target          = cudf::detail::target_type_t<Source, cudf::aggregation::SUM>;
     Target* target_casted = reinterpret_cast<Target*>(target);
-    atomicAdd(&target_casted[target_index],
-              static_cast<Target>(source.element<Source>(source_index)));
+    cudf::detail::atomic_add(&target_casted[target_index],
+                             static_cast<Target>(source.element<Source>(source_index)));
 
     if (target_has_nulls and target_null[target_index]) { target_null[target_index] = false; }
   }
@@ -542,8 +544,8 @@ struct update_target_element_shmem<
     using DeviceSource = cudf::device_storage_type_t<Source>;
 
     DeviceTarget* target_casted = reinterpret_cast<DeviceTarget*>(target);
-    atomicAdd(&target_casted[target_index],
-              static_cast<DeviceTarget>(source.element<DeviceSource>(source_index)));
+    cudf::detail::atomic_add(&target_casted[target_index],
+                             static_cast<DeviceTarget>(source.element<DeviceSource>(source_index)));
 
     if (target_has_nulls and target_null[target_index]) { target_null[target_index] = false; }
   }
@@ -566,7 +568,7 @@ struct update_target_element_shmem<Source,
     using Target          = cudf::detail::target_type_t<Source, cudf::aggregation::SUM_OF_SQUARES>;
     Target* target_casted = reinterpret_cast<Target*>(target);
     auto value            = static_cast<Target>(source.element<Source>(source_index));
-    atomicAdd(&target_casted[target_index], value * value);
+    cudf::detail::atomic_add(&target_casted[target_index], value * value);
 
     if (target_has_nulls and target_null[target_index]) { target_null[target_index] = false; }
   }
@@ -588,8 +590,8 @@ struct update_target_element_shmem<Source,
 
     using Target          = cudf::detail::target_type_t<Source, cudf::aggregation::PRODUCT>;
     Target* target_casted = reinterpret_cast<Target*>(target);
-    atomicMul(&target_casted[target_index],
-              static_cast<Target>(source.element<Source>(source_index)));
+    cudf::detail::atomic_mul(&target_casted[target_index],
+                             static_cast<Target>(source.element<Source>(source_index)));
 
     if (target_has_nulls and target_null[target_index]) { target_null[target_index] = false; }
   }
@@ -612,7 +614,7 @@ struct update_target_element_shmem<
 
     using Target          = cudf::detail::target_type_t<Source, cudf::aggregation::COUNT_VALID>;
     Target* target_casted = reinterpret_cast<Target*>(target);
-    atomicAdd(&target_casted[target_index], Target{1});
+    cudf::detail::atomic_add(&target_casted[target_index], Target{1});
   }
 };
 
@@ -631,7 +633,7 @@ struct update_target_element_shmem<
   {
     using Target          = cudf::detail::target_type_t<Source, cudf::aggregation::COUNT_ALL>;
     Target* target_casted = reinterpret_cast<Target*>(target);
-    atomicAdd(&target_casted[target_index], Target{1});
+    cudf::detail::atomic_add(&target_casted[target_index], Target{1});
 
     // Assumes target is already set to be valid
   }
@@ -655,10 +657,11 @@ struct update_target_element_shmem<
 
     using Target          = cudf::detail::target_type_t<Source, cudf::aggregation::ARGMAX>;
     Target* target_casted = reinterpret_cast<Target*>(target);
-    auto old = atomicCAS(&target_casted[target_index], cudf::detail::ARGMAX_SENTINEL, source_index);
+    auto old              = cudf::detail::atomic_cas(
+      &target_casted[target_index], cudf::detail::ARGMAX_SENTINEL, source_index);
     if (old != cudf::detail::ARGMAX_SENTINEL) {
       while (source.element<Source>(source_index) > source.element<Source>(old)) {
-        old = atomicCAS(&target_casted[target_index], old, source_index);
+        old = cudf::detail::atomic_cas(&target_casted[target_index], old, source_index);
       }
     }
 
@@ -684,10 +687,11 @@ struct update_target_element_shmem<
 
     using Target          = cudf::detail::target_type_t<Source, cudf::aggregation::ARGMIN>;
     Target* target_casted = reinterpret_cast<Target*>(target);
-    auto old = atomicCAS(&target_casted[target_index], cudf::detail::ARGMIN_SENTINEL, source_index);
+    auto old              = cudf::detail::atomic_cas(
+      &target_casted[target_index], cudf::detail::ARGMIN_SENTINEL, source_index);
     if (old != cudf::detail::ARGMIN_SENTINEL) {
       while (source.element<Source>(source_index) < source.element<Source>(old)) {
-        old = atomicCAS(&target_casted[target_index], old, source_index);
+        old = cudf::detail::atomic_cas(&target_casted[target_index], old, source_index);
       }
     }
 

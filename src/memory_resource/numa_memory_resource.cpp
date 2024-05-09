@@ -12,7 +12,6 @@
 
 #include <gqe/memory_resource/numa_memory_resource.hpp>
 #include <gqe/types.hpp>
-#include <gqe/utility/linux.hpp>
 #include <gqe/utility/logger.hpp>
 
 #include <rmm/mr/device/device_memory_resource.hpp>
@@ -114,30 +113,6 @@ void numa_memory_resource::do_deallocate(void* ptr, std::size_t bytes, rmm::cuda
     GQE_LOG_ERROR("munmap failed with: ", std::strerror(errno));
     throw std::bad_alloc();
   }
-}
-
-std::pair<std::size_t, std::size_t> numa_memory_resource::do_get_mem_info(
-  rmm::cuda_stream_view) const
-{
-  std::size_t free = 0, total = 0;
-
-  for (int node = 0; node < _numa_node_set.max_count; ++node) {
-    if (_numa_node_set.contains(node)) {
-      std::stringstream path;
-      path << "/sys/devices/system/node/node" << node << "/meminfo";
-
-      const auto info_map = utility::get_meminfo(path.str());
-
-      std::stringstream free_name, total_name;
-      free_name << "Node " << node << " MemFree";
-      total_name << "Node " << node << " MemTotal";
-
-      free += info_map.at(free_name.str());
-      total += info_map.at(total_name.str());
-    }
-  }
-
-  return std::make_pair(free, total);
 }
 
 }  // namespace memory_resource

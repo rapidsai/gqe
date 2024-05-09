@@ -87,14 +87,3 @@ TYPED_TEST(MemoryResourceTest, AllocateMultipleOfPageize)
   EXPECT_TRUE(rmm::is_pointer_aligned(ptr));
   EXPECT_NO_THROW(this->mr->deallocate(ptr, allocation_size));
 }
-
-TYPED_TEST(MemoryResourceTest, MemInfo)
-{
-  if (this->mr->supports_get_mem_info()) {
-    rmm::cuda_stream_view stream{};
-    std::pair<std::size_t, std::size_t> mem_info{};
-    EXPECT_NO_THROW(mem_info = this->mr->get_mem_info(stream));
-    ASSERT_LT(0, std::get<0>(mem_info));
-    ASSERT_LT(0, std::get<1>(mem_info));
-  }
-}

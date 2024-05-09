@@ -44,12 +44,6 @@ void pinned_memory_resource::do_deallocate(void* ptr, std::size_t, rmm::cuda_str
   GQE_CUDA_TRY(cudaFreeHost(ptr));
 }
 
-std::pair<std::size_t, std::size_t> pinned_memory_resource::do_get_mem_info(
-  rmm::cuda_stream_view) const
-{
-  return {};
-}
-
 }  // namespace memory_resource
 
 }  // namespace gqe

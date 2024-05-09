@@ -97,4 +97,4 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | GQE_IO_BOUNCE_BUFFER_SIZE | 4 | Size in GB per worker of the page-locked CPU memory bounce buffer used for the customized Parquet reader. |
 | GQE_IO_AUXILIARY_THREADS | 8 | Number of auxiliary threads per worker launched by the customized Parquet reader. |
 
-Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-24.02/CONTRIBUTING.md#build-cudf-from-source).
+Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-24.04/CONTRIBUTING.md#build-cudf-from-source).

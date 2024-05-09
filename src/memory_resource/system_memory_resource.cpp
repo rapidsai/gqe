@@ -11,7 +11,6 @@
  */
 
 #include <gqe/memory_resource/system_memory_resource.hpp>
-#include <gqe/utility/linux.hpp>
 
 #include <new>
 #include <utility>
@@ -32,13 +31,6 @@ void* system_memory_resource::do_allocate(std::size_t bytes, rmm::cuda_stream_vi
 void system_memory_resource::do_deallocate(void* ptr, std::size_t, rmm::cuda_stream_view)
 {
   ::operator delete(ptr, _allocation_alignment);
-}
-
-std::pair<std::size_t, std::size_t> system_memory_resource::do_get_mem_info(
-  rmm::cuda_stream_view) const
-{
-  const auto info_map = utility::get_meminfo("/proc/meminfo");
-  return std::make_pair(info_map.at("MemFree"), info_map.at("MemTotal"));
 }
 
 }  // namespace memory_resource

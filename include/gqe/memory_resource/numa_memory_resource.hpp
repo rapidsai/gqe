@@ -78,9 +78,6 @@ class numa_memory_resource : public rmm::mr::device_memory_resource {
 
   void do_deallocate(void* ptr, std::size_t bytes, rmm::cuda_stream_view) override;
 
-  [[nodiscard]] std::pair<std::size_t, std::size_t> do_get_mem_info(
-    rmm::cuda_stream_view) const override;
-
   cpu_set _numa_node_set; /**< The NUMA nodes on which memory will be allocated. */
   page_kind
     _page_kind; /**< The page type to allocate, e.g., 4 KB small pages or 2 MB huge pages. */

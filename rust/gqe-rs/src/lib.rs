@@ -31,5 +31,6 @@ pub mod error;
 pub mod executor;
 pub mod logical;
 pub mod physical;
+pub mod query_context;
 pub mod storage;
 pub mod utility;

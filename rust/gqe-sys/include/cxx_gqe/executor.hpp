@@ -14,14 +14,16 @@
 
 #include <cxx_gqe/api.hpp>
 #include <cxx_gqe/physical.hpp>
+#include <cxx_gqe/query_context.hpp>
 #include <cxx_gqe/types.hpp>
 
 #include <gqe/executor/optimization_parameters.hpp>
-#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task_graph.hpp>
 
-namespace cxx_gqe {
+#include <memory>
+#include <utility>
 
+namespace cxx_gqe {
 /*
  * @brief Directly exposes task graph as an opaque type to Rust.
  */
@@ -36,38 +38,6 @@ cxx_gqe::optimization_parameters new_optimization_parameters();
  * @brief Converts Rust OptimizationParameters to C++ `gqe::optimization_parameters`.
  */
 gqe::optimization_parameters to_gqe(cxx_gqe::optimization_parameters const&);
-
-/*
- * @brief Query context wrapper.
- *
- * This class is exported to Rust as an opaque type. It exposes an FFI-compatible API of the GQE
- * query context.
- */
-class query_context {
- public:
-  explicit query_context(gqe::query_context&& context) : _context(std::move(context)) {}
-
-  query_context()                     = delete;
-  query_context(query_context const&) = delete;
-  query_context& operator=(query_context const&) = delete;
-
-  /*
-   * @brief Returns the C++ query context.
-   *
-   * This is a helper method used in the C++ bindings to convert from the wrapper to the actual
-   * object.
-   */
-  inline gqe::query_context& get() { return _context; }
-
- private:
-  gqe::query_context _context;
-};
-
-/*
- * @brief Returns a new query context wrapper.
- */
-std::unique_ptr<query_context> new_query_context(
-  cxx_gqe::optimization_parameters const& parameters);
 
 /*
  * @brief Task graph builder wrapper.

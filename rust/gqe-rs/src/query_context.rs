@@ -12,8 +12,8 @@
 
 //! Query context.
 
-use super::OptimizationParameters;
 use crate::error::Result;
+use crate::executor::OptimizationParameters;
 use cxx::UniquePtr;
 
 /// Query context of the current query.

@@ -24,5 +24,6 @@
 #include <cxx_gqe/executor.hpp>
 #include <cxx_gqe/logical.hpp>
 #include <cxx_gqe/physical.hpp>
+#include <cxx_gqe/query_context.hpp>
 #include <cxx_gqe/storage.hpp>
 #include <cxx_gqe/types.hpp>

@@ -21,6 +21,7 @@
 //! ```
 //! # use gqe_rs::error::Result;
 //! # use gqe_rs::executor::*;
+//! # use gqe_rs::query_context;
 //! #
 //! # fn test() -> Result<()> {
 //! #
@@ -41,9 +42,7 @@
 //! ```
 
 mod optimization_parameters;
-mod query_context;
 mod task_graph;
 
 pub use optimization_parameters::*;
-pub use query_context::*;
 pub use task_graph::*;

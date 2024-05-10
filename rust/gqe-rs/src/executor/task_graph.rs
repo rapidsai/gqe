@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use super::QueryContext;
 use crate::api::Catalog;
 use crate::error::Result;
 use crate::physical::PhysicalPlan;
+use crate::query_context::QueryContext;
 use cxx::UniquePtr;
 
 /// A task graph consisting of GQE tasks.

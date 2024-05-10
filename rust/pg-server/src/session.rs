@@ -148,7 +148,11 @@ impl SimpleQueryHandler for GqeSessionService {
                 with_options,
                 ..
             } => {
-                let [Ident {value: ref dst_table_name, quote_style: None,}] = dst_idents.as_slice() else {
+                let [Ident {
+                    value: ref dst_table_name,
+                    quote_style: None,
+                }] = dst_idents.as_slice()
+                else {
                     return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                         "ERROR".to_owned(),
                         PgErrorCode::InvalidName.as_code().to_owned(),
@@ -156,7 +160,11 @@ impl SimpleQueryHandler for GqeSessionService {
                     ))));
                 };
 
-                let [Ident {value: ref src_table_name, quote_style: None,}] = src_idents.as_slice() else {
+                let [Ident {
+                    value: ref src_table_name,
+                    quote_style: None,
+                }] = src_idents.as_slice()
+                else {
                     return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                         "ERROR".to_owned(),
                         PgErrorCode::InvalidName.as_code().to_owned(),
@@ -405,10 +413,14 @@ impl SimpleQueryHandler for GqeSessionService {
                         "ERROR".to_owned(),
                         PgErrorCode::FeatureNotSupported.as_code().to_owned(),
                         "GQE currently only supports \"INSERT INTO dst TABLE src\".".to_owned(),
-                    ))))
+                    ))));
                 };
 
-                let ast::Table{table_name: Some(src_table_name), schema_name: None} = src_table.as_ref() else {
+                let ast::Table {
+                    table_name: Some(src_table_name),
+                    schema_name: None,
+                } = src_table.as_ref()
+                else {
                     return Err(invalid_table_name_error());
                 };
 

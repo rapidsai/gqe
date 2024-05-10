@@ -12,9 +12,10 @@
 
 use gqe_rs::api::Catalog;
 use gqe_rs::api::{ColumnSchema, DataType, PartitioningSchemaKind, StorageKind};
-use gqe_rs::executor::{self, OptimizationParameters, QueryContext, TaskGraphBuilder};
+use gqe_rs::executor::{self, OptimizationParameters, TaskGraphBuilder};
 use gqe_rs::logical::SubstraitParser;
 use gqe_rs::physical::PhysicalPlanBuilder;
+use gqe_rs::query_context::QueryContext;
 use std::env;
 
 fn main() {

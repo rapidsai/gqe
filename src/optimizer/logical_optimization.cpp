@@ -75,7 +75,7 @@ std::shared_ptr<gqe::logical::relation> gqe::optimizer::logical_optimizer::_opti
   // Recursively trying optimize children
   auto children = logical_relation->children_safe();
   for (size_t index = 0; index < logical_relation->children_size(); index++) {
-    logical_relation->_children[index] = this->_optimize(children[index], rule, rule_applied);
+    logical_relation->_children[index] = this->_optimize_down(children[index], rule, rule_applied);
   }
   return logical_relation;
 }
@@ -88,7 +88,7 @@ std::shared_ptr<gqe::logical::relation> gqe::optimizer::logical_optimizer::_opti
   // Recursively trying optimize children
   auto children = logical_relation->children_safe();
   for (size_t index = 0; index < logical_relation->children_size(); index++) {
-    logical_relation->_children[index] = this->_optimize(children[index], rule, rule_applied);
+    logical_relation->_children[index] = this->_optimize_up(children[index], rule, rule_applied);
   }
   // Try to optimize the current relation
   return this->_optimize(logical_relation, rule, rule_applied);

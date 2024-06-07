@@ -108,6 +108,7 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
 
     auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
   }
 
@@ -128,6 +129,7 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
 
     auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
   }
 
@@ -145,6 +147,7 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
 
     auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
   }
 
@@ -162,6 +165,7 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
 
     auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
   }
 
@@ -191,6 +195,7 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
 
     auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
   }
 
@@ -355,6 +360,7 @@ TEST_F(SingleKeyColumnNullsEqualJoinTest, NullsEqual)
 
   auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
@@ -379,6 +385,7 @@ TEST_F(SingleKeyColumnNullsEqualJoinTest, NullsNotEqual)
 
   auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
@@ -506,6 +513,7 @@ TEST_F(NonEqualityJoinConditionTest, MixedConditionsInnerJoin)
 
   auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
@@ -540,6 +548,7 @@ TEST_F(NonEqualityJoinConditionTest, MixedConditionsLeftJoin)
 
   auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
@@ -571,6 +580,7 @@ TEST_F(NonEqualityJoinConditionTest, MixedConditionsLeftSemiJoin)
 
   auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
@@ -602,6 +612,7 @@ TEST_F(NonEqualityJoinConditionTest, MixedConditionsLeftAntiJoin)
 
   auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
@@ -638,6 +649,7 @@ TEST_F(NonEqualityJoinConditionTest, MixedConditionsFullJoin)
 
   auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
@@ -671,6 +683,7 @@ TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsInnerJoin)
 
   auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
@@ -706,6 +719,7 @@ TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsLeftJoin)
 
   auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
@@ -735,6 +749,7 @@ TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsLeftSemiJoin)
 
   auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
@@ -764,6 +779,7 @@ TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsLeftAntiJoin)
 
   auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
@@ -801,6 +817,7 @@ TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsFullJoin)
 
   auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 

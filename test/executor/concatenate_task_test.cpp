@@ -82,5 +82,6 @@ TEST(ConcatenateTaskTest, MixTypes)
 
   auto concatenate_task_result = concatenate_task->result();
   ASSERT_EQ(concatenate_task_result.has_value(), true);
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(concatenate_task_result.value(), ref_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(concatenate_task_result.value(), ref_table->view());
 }

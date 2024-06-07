@@ -88,6 +88,7 @@ TEST_F(HandCodedValuesAggregationTest, Reduction)
 
   auto ref_table = std::make_unique<cudf::table>(std::move(ref_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(aggregate_task->result().value(), ref_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(aggregate_task->result().value(), ref_table->view());
 }
 
@@ -117,5 +118,6 @@ TEST_F(HandCodedValuesAggregationTest, Groupby)
 
   auto ref_table = std::make_unique<cudf::table>(std::move(ref_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(aggregate_result_sorted->view(), ref_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(aggregate_result_sorted->view(), ref_table->view());
 }

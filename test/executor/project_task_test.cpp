@@ -69,5 +69,6 @@ TEST(ProjectTaskTest, ReorderColumns)
                               input_table_columns[1]->view(),
                               input_table_columns[2]->view()});
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(project_result.value(), ref_table);
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(project_result.value(), ref_table);
 }

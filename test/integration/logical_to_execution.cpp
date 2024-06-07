@@ -149,6 +149,7 @@ TEST(LogicalToExecution, HardcodePlanAndData)
   ASSERT_EQ(execute_result.has_value(), true);
   auto execute_result_sorted = cudf::sort(*execute_result);
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(execute_result_sorted->view(), ref_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(execute_result_sorted->view(), ref_table->view());
 }
 
@@ -227,6 +228,7 @@ TEST(LogicalToExecution, ApplyConcatApply)
   auto execute_result = task_graph->root_tasks[0]->result();
   ASSERT_EQ(execute_result.has_value(), true);
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(*execute_result, ref_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*execute_result, ref_table->view());
 }
 
@@ -331,6 +333,7 @@ TEST(LogicalToExecution, Window)
   ASSERT_EQ(execute_result.has_value(), true);
   auto execute_result_sorted = cudf::sort(*execute_result);
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(execute_result_sorted->view(), ref_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(execute_result_sorted->view(), ref_table->view());
 }
 
@@ -435,5 +438,6 @@ TEST(LogicalToExecution, WindowWithOrderBy)
   auto execute_result = task_graph->root_tasks[0]->result();
   ASSERT_EQ(execute_result.has_value(), true);
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(*execute_result, ref_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*execute_result, ref_table->view());
 }

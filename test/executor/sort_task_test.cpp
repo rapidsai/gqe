@@ -81,6 +81,7 @@ TEST_F(SingleKeyColumnSortTest, AscendingNullLast)
   ref_columns.push_back(ref_col_1.release());
   cudf::table ref_table(std::move(ref_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(sort_result.value(), ref_table.view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(sort_result.value(), ref_table.view());
 }
 
@@ -101,6 +102,7 @@ TEST_F(SingleKeyColumnSortTest, AscendingNullFirst)
   ref_columns.push_back(ref_col_1.release());
   cudf::table ref_table(std::move(ref_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(sort_result.value(), ref_table.view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(sort_result.value(), ref_table.view());
 }
 
@@ -121,5 +123,6 @@ TEST_F(SingleKeyColumnSortTest, DescendingNullLast)
   ref_columns.push_back(ref_col_1.release());
   cudf::table ref_table(std::move(ref_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(sort_result.value(), ref_table.view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(sort_result.value(), ref_table.view());
 }

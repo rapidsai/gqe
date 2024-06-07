@@ -295,6 +295,7 @@ TEST_F(WindowOrderByPartitionBy, WindowOrderByPartitionBy)
 
   cudf::table ref_table(std::move(ref_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(window_result.value(), ref_table.view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(window_result.value(), ref_table.view());
 }
 
@@ -315,6 +316,7 @@ TEST_F(WindowOrderBy, WindowOrderBy)
 
   cudf::table ref_table(std::move(ref_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(window_result.value(), ref_table.view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(window_result.value(), ref_table.view());
 }
 
@@ -335,6 +337,7 @@ TEST_F(WindowOrderByPartitionByRank, WindowOrderByPartitionByRank)
 
   cudf::table ref_table(std::move(ref_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(window_result.value(), ref_table.view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(window_result.value(), ref_table.view());
 }
 
@@ -356,5 +359,6 @@ TEST_F(WindowOrderByRank, WindowOrderByRank)
 
   cudf::table ref_table(std::move(ref_columns));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(window_result.value(), ref_table.view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(window_result.value(), ref_table.view());
 }

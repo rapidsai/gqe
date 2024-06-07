@@ -115,6 +115,7 @@ TEST(ParquetWrite, CopyTable)
   ASSERT_EQ(result_table.metadata.schema_info[0].name, "out_table_col_0");
   ASSERT_EQ(result_table.metadata.schema_info[1].name, "out_table_col_1");
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(in_table->view(), result_table.tbl->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_table->view(), result_table.tbl->view());
 }
 
@@ -215,6 +216,7 @@ TEST(ParquetWrite, CopyTableParallelRead)
   std::unique_ptr<cudf::table> in_table = cudf::concatenate(cudf::host_span<cudf::table_view const>(
     std::vector{in_table_part_0->view(), in_table_part_1->view()}));
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(in_table->view(), result_table.tbl->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_table->view(), result_table.tbl->view());
 }
 
@@ -319,6 +321,8 @@ TEST(ParquetWrite, CopyTableParallel)
   ASSERT_EQ(result_table_part_1.metadata.schema_info[0].name, "out_table_col_0");
   ASSERT_EQ(result_table_part_1.metadata.schema_info[1].name, "out_table_col_1");
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(in_table_part_0->view(), result_table_part_0.tbl->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_table_part_0->view(), result_table_part_0.tbl->view());
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(in_table_part_1->view(), result_table_part_1.tbl->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_table_part_1->view(), result_table_part_1.tbl->view());
 }

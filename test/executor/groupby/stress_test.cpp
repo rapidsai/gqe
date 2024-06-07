@@ -87,5 +87,7 @@ TEST(StressTest, Groupby)
   auto sorted_result_table   = cudf::sort(actual_result->view());
   auto sorted_expected_table = cudf::sort(expected_result->view());
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(sorted_expected_table->view(),
+                                          sorted_result_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(sorted_expected_table->view(), sorted_result_table->view());
 }

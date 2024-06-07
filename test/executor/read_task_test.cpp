@@ -82,6 +82,7 @@ TEST(FixedDataReadTaskTest, MixTypes)
   // Compare the loaded table against the original test table
 
   ASSERT_EQ(result.has_value(), true);
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(result.value(), test_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(result.value(), test_table->view());
 }
 
@@ -167,6 +168,7 @@ TEST(FixedDataReadTaskTestMultiTask, MixTypes)
 
   // Compare the loaded table against the original test table
   ASSERT_EQ(result.has_value(), true);
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(result.value(), test_table_combined->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(result.value(), test_table_combined->view());
 }
 
@@ -291,5 +293,6 @@ TEST(FixedDataReadTaskTestPartialFilter, MixTypes)
   auto res_table = std::make_unique<cudf::table>(std::move(res_columns));
 
   ASSERT_EQ(result.has_value(), true);
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(result.value(), res_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(result.value(), res_table->view());
 }

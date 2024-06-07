@@ -130,6 +130,7 @@ TEST(InMemoryStorage, CopyTable)
 
   ASSERT_EQ(result_table.num_columns(), 2);
   ASSERT_EQ(result_table.num_rows(), 4);
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(in_table->view(), result_table);
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_table->view(), result_table);
 }
 
@@ -241,6 +242,8 @@ TEST(InMemoryStorage, CopyTableParallel)
   ASSERT_EQ(result_table_part_0.num_rows(), 4);
   ASSERT_EQ(result_table_part_1.num_rows(), 4);
 
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(in_table_part_0->view(), result_table_part_0);
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_table_part_0->view(), result_table_part_0);
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(in_table_part_1->view(), result_table_part_1);
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_table_part_1->view(), result_table_part_1);
 }

@@ -1,0 +1,30 @@
+name: gqe
+channels:
+  - rapidsai
+  - conda-forge
+  - nvidia
+dependencies:
+  - libnuma
+  - numactl
+  - rust
+  - python=3.10
+  - cuda-cccl
+  - cuda-cudart
+  - cuda-cudart-dev
+  - cuda-nvcc
+  - cuda-nvrtc-dev
+  - cuda-nvtx-dev
+  - cuda-version=12.2
+  - cmake
+  - c-compiler
+  - cxx-compiler
+  - clang-tools=11.1.0
+  - gcc_linux-64=11.*
+  - sysroot_linux-64==2.17
+  - libprotobuf=4.*
+  - pandas
+  - pyarrow
+  - thrift-compiler
+  - libthrift
+  - zlib  # libthrift checks zlib during CMake configuration, but conda-forge doesn't install it automatically
+  - nvcomp

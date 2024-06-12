@@ -29,9 +29,16 @@
 #include <cudf/types.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/span.hpp>
+
+#include <rmm/device_scalar.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/mr/device/managed_memory_resource.hpp>
+#include <rmm/mr/device/per_device_resource.hpp>
+
+#include <nvcomp.hpp>
+#include <nvcomp/ans.hpp>
+#include <nvcomp/nvcompManagerFactory.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -45,6 +52,97 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+namespace {
+
+class nvcomp_allocator {
+ public:
+  nvcomp_allocator(rmm::cuda_stream_view stream) : _stream(stream) {}
+
+  void* allocate(std::size_t bytes)
+  {
+    return rmm::mr::get_current_device_resource()->allocate(bytes, _stream);
+  }
+
+  void deallocate(void* ptr, std::size_t bytes)
+  {
+    return rmm::mr::get_current_device_resource()->deallocate(ptr, bytes, _stream);
+  }
+
+ private:
+  rmm::cuda_stream_view _stream;
+};
+
+std::unique_ptr<rmm::device_buffer> ans_compress(rmm::device_buffer const* uncompressed,
+                                                 rmm::cuda_stream_view stream,
+                                                 rmm::device_async_resource_ref mr,
+                                                 nvcomp_allocator const& allocator)
+{
+  if (uncompressed->size() <= 0) { return std::make_unique<rmm::device_buffer>(0, stream, mr); }
+
+  // TODO: More experiment and discussion are needed to choose the best chunk size for our purpose.
+  size_t constexpr chunk_size = nvcompANSCompressionMaxAllowedChunkSize;
+  nvcomp::ANSManager nvcomp_manager(chunk_size, nvcompBatchedANSDefaultOpts, stream);
+
+  auto comp_config = nvcomp_manager.configure_compression(uncompressed->size());
+
+  auto compressed_buffer =
+    std::make_unique<rmm::device_buffer>(comp_config.max_compressed_buffer_size, stream, mr);
+
+  // FIXME: in newer verions of nvcomp, we can pass an additional argument to get comp_size
+  nvcomp_manager.compress(static_cast<uint8_t const*>(uncompressed->data()),
+                          static_cast<uint8_t*>(compressed_buffer->data()),
+                          comp_config);
+
+  // FIXME: Use `set_scratch_allocators` to let nvcomp use the device memory pool.
+  // The following code is commented out due to bugs in nvcomp.
+  /*
+  nvcomp_manager.set_scratch_allocators(
+    std::bind(&nvcomp_allocator::allocate, allocator, std::placeholders::_1),
+    std::bind(
+      &nvcomp_allocator::deallocate, allocator, std::placeholders::_1, std::placeholders::_2));
+  */
+
+  auto const comp_size =
+    nvcomp_manager.get_compressed_output_size(static_cast<uint8_t*>(compressed_buffer->data()));
+  compressed_buffer->resize(comp_size, stream);
+  compressed_buffer->shrink_to_fit(stream);
+
+  return compressed_buffer;
+}
+
+std::unique_ptr<rmm::device_buffer> ans_decompress(rmm::device_buffer const* compressed,
+                                                   rmm::cuda_stream_view stream,
+                                                   nvcomp_allocator const& allocator,
+                                                   rmm::device_async_resource_ref mr)
+{
+  // Since ANS is a multi-pass algorithm, copy the data into device memory before
+  // decompression.
+  rmm::device_buffer device_memory_compressed{compressed->data(), compressed->size(), stream};
+  auto comp_buffer = static_cast<uint8_t const*>(device_memory_compressed.data());
+
+  auto nvcomp_manager = nvcomp::create_manager(comp_buffer, stream);
+
+  // FIXME: Use `set_scratch_allocators` to let nvcomp use the device memory pool.
+  // The following code is commented out due to bugs in nvcomp.
+  /*
+  nvcomp_manager->set_scratch_allocators(
+    std::bind(&nvcomp_allocator::allocate, allocator, std::placeholders::_1),
+    std::bind(
+      &nvcomp_allocator::deallocate, allocator, std::placeholders::_1, std::placeholders::_2));
+  */
+
+  auto decomp_config = nvcomp_manager->configure_decompression(comp_buffer);
+
+  auto decompressed_buffer =
+    std::make_unique<rmm::device_buffer>(decomp_config.decomp_data_size, stream, mr);
+  nvcomp_manager->decompress(
+    static_cast<uint8_t*>(decompressed_buffer->data()), comp_buffer, decomp_config);
+
+  return decompressed_buffer;
+}
+
+}  // namespace
 
 namespace gqe {
 
@@ -64,6 +162,115 @@ int64_t contiguous_column::size() const
 cudf::column_view contiguous_column::view() const { return _data.view(); }
 
 cudf::mutable_column_view contiguous_column::mutable_view() { return _data.mutable_view(); }
+
+plain_buffer::plain_buffer(rmm::device_buffer const* input,
+                           rmm::cuda_stream_view stream,
+                           rmm::device_async_resource_ref mr)
+{
+  _buffer = std::make_unique<rmm::device_buffer>(*input, stream, mr);
+}
+
+std::unique_ptr<rmm::device_buffer> plain_buffer::decompress(
+  rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr) const
+{
+  return std::make_unique<rmm::device_buffer>(*_buffer, stream, mr);
+}
+
+ans_compressed_buffer::ans_compressed_buffer(rmm::device_buffer const* input,
+                                             rmm::cuda_stream_view stream,
+                                             rmm::device_async_resource_ref mr)
+{
+  nvcomp_allocator allocator(stream);
+
+  _compressed_buffer = ans_compress(input, stream, mr, allocator);
+}
+
+std::unique_ptr<rmm::device_buffer> ans_compressed_buffer::decompress(
+  rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr) const
+{
+  nvcomp_allocator allocator(stream);
+
+  return ans_decompress(_compressed_buffer.get(), stream, allocator, mr);
+}
+
+std::unique_ptr<compressed_buffer> do_compress(rmm::device_buffer const* input,
+                                               compression_format comp_format,
+                                               rmm::cuda_stream_view stream,
+                                               rmm::device_async_resource_ref mr)
+{
+  std::unique_ptr<compressed_buffer> output;
+
+  switch (comp_format) {
+    case compression_format::ans: {
+      output = std::make_unique<ans_compressed_buffer>(input, stream, mr);
+      break;
+    }
+    default: throw std::logic_error("Unsupported compression format for the in-memory table");
+  }
+
+  auto const uncompressed_size = input->size();
+  auto const compressed_size   = output->compressed_size();
+  auto const compression_ratio = static_cast<double>(uncompressed_size) / compressed_size;
+
+  if (compression_ratio < 1) {
+    // If the compression ratio is less than 1, the compressed size is larger than the uncompressed
+    // size, so we fall back to use the plain encoding.
+    // In the future, we could consider setting the threshold to larger than 1.
+    output = std::make_unique<plain_buffer>(input, stream, mr);
+  }
+
+  return output;
+}
+
+compressed_column::compressed_column(cudf::column&& cudf_column,
+                                     compression_format comp_format,
+                                     rmm::cuda_stream_view stream,
+                                     rmm::device_async_resource_ref mr)
+  : column_base(), _comp_format(comp_format)
+{
+  _size       = cudf_column.size();
+  _dtype      = cudf_column.type();
+  _null_count = cudf_column.null_count();
+
+  auto column_content = cudf_column.release();
+  _compressed_data    = do_compress(column_content.data.get(), comp_format, stream, mr);
+
+  if (_null_count > 0) {
+    _compressed_null_mask = do_compress(column_content.null_mask.get(), comp_format, stream, mr);
+  }
+
+  for (auto& child : column_content.children) {
+    _compressed_children.push_back(
+      std::make_unique<compressed_column>(std::move(*child), comp_format, stream, mr));
+  }
+}
+
+int64_t compressed_column::size() const { return _size; }
+
+std::unique_ptr<cudf::column> compressed_column::decompress(rmm::cuda_stream_view stream,
+                                                            rmm::device_async_resource_ref mr) const
+{
+  std::vector<std::unique_ptr<cudf::column>> decompressed_children;
+  for (auto const& compressed_child : _compressed_children) {
+    decompressed_children.push_back(compressed_child->decompress(stream, mr));
+  }
+
+  auto decompressed_data = _compressed_data->decompress(stream, mr);
+
+  std::unique_ptr<rmm::device_buffer> decompressed_null_mask;
+  if (_null_count > 0) {
+    decompressed_null_mask = _compressed_null_mask->decompress(stream, mr);
+  } else {
+    decompressed_null_mask = std::make_unique<rmm::device_buffer>();
+  }
+
+  return std::make_unique<cudf::column>(_dtype,
+                                        _size,
+                                        std::move(*decompressed_data),
+                                        std::move(*decompressed_null_mask),
+                                        _null_count,
+                                        std::move(decompressed_children));
+}
 
 row_group::row_group(std::vector<std::unique_ptr<column_base>>&& columns)
   : _columns(std::move(columns))
@@ -207,7 +414,8 @@ in_memory_read_task::in_memory_read_task(query_context* query_context,
 
 void in_memory_read_task::execute_read_by_value()
 {
-  auto mr = rmm::mr::get_current_device_resource();
+  auto mr     = rmm::mr::get_current_device_resource();
+  auto stream = cudf::get_default_stream();
 
   std::vector<std::unique_ptr<cudf::column>> result_columns;
   result_columns.reserve(_column_indexes.size());
@@ -216,12 +424,28 @@ void in_memory_read_task::execute_read_by_value()
   for (auto const& idx : _column_indexes) {
     std::vector<cudf::column_view> src_views;
     src_views.reserve(_row_groups.size());
+    std::vector<std::unique_ptr<cudf::column>>
+      src_columns;  // Needed for keeping the decompressed column alive
+
     for (auto const& row_group : _row_groups) {
-      auto src_view = dynamic_cast<contiguous_column&>(row_group->get_column(idx)).view();
-      src_views.push_back(src_view);
+      auto& current_column = row_group->get_column(idx);
+
+      switch (current_column.type()) {
+        case in_memory_column_type::CONTIGUOUS: {
+          auto src_view = dynamic_cast<contiguous_column&>(current_column).view();
+          src_views.push_back(src_view);
+          break;
+        }
+        case in_memory_column_type::COMPRESSED: {
+          auto src_column = dynamic_cast<compressed_column&>(current_column).decompress(stream);
+          src_views.push_back(src_column->view());
+          src_columns.push_back(std::move(src_column));
+          break;
+        }
+      }
     }
 
-    auto result_column = cudf::concatenate(src_views, cudf::get_default_stream(), mr);
+    auto result_column = cudf::concatenate(src_views, stream, mr);
 
     result_columns.emplace_back(std::move(result_column));
   }
@@ -272,6 +496,8 @@ void in_memory_read_task::execute()
   // Check if zero-copy is legal.
   bool is_gpu_accessible   = memory_kind::is_gpu_accessible(_memory_kind);
   bool is_single_row_group = _row_groups.size() <= 1;
+  bool is_compressed =
+    get_query_context()->parameters.in_memory_table_compression_format != compression_format::none;
 
   // Execute read.
   if (get_query_context()->parameters.read_zero_copy_enable) {
@@ -285,6 +511,9 @@ void in_memory_read_task::execute()
       execute_read_by_value();
     } else if (!is_single_row_group) {
       GQE_LOG_WARN("Disabling zero-copy because cannot handle more than one row group per task.");
+      execute_read_by_value();
+    } else if (is_compressed) {
+      GQE_LOG_WARN("Disabling zero-copy because cannot handle compressed tables.");
       execute_read_by_value();
     } else {
       GQE_LOG_DEBUG("Performing zero-copy read.");
@@ -354,8 +583,14 @@ void in_memory_write_task::execute()
     auto const& input_column = input_table.column(column_idx);
     auto cudf_column         = cudf::column(input_column, stream, _non_owned_memory_resource);
 
-    new_columns[_column_indexes[column_idx]] =
-      std::make_unique<contiguous_column>(std::move(cudf_column));
+    auto const comp_format = get_query_context()->parameters.in_memory_table_compression_format;
+    if (comp_format == compression_format::none) {
+      new_columns[_column_indexes[column_idx]] =
+        std::make_unique<contiguous_column>(std::move(cudf_column));
+    } else {
+      new_columns[_column_indexes[column_idx]] = std::make_unique<compressed_column>(
+        std::move(cudf_column), comp_format, stream, _non_owned_memory_resource);
+    }
   }
 
   // Create row group from columns

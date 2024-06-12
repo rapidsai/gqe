@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <gqe/types.hpp>
+
 #include <cstdint>
 #include <string>
 
@@ -52,6 +54,8 @@ struct optimization_parameters {
         ///< buffer used by the customized Parquet reader. Default to 4 (GB).
   std::size_t io_auxiliary_threads =
     8;  ///< Number of auxiliary threads per worker launched by the customized Parquet reader.
+  compression_format in_memory_table_compression_format =
+    compression_format::none;  ///< Compression format for the in-memory table.
 };
 
 }  // namespace gqe

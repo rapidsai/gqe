@@ -101,6 +101,29 @@ unsigned long parse_env_variable<unsigned long>(std::string const& env_variable,
   return value;
 }
 
+gqe::compression_format compression_format_from_str(std::string const& format_str)
+{
+  if (format_str == "none") {
+    return gqe::compression_format::none;
+  } else if (format_str == "ans") {
+    return gqe::compression_format::ans;
+  } else {
+    throw std::logic_error("Unrecognized compression format");
+  }
+}
+
+gqe::compression_format parse_compression_format(std::string const& env_variable,
+                                                 gqe::compression_format const default_value)
+{
+  auto const val_str = std::getenv(env_variable.c_str());
+
+  if (val_str) {
+    return compression_format_from_str(val_str);
+  } else {
+    return default_value;
+  }
+}
+
 }  // namespace
 
 namespace gqe {
@@ -122,6 +145,9 @@ optimization_parameters::optimization_parameters(bool only_defaults)
     io_bounce_buffer_size = parse_env_variable("GQE_IO_BOUNCE_BUFFER_SIZE", io_bounce_buffer_size);
 
     io_auxiliary_threads = parse_env_variable("GQE_IO_AUXILIARY_THREADS", io_auxiliary_threads);
+
+    in_memory_table_compression_format = parse_compression_format(
+      "GQE_IN_MEMORY_TABLE_COMP_FORMAT", in_memory_table_compression_format);
   }
 }
 

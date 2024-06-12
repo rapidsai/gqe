@@ -19,7 +19,10 @@
 #include <cudf/types.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
+
 #include <rmm/cuda_device.hpp>
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/mr/device/per_device_resource.hpp>
 
 #include <cudf_test/column_utilities.hpp>
 #include <gtest/gtest.h>
@@ -28,13 +31,26 @@
 #include <iterator>
 #include <memory>
 
-class InMemoryReadTest : public testing::TestWithParam<bool> {
+struct test_parameters {
+  test_parameters(bool read_zero_copy_enable, gqe::compression_format comp_format)
+    : read_zero_copy_enable(read_zero_copy_enable), comp_format(comp_format)
+  {
+  }
+
+  bool read_zero_copy_enable;
+  gqe::compression_format comp_format;
+};
+
+class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
  public:
   InMemoryReadTest()
 
   {
+    auto const params = GetParam();
+
     gqe::optimization_parameters opms(true);
-    opms.read_zero_copy_enable = GetParam();
+    opms.read_zero_copy_enable              = params.read_zero_copy_enable;
+    opms.in_memory_table_compression_format = params.comp_format;
 
     qctx = std::make_unique<gqe::query_context>(opms);
   }
@@ -49,11 +65,22 @@ class InMemoryReadTest : public testing::TestWithParam<bool> {
     test_columns.push_back(col_1.release());
 
     // Setup row group
+    auto const comp_format = qctx->parameters.in_memory_table_compression_format;
     std::vector<std::unique_ptr<gqe::storage::column_base>> columns;
-    std::transform(
-      test_columns.cbegin(), test_columns.cend(), std::back_inserter(columns), [](auto const& col) {
-        return std::make_unique<gqe::storage::contiguous_column>(cudf::column(*col));
-      });
+    std::transform(test_columns.cbegin(),
+                   test_columns.cend(),
+                   std::back_inserter(columns),
+                   [comp_format](auto const& col) -> std::unique_ptr<gqe::storage::column_base> {
+                     if (comp_format == gqe::compression_format::none) {
+                       return std::make_unique<gqe::storage::contiguous_column>(cudf::column(*col));
+                     } else {
+                       return std::make_unique<gqe::storage::compressed_column>(
+                         cudf::column(*col),
+                         comp_format,
+                         rmm::cuda_stream_default,
+                         rmm::mr::get_current_device_resource());
+                     }
+                   });
     gqe::storage::row_group row_group(std::move(columns));
 
     // Setup test table
@@ -166,4 +193,9 @@ TEST_P(InMemoryReadTest, ReadAll)
   CUDF_TEST_EXPECT_TABLES_EQUAL(*result, test_table->view());
 }
 
-INSTANTIATE_TEST_SUITE_P(ZeroCopyOnOff, InMemoryReadTest, testing::Values(false, true));
+INSTANTIATE_TEST_SUITE_P(ZeroCopyOnOff,
+                         InMemoryReadTest,
+                         testing::Values(test_parameters{false, gqe::compression_format::none},
+                                         test_parameters{true, gqe::compression_format::none},
+                                         test_parameters{false, gqe::compression_format::ans},
+                                         test_parameters{true, gqe::compression_format::ans}));

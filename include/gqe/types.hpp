@@ -12,13 +12,11 @@
 
 #pragma once
 
-#include <gqe/executor/task.hpp>
-#include <gqe/query_context.hpp>
-
 #include <rmm/cuda_device.hpp>
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -345,6 +343,9 @@ struct table_statistics {
   int64_t num_rows;
 };
 
+class query_context;
+class task;
+
 /**
  * @brief Functor for generating tasks for user-defined relations.
  *
@@ -398,4 +399,13 @@ struct bounded {
 using type = std::variant<unbounded, bounded>;
 
 }  // namespace window_frame_bound
+
+/**
+ * @brief Indicate the algorithm used for compression.
+ */
+enum class compression_format : int32_t {
+  none,  ///< Uncompressed
+  ans    ///< ANS compression
+};
+
 }  // namespace gqe

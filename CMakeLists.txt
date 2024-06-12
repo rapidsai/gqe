@@ -80,6 +80,7 @@ endif()
 
 rapids_find_package(cudf CONFIG REQUIRED COMPONENTS testing)
 rapids_find_package(Threads REQUIRED)
+rapids_find_package(nvcomp CONFIG REQUIRED)
 
 # Prefer to use the config mode for Protobuf, but if the config file is not present, we fallback to
 # use the module mode.
@@ -90,7 +91,6 @@ endif()
 
 if(GQE_ENABLE_CUSTOMIZED_PARQUET)
   rapids_find_package(Thrift CONFIG REQUIRED)
-  rapids_find_package(nvcomp CONFIG REQUIRED)
 endif()
 
 # ##################################################################################################

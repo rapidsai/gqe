@@ -38,6 +38,8 @@ namespace storage {
 class in_memory_readable_view;
 class in_memory_writeable_view;
 
+enum class in_memory_column_type { CONTIGUOUS, COMPRESSED };
+
 /**
  * @brief Abstract base column of an in-memory table.
  *
@@ -53,7 +55,12 @@ class column_base {
   column_base& operator=(const column_base&) = delete;
 
   /**
-   * Return the column size.
+   * @brief Return the type of the in-memory column.
+   */
+  [[nodiscard]] virtual in_memory_column_type type() const = 0;
+
+  /**
+   * @brief Return the column size.
    */
   [[nodiscard]] virtual int64_t size() const = 0;
 };
@@ -68,6 +75,11 @@ class contiguous_column : public column_base {
 
   contiguous_column(const contiguous_column&) = delete;
   contiguous_column& operator=(const contiguous_column&) = delete;
+
+  /**
+   * @copydoc gqe::storage::type()
+   */
+  in_memory_column_type type() const override { return in_memory_column_type::CONTIGUOUS; }
 
   /**
    * @copydoc gqe::storage::column_base::size()
@@ -86,6 +98,139 @@ class contiguous_column : public column_base {
 
  private:
   cudf::column _data;
+};
+
+/**
+ * @brief Abstract base class representing a compressed buffer.
+ */
+class compressed_buffer {
+ public:
+  virtual ~compressed_buffer() = default;
+
+  /**
+   * @brief Decompress the data into a buffer in device-accessible memory.
+   *
+   * @param[in] stream CUDA stream used for the decompression.
+   * @param[in] mr Memory resource used to allocate the decompressed buffer.
+   */
+  virtual std::unique_ptr<rmm::device_buffer> decompress(
+    rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr) const = 0;
+
+  /**
+   * @brief Return the compressed size of the buffer.
+   */
+  virtual std::size_t compressed_size() const = 0;
+};
+
+/**
+ * @brief An implementation of `compressed_buffer` interface with plain encoding (i.e.,
+ * uncompressed).
+ */
+class plain_buffer : public compressed_buffer {
+ public:
+  /**
+   * @brief Construct a compressed buffer using plain encoding.
+   *
+   * @param[in] input Input buffer to be compressed.
+   * @param[in] stream CUDA stream used for compression.
+   * @param[in] mr Memory resource used to allocate the compressed buffer.
+   */
+  plain_buffer(rmm::device_buffer const* input,
+               rmm::cuda_stream_view stream,
+               rmm::device_async_resource_ref mr);
+
+  /**
+   * @copydoc gqe::storage::compressed_buffer::decompress(rmm::cuda_stream_view,
+   * rmm::device_async_resource_ref)
+   */
+  std::unique_ptr<rmm::device_buffer> decompress(rmm::cuda_stream_view stream,
+                                                 rmm::device_async_resource_ref mr) const override;
+
+  /**
+   * @copydoc gqe::storage::compressed_size()
+   */
+  std::size_t compressed_size() const override { return _buffer->size(); }
+
+ private:
+  std::unique_ptr<rmm::device_buffer> _buffer;
+};
+
+/**
+ * @brief A buffer compressed using Asymmetric Numeral Systems (ANS).
+ */
+class ans_compressed_buffer : public compressed_buffer {
+ public:
+  /**
+   * @brief Construct a compressed buffer using ANS.
+   *
+   * @param[in] input Input buffer to be compressed.
+   * @param[in] stream CUDA stream used for compression.
+   * @param[in] mr Memory resource used to allocate the compressed buffer.
+   */
+  ans_compressed_buffer(rmm::device_buffer const* input,
+                        rmm::cuda_stream_view stream,
+                        rmm::device_async_resource_ref mr);
+
+  /**
+   * @copydoc gqe::storage::compressed_buffer::decompress(rmm::cuda_stream_view,
+   * rmm::device_async_resource_ref)
+   */
+  std::unique_ptr<rmm::device_buffer> decompress(rmm::cuda_stream_view stream,
+                                                 rmm::device_async_resource_ref mr) const override;
+
+  /**
+   * @copydoc gqe::storage::compressed_size()
+   */
+  std::size_t compressed_size() const override { return _compressed_buffer->size(); }
+
+ private:
+  std::unique_ptr<rmm::device_buffer> _compressed_buffer;
+};
+
+/**
+ * @brief Compressed in-memory table.
+ */
+class compressed_column : public column_base {
+ public:
+  explicit compressed_column(cudf::column&& cudf_column,
+                             compression_format comp_format,
+                             rmm::cuda_stream_view stream,
+                             rmm::device_async_resource_ref mr);
+
+  ~compressed_column() override = default;
+
+  compressed_column(const compressed_column&) = delete;
+  compressed_column& operator=(const compressed_column&) = delete;
+
+  /**
+   * @copydoc gqe::storage::type()
+   */
+  in_memory_column_type type() const { return in_memory_column_type::COMPRESSED; }
+
+  /**
+   * @copydoc gqe::storage::column_base::size()
+   */
+  int64_t size() const override;
+
+  /**
+   * @brief Decompress and construct an uncompressed version of the column.
+   *
+   * @param[in] stream CUDA stream used for the decompression.
+   * @param[in] mr Memory resource used for allocating the decompressed column.
+   */
+  std::unique_ptr<cudf::column> decompress(
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource()) const;
+
+ private:
+  int64_t _size;
+  cudf::data_type _dtype;
+  cudf::size_type _null_count;
+  compression_format _comp_format;
+
+  std::unique_ptr<compressed_buffer> _compressed_data;
+  std::unique_ptr<compressed_buffer> _compressed_null_mask;
+  std::vector<std::unique_ptr<compressed_column>> _compressed_children;
 };
 
 /**

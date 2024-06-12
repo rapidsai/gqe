@@ -14,6 +14,8 @@
 
 #include <gqe/types.hpp>
 
+#include <cudf/types.hpp>
+
 #include <string>
 #include <tuple>
 #include <unordered_map>

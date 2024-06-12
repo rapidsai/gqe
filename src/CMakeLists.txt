@@ -91,6 +91,7 @@ target_link_libraries(gqe PRIVATE nvtx3-cpp)
 target_link_libraries(gqe PUBLIC spdlog::spdlog)
 target_link_libraries(gqe PUBLIC substrait)
 target_link_libraries(gqe PRIVATE Threads::Threads)
+target_link_libraries(gqe PRIVATE nvcomp::nvcomp)
 
 # Download and configure Parquet format
 if(GQE_ENABLE_CUSTOMIZED_PARQUET)
@@ -105,6 +106,5 @@ if(GQE_ENABLE_CUSTOMIZED_PARQUET)
     target_link_libraries(parquet PUBLIC thrift::thrift)
 
     target_link_libraries(gqe PRIVATE parquet)
-    target_link_libraries(gqe PRIVATE nvcomp::nvcomp)
     add_compile_definitions(ENABLE_CUSTOMIZED_PARQUET)
 endif()

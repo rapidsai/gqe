@@ -715,7 +715,10 @@ std::pair<std::unique_ptr<cudf::table>, std::vector<cudf::groupby::aggregation_r
 
   cudf::size_type constexpr key_sentinel = -1;  ///< Sentinel value indicating an empty slot
   auto empty_key_sentinel                = cuco::empty_key{key_sentinel};
-  auto const global_agg_set              = cuco::static_set{num_keys * 2,
+
+  auto const set_num_keys = static_cast<int64_t>(num_keys) * 2;
+
+  auto const global_agg_set = cuco::static_set{set_num_keys,
                                                empty_key_sentinel,
                                                d_key_equal,
                                                probing_scheme_type{d_row_hash},

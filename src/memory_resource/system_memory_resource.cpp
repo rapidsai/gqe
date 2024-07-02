@@ -19,10 +19,6 @@ namespace gqe {
 
 namespace memory_resource {
 
-bool system_memory_resource::supports_streams() const noexcept { return false; }
-
-bool system_memory_resource::supports_get_mem_info() const noexcept { return true; }
-
 void* system_memory_resource::do_allocate(std::size_t bytes, rmm::cuda_stream_view)
 {
   return ::operator new(bytes, _allocation_alignment);

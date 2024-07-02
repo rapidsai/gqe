@@ -20,10 +20,6 @@ namespace gqe {
 
 namespace memory_resource {
 
-bool pinned_memory_resource::supports_streams() const noexcept { return false; }
-
-bool pinned_memory_resource::supports_get_mem_info() const noexcept { return false; }
-
 void* pinned_memory_resource::do_allocate(std::size_t bytes, rmm::cuda_stream_view)
 {
   if (0 == bytes) { return nullptr; }

@@ -49,10 +49,6 @@ numa_memory_resource::numa_memory_resource(cpu_set numa_node_set, page_kind::typ
 {
 }
 
-bool numa_memory_resource::supports_streams() const noexcept { return false; }
-
-bool numa_memory_resource::supports_get_mem_info() const noexcept { return true; }
-
 void* numa_memory_resource::do_allocate(std::size_t bytes, rmm::cuda_stream_view)
 {
   if (0 == bytes) { return nullptr; }

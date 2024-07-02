@@ -63,16 +63,6 @@ class numa_memory_resource : public rmm::mr::device_memory_resource {
 
   ~numa_memory_resource() override = default;
 
-  /**
-   * @copydoc rmm::mr::device_memory_resource::supports_streams()
-   */
-  [[nodiscard]] bool supports_streams() const noexcept override;
-
-  /**
-   * @copydoc rmm::mr::device_memory_resource::supports_get_mem_info()
-   */
-  [[nodiscard]] bool supports_get_mem_info() const noexcept override;
-
  private:
   void* do_allocate(std::size_t bytes, rmm::cuda_stream_view) override;
 

@@ -24,6 +24,8 @@
 
 #include <cudf/detail/aggregation/aggregation.hpp>
 
+#include <gtest/gtest.h>
+
 template <typename V>
 struct groupby_argmax_test : public cudf::test::BaseFixture {
 };

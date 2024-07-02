@@ -28,6 +28,8 @@
 #include <cudf_test/table_utilities.hpp>
 #include <rmm/cuda_device.hpp>
 
+#include <gtest/gtest.h>
+
 #include <memory>
 #include <random>
 #include <string>

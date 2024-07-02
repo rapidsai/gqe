@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-#include <cudf/join.hpp>
+#include <gqe/executor/unique_key_inner_join.hpp>
 
 #include <cudf/column/column.hpp>
+#include <cudf/join.hpp>
 #include <cudf/sorting.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf_test/base_fixture.hpp>
@@ -21,7 +22,7 @@
 #include <cudf_test/type_list_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
 
-#include <gqe/executor/unique_key_inner_join.hpp>
+#include <gtest/gtest.h>
 
 #include <random>
 

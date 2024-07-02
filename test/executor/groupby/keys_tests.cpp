@@ -26,6 +26,8 @@
 
 #include <gqe/executor/groupby.hpp>
 
+#include <gtest/gtest.h>
+
 using namespace cudf::test::iterators;
 
 template <typename V>

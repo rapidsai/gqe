@@ -33,6 +33,8 @@
 
 #include <substrait/algebra.pb.h>
 
+#include <cudf/unary.hpp>
+
 #include <cassert>
 #include <cstdint>
 #include <fstream>
@@ -231,7 +233,7 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression
       auto fixed_point_value = from_substrait_decimal(literal_expression.decimal());
       GQE_LOG_WARN("Use FLOAT64 to represent a decimal literal");
       return std::make_unique<gqe::literal_expression<double>>(
-        static_cast<double>(fixed_point_value));
+        cudf::convert_fixed_to_floating<double>(fixed_point_value));
     }
     case substrait::Expression_Literal::LiteralTypeCase::kNull: {
       std::unique_ptr<gqe::expression> null_literal;

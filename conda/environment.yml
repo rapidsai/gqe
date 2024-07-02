@@ -1,17 +1,16 @@
 name: gqe
 channels:
   - rapidsai
-  - nvidia
   - conda-forge
+  - nvidia
 dependencies:
-  - libcudf=24.04
+  - libcudf=24.06
   - libnuma
   - python=3.10
-  - cuda-cccl=12.2
-  - cuda-cudart=12.2
-  - cuda-cudart-static  # nvidia channel CUDA misses this dependency, so added manually
-  - cuda-cudart-dev=12.2
-  - cuda-nvcc=12.2
+  - cuda-cccl
+  - cuda-cudart
+  - cuda-cudart-dev
+  - cuda-nvcc
   - cuda-version=12.2
   - cmake
   - c-compiler

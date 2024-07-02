@@ -10,13 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/executor/groupby.hpp>
+
 #include <cudf/column/column.hpp>
 #include <cudf/sorting.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
 
-#include <gqe/executor/groupby.hpp>
+#include <gtest/gtest.h>
 
 #include <random>
 

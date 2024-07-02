@@ -21,10 +21,11 @@
 #include <cudf/io/types.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf_test/base_fixture.hpp>
+#include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
 
-#include <cudf_test/column_utilities.hpp>
+#include <gtest/gtest.h>
 
 #include <memory>
 #include <vector>

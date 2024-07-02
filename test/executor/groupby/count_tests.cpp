@@ -23,6 +23,8 @@
 
 #include <cudf/detail/aggregation/aggregation.hpp>
 
+#include <gtest/gtest.h>
+
 template <typename V>
 struct groupby_count_test : public cudf::test::BaseFixture {
 };

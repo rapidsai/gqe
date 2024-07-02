@@ -22,6 +22,8 @@
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
 
+#include <gtest/gtest.h>
+
 #include <memory>
 #include <vector>
 

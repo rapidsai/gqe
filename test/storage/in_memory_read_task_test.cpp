@@ -17,6 +17,7 @@
 
 #include <cudf/column/column.hpp>
 #include <cudf/types.hpp>
+#include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
 
@@ -24,7 +25,6 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 
-#include <cudf_test/column_utilities.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>

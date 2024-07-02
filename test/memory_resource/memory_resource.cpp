@@ -14,12 +14,14 @@
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
 #include <gqe/memory_resource/system_memory_resource.hpp>
 
-#include <gtest/gtest-typed-test.h>
-#include <gtest/gtest.h>
 #include <rmm/cuda_stream.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
+
+#include <gtest/gtest-typed-test.h>
+#include <gtest/gtest.h>
+
 #include <unistd.h>  // sysconf
 
 template <typename T>

@@ -22,6 +22,8 @@
 
 #include <cudf/detail/aggregation/aggregation.hpp>
 
+#include <gtest/gtest.h>
+
 using namespace cudf::test::iterators;
 
 template <typename V>

@@ -31,16 +31,6 @@ class system_memory_resource : public rmm::mr::device_memory_resource {
   system_memory_resource()           = default;
   ~system_memory_resource() override = default;
 
-  /**
-   * @copydoc rmm::mr::device_memory_resource::supports_streams()
-   */
-  [[nodiscard]] bool supports_streams() const noexcept override;
-
-  /**
-   * @copydoc rmm::mr::device_memory_resource::supports_get_mem_info()
-   */
-  [[nodiscard]] bool supports_get_mem_info() const noexcept override;
-
  private:
   static constexpr auto _allocation_alignment =
     std::align_val_t{256}; /**< `rmm::mr::device_memory_resource` specifies that all allocations are

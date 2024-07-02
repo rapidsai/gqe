@@ -26,6 +26,8 @@
 
 #include <gqe/executor/groupby.hpp>
 
+#include <gtest/gtest.h>
+
 #include <limits>
 
 using namespace cudf::test::iterators;

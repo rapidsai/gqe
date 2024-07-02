@@ -98,4 +98,4 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | GQE_IO_AUXILIARY_THREADS | 8 | Number of auxiliary threads per worker launched by the customized Parquet reader. |
 | GQE_IN_MEMORY_TABLE_COMP_FORMAT | none | Compression format for the in-memory table. Supported values are `none` and `ans`. |
 
-Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-24.04/CONTRIBUTING.md#build-cudf-from-source).
+Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-24.06/CONTRIBUTING.md#build-cudf-from-source).

@@ -67,6 +67,7 @@ add_library(
     optimizer/logical_optimization.cpp
     optimizer/optimization_configuration.cpp
     optimizer/physical_transformation.cpp
+    optimizer/rules/push_projection_to_filter.cpp
     optimizer/rules/join_children_swap.cpp
     optimizer/rules/not_not.cpp
     storage/in_memory.cpp

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -11,6 +11,8 @@
  */
 
 #include "utility.hpp"
+
+#include <gqe/optimizer/logical_optimization.hpp>
 
 #include <gqe/catalog.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
@@ -344,6 +346,11 @@ int main(int argc, char* argv[])
     auto logical_plan = parser.from_file(substrait_plan_file.string());
     assert(logical_plan.size() == 1);
 
+    gqe::optimizer::optimization_configuration logical_rule_config(
+      {gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter}, {});
+    gqe::optimizer::logical_optimizer optimizer(&logical_rule_config, &catalog);
+    auto opt_logical_plan = optimizer.optimize(logical_plan[0]);
+
     gqe::optimization_parameters execute_opms{};
     qctx.parameters = execute_opms;
 
@@ -351,7 +358,7 @@ int main(int argc, char* argv[])
     auto const cached_result_name = "query_result_" + query_identifier;
 
     auto logical_plan_with_result =
-      result_writer.append_to_plan(logical_plan[0],
+      result_writer.append_to_plan(opt_logical_plan,
                                    cached_result_name,
                                    gqe::storage_kind::device_memory{rmm::cuda_device_id{0}},
                                    gqe::partitioning_schema_kind::none{});

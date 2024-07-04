@@ -67,6 +67,19 @@ class project_relation : public relation {
   }
 
   /**
+   * @brief Return a list of const raw pointers to the output expressions.
+   *
+   * @return Vector of const output expression raw pointers
+   *
+   * @note The returned expressions do not share ownership. This object must be kept alive for the
+   * returned expressions to be valid.
+   */
+  [[nodiscard]] std::vector<expression const*> const_output_expressions_unsafe() const
+  {
+    return gqe::utility::to_const_raw_ptrs(_output_expressions);
+  }
+
+  /**
    * @copydoc relation::operator==(const relation& other)
    */
   bool operator==(const relation& other) const override;

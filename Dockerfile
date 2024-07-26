@@ -6,6 +6,7 @@ WORKDIR /
 # Install common packages for development
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
         build-essential \
+        ninja-build \
         wget \
         git \
         vim \
@@ -37,6 +38,26 @@ RUN git clone https://github.com/rapidsai/cudf.git /cudf \
     && source activate gqe \
     && PARALLEL_LEVEL=16 CUDF_CMAKE_CUDA_ARCHITECTURES="70;80;90" ./build.sh libcudf --ptds --cmake-args=\" -DCUDF_ENABLE_ARROW_S3=OFF -DBUILD_BENCHMARKS=OFF -DCUDA_ENABLE_LINEINFO=ON \" \
     && conda clean --all
+
+# Compile MLIR from source
+RUN git clone https://github.com/llvm/llvm-project.git \
+    && mkdir llvm-project/build \
+    && pushd llvm-project/build \
+    && git checkout -b llvmorg-18.1.8 \
+    && source activate gqe \
+    && cmake -G Ninja ../llvm \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DLLVM_ENABLE_PROJECTS=mlir \
+        -DLLVM_BUILD_EXAMPLES=OFF \
+        -DLLVM_TARGETS_TO_BUILD="Native;NVPTX" \
+        -DLLVM_ENABLE_ASSERTIONS=ON \
+        -DLLVM_USE_SPLIT_DWARF=ON \
+        -DMLIR_ENABLE_CUDA_CONVERSIONS=ON \
+        -DMLIR_ENABLE_CUDA_RUNNER=ON \
+    && cmake --build . --target install \
+    && popd \
+    && rm -rf llvm-project
+
 
 # Activate the conda environment when launching the container
 RUN echo "source activate gqe" >> ~/.bashrc

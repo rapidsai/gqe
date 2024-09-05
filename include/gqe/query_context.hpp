@@ -15,6 +15,7 @@
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
 #include <gqe/optimizer/optimization_configuration.hpp>
+#include <gqe/utility/timer.hpp>
 
 #include <rmm/mr/device/fixed_size_memory_resource.hpp>
 
@@ -51,6 +52,9 @@ struct query_context {
   // reader.
   std::unique_ptr<rmm::mr::fixed_size_memory_resource<gqe::memory_resource::pinned_memory_resource>>
     io_bounce_buffer_mr = nullptr;
+
+  utility::bandwidth_timer disk_timer{"disk_read"}, h2d_timer{"h2d"}, decomp_timer{"decompress"},
+    decode_timer{"decode"};
 
  private:
   gqe::memory_resource::pinned_memory_resource _pinned_mr;

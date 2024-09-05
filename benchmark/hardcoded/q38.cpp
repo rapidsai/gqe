@@ -295,5 +295,13 @@ int main(int argc, char* argv[])
   assert(task_graph->root_tasks.size() == 1);
   std::cout << "Result: " << task_graph->root_tasks[0]->result().value().num_rows() << std::endl;
 
+  // Output performance information to disk
+  std::ofstream out;
+  out.open("bandwidth.json");
+  out << qctx.disk_timer.to_string();
+  out << qctx.h2d_timer.to_string();
+  out << qctx.decomp_timer.to_string();
+  out << qctx.decode_timer.to_string();
+
   return 0;
 }

@@ -25,6 +25,11 @@
 namespace gqe {
 
 /**
+ * @brief Enum to specify which engine to use for I/O operations.
+ */
+enum class io_engine_type { AUTO, IO_URING, PSYNC };
+
+/**
  * @brief Enum to specify the type of a join.
  */
 enum class join_type_type { inner, left, left_semi, left_anti, full, single };

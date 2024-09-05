@@ -76,7 +76,9 @@ add_library(
     storage/parquet_reader.cpp
     storage/parquet_reader.cu
     utility/cuda.cpp
+    utility/hashing.cpp
     utility/linux.cpp
+    utility/timer.cpp
     utility/tpcds.cpp
     utility/tpch.cpp
     catalog.cpp
@@ -93,6 +95,8 @@ target_link_libraries(gqe PUBLIC spdlog::spdlog)
 target_link_libraries(gqe PUBLIC substrait)
 target_link_libraries(gqe PRIVATE Threads::Threads)
 target_link_libraries(gqe PRIVATE nvcomp::nvcomp)
+target_link_libraries(gqe PUBLIC uring)
+
 
 # Download and configure Parquet format
 if(GQE_ENABLE_CUSTOMIZED_PARQUET)
@@ -106,6 +110,6 @@ if(GQE_ENABLE_CUSTOMIZED_PARQUET)
     target_include_directories(parquet PUBLIC ${CMAKE_BINARY_DIR}/parquet)
     target_link_libraries(parquet PUBLIC thrift::thrift)
 
-    target_link_libraries(gqe PRIVATE parquet)
+    target_link_libraries(gqe PRIVATE parquet uring)
     add_compile_definitions(ENABLE_CUSTOMIZED_PARQUET)
 endif()

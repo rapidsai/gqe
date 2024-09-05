@@ -52,8 +52,11 @@ overloaded(Ts...) -> overloaded<Ts...>;
 /**
  * @brief Helper function for integer division by rounding up to next-higher integer.
  */
-template <typename type, std::enable_if_t<std::is_integral_v<type>>* = nullptr>
-constexpr GQE_HOST_DEVICE type divide_round_up(type dividend, type divisor)
+template <typename type1,
+          typename type2,
+          std::enable_if_t<std::is_integral_v<type1>>* = nullptr,
+          std::enable_if_t<std::is_integral_v<type2>>* = nullptr>
+constexpr GQE_HOST_DEVICE type1 divide_round_up(type1 dividend, type2 divisor)
 {
   assert(divisor != 0);
 

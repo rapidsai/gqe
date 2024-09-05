@@ -148,6 +148,25 @@ optimization_parameters::optimization_parameters(bool only_defaults)
 
     in_memory_table_compression_format = parse_compression_format(
       "GQE_IN_MEMORY_TABLE_COMP_FORMAT", in_memory_table_compression_format);
+
+    io_block_size = parse_env_variable("GQE_IO_BLOCK_SIZE", io_block_size);
+
+    auto io_engine_str = std::getenv("GQE_IO_ENGINE");
+    if (io_engine_str) {
+      if (strcmp_insensitive(io_engine_str, "IO_URING")) {
+        io_engine = io_engine_type::IO_URING;
+      } else if (strcmp_insensitive(io_engine_str, "PSYNC")) {
+        io_engine = io_engine_type::PSYNC;
+      } else if (strcmp_insensitive(io_engine_str, "AUTO")) {
+        io_engine = io_engine_type::AUTO;
+      } else {
+        throw std::runtime_error("Invalid value for environment variable: GQE_IO_ENGINE");
+      }
+    }
+
+    io_pipelining = parse_env_variable("GQE_IO_PIPELINING_ENABLE", io_pipelining);
+
+    io_alignment = parse_env_variable("GQE_IO_ALIGNMENT", io_alignment);
   }
 }
 

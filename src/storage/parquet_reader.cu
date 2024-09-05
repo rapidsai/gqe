@@ -12,7 +12,10 @@
 
 #ifdef ENABLE_CUSTOMIZED_PARQUET
 
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/storage/parquet_reader.hpp>
+#include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
@@ -32,6 +35,9 @@
 
 #include <cooperative_groups.h>
 
+#include <algorithm>
+#include <cassert>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -40,6 +46,9 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+
+#include <liburing.h>
+#include <sched.h>
 
 namespace cg = cooperative_groups;
 
@@ -101,7 +110,10 @@ struct page_info {
  * @brief Information about a Parquet column chunk
  */
 struct column_chunk_info {
-  int fd;                   ///< Openned file descrpitor of the column chunk
+  std::size_t idx;  ///< Index of the column chunk in the file
+  std::size_t
+    estimated_num_blocks;   ///< Estimated number of blocks for the column chunk when using io_uring
+  int fd, direct_fd;        ///< Openned file descriptor of the column chunk
   int64_t file_offset;      ///< File offset to the start of the column chunk
   int64_t compressed_size;  ///< Compressed size of the column chunk
   parquet::CompressionCodec::type compression_codec;  ///< Compression format of the column chunk
@@ -220,32 +232,58 @@ class io_batch {
   /**
    * @brief Load the column chunks from Parquet files into cuDF columns.
    *
-   * @param[in] num_threads Maximum number of auxiliary threads to launch by this function.
+   * @param[in] num_auxiliary_threads Number of auxiliary threads to use for I/O operations.
+   * @param[in] block_size Size of the I/O block in KB.
+   * @param[in] engine I/O engine to use.
+   * @param[in] pipelining Whether to use pipelining for I/O operations.
+   * @param[in] alignment Alignment for I/O operations.
+   * @param[in] disk_timer Timer for measuring disk bandwidth.
+   * @param[in] h2d_timer Timer for measuring H2D bandwidth.
+   * @param[in] decomp_timer Timer for measuring decompression bandwidth.
+   * @param[in] decode_timer Timer for measuring decoding bandwidth.
    */
-  void execute(std::size_t num_threads, rmm::cuda_stream_view stream)
+  void execute(std::size_t num_auxiliary_threads,
+               std::size_t block_size,
+               io_engine_type engine,
+               bool pipelining,
+               std::size_t alignment,
+               gqe::utility::bandwidth_timer& disk_timer,
+               gqe::utility::bandwidth_timer& h2d_timer,
+               gqe::utility::bandwidth_timer& decomp_timer,
+               gqe::utility::bandwidth_timer& decode_timer,
+               rmm::cuda_stream_view stream)
   {
-    copy(num_threads);
+    copy(num_auxiliary_threads, block_size, engine, pipelining, alignment, disk_timer, h2d_timer);
     decode_header();
-    decompress(stream);
-    decode(stream);
+    decompress(decomp_timer, stream);
+    decode(decode_timer, stream);
   }
 
  private:
   // Copy the column chunks from the storage into the CPU bounce buffer (`_host_buffer`) and then
   // into the GPU bounce buffer (`_device_buffer`)
-  void copy(std::size_t num_threads);
+  void copy(std::size_t num_auxiliary_threads,
+            std::size_t block_size,
+            io_engine_type engine,
+            bool pipelining,
+            std::size_t alignment,
+            gqe::utility::bandwidth_timer& disk_timer,
+            gqe::utility::bandwidth_timer& h2d_timer);
   // Decode the page headers and store the page information into `_column_chunks[idx].pages`
   void decode_header();
   // Decompress the pages and store the result in `_decompressed`
-  void decompress(rmm::cuda_stream_view stream);
+  void decompress(gqe::utility::bandwidth_timer& decomp_timer, rmm::cuda_stream_view stream);
   // Decode the pages and store the data into the result cuDF columns
-  void decode(rmm::cuda_stream_view stream);
+  void decode(gqe::utility::bandwidth_timer& decode_timer, rmm::cuda_stream_view stream);
 
   void* const _host_buffer;
   void* const _device_buffer;
   int64_t _available_size;
   std::vector<std::reference_wrapper<column_chunk_info>> _column_chunks;
   rmm::device_buffer _decompressed;
+
+  static constexpr int64_t IO_URING_SIZE_THRESHOLD = 1024 * 1024 * 1024;
+  static constexpr int64_t IO_URING_BUFFER_SIZE    = 1000 * 1024 * 1024;
 };
 
 bool io_batch::try_add(column_chunk_info& chunk)
@@ -259,58 +297,237 @@ bool io_batch::try_add(column_chunk_info& chunk)
   }
 }
 
-void io_batch::copy(std::size_t num_threads)
+struct block_info {
+  column_chunk_info& column_chunk;
+  std::size_t offset;
+  std::size_t size;
+  void *host_ptr, *device_ptr;
+};
+
+void print_sq_poll_kernel_thread_status()
 {
+  if (system("ps --ppid 2 | grep io_uring-sq") == 0)
+    GQE_LOG_INFO("Kernel thread io_uring-sq found running...\n");
+  else
+    GQE_LOG_WARN("Kernel thread io_uring-sq is not running.\n");
+}
+
+void io_batch::copy(std::size_t num_auxiliary_threads,
+                    std::size_t block_size,
+                    io_engine_type engine,
+                    bool pipelining,
+                    std::size_t alignment,
+                    gqe::utility::bandwidth_timer& disk_timer,
+                    gqe::utility::bandwidth_timer& h2d_timer)
+{
+  utility::nvtx_scoped_range range("io::copy");
+  std::size_t block_bytes  = block_size * 1024;
+  int estimated_num_blocks = 0;
+  auto num_threads         = std::min(num_auxiliary_threads, _column_chunks.size());
+  std::sort(_column_chunks.begin(), _column_chunks.end(), [](auto& a, auto& b) {
+    return a.get().compressed_size > b.get().compressed_size;
+  });
   // Calculate the location in `_host_buffer` and `_device_buffer` for each column chunk
   std::vector<int64_t> offsets;
   offsets.reserve(_column_chunks.size());
 
-  int64_t current_offset = 0;
+  int64_t current_offset = 0, chunk_count = 0;
   for (column_chunk_info& column_chunk : _column_chunks) {
+    // Add padding to align the column chunk file offset to ensure alignment for io_uring read
+    current_offset += column_chunk.file_offset % alignment;
+    column_chunk.idx = chunk_count++;
     offsets.push_back(current_offset);
     column_chunk.host_ptr   = static_cast<std::byte*>(_host_buffer) + current_offset;
     column_chunk.device_ptr = static_cast<std::byte*>(_device_buffer) + current_offset;
 
     current_offset += column_chunk.compressed_size;
+    // Add padding to memory buffer to ensure alignment for H2D copy
+    current_offset = utility::divide_round_up(current_offset, alignment) * alignment;
+    if (current_offset > _available_size) {
+      throw std::runtime_error("Customized Parquet reader: Not enough available space");
+    }
+    column_chunk.estimated_num_blocks =
+      utility::divide_round_up(column_chunk.compressed_size, block_bytes);
+    estimated_num_blocks += column_chunk.estimated_num_blocks;
   }
+
+  GQE_LOG_TRACE("chunk count: {}, read size: {} MB", _column_chunks.size(), current_offset / 1e6);
+
+  auto effective_engine = engine;
+  if (effective_engine == io_engine_type::AUTO) {  // AUTO
+    if (current_offset > IO_URING_SIZE_THRESHOLD)
+      effective_engine = io_engine_type::IO_URING;
+    else
+      effective_engine = io_engine_type::PSYNC;
+  }
+
+  disk_timer.start();
+  disk_timer.add(current_offset);
 
   // Launch multiple threads to copy column chunks from disk into CPU memory and then into GPU
   // memory.
   // Using multiple threads increases the number of concurrent I/O requests to the storage, which
   // usually improves performance.
-  std::vector<std::thread> threads;
-  threads.reserve(num_threads);
+  if (effective_engine == io_engine_type::PSYNC) {
+    std::vector<std::thread> threads;
+    threads.reserve(num_threads);
 
-  for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
-    threads.emplace_back([this, thread_idx, num_threads, &offsets]() {
-      rmm::cuda_stream copy_stream;
+    for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
+      threads.emplace_back([this, thread_idx, num_auxiliary_threads, pipelining, &offsets]() {
+        rmm::cuda_stream copy_stream;
 
-      for (std::size_t chunk_idx = thread_idx; chunk_idx < _column_chunks.size();
-           chunk_idx += num_threads) {
-        column_chunk_info& column_chunk = _column_chunks[chunk_idx];
-        auto host_ptr        = static_cast<std::byte*>(_host_buffer) + offsets[chunk_idx];
-        auto device_ptr      = static_cast<std::byte*>(_device_buffer) + offsets[chunk_idx];
-        auto const copy_size = column_chunk.compressed_size;
+        for (std::size_t chunk_idx = thread_idx; chunk_idx < _column_chunks.size();
+             chunk_idx += num_auxiliary_threads) {
+          column_chunk_info& column_chunk = _column_chunks[chunk_idx];
+          auto host_ptr                   = column_chunk.host_ptr;
+          auto device_ptr                 = column_chunk.device_ptr;
+          auto const copy_size            = column_chunk.compressed_size;
 
-        if (pread(column_chunk.fd, host_ptr, copy_size, column_chunk.file_offset) != copy_size) {
-          throw std::runtime_error("Customized Parquet reader: pread failure");
+          if (pread(column_chunk.fd, host_ptr, copy_size, column_chunk.file_offset) != copy_size) {
+            throw std::runtime_error("Customized Parquet reader: pread failure");
+          }
+          if (pipelining) {
+            GQE_CUDA_TRY(cudaMemcpyAsync(
+              device_ptr, host_ptr, copy_size, cudaMemcpyHostToDevice, copy_stream.value()));
+          }
         }
+        if (pipelining) { copy_stream.synchronize(); }
+      });
+    }
 
+    for (auto& thread : threads) {
+      thread.join();
+    }
+    disk_timer.end();
+    if (!pipelining) {
+      h2d_timer.start();
+      h2d_timer.add(current_offset);
+      rmm::cuda_stream copy_stream;
+      for (auto& _column_chunk : _column_chunks) {
+        auto column_chunk = _column_chunk.get();
+        auto host_ptr     = column_chunk.host_ptr;
+        auto device_ptr   = column_chunk.device_ptr;
+        auto copy_size    = column_chunk.compressed_size;
         GQE_CUDA_TRY(cudaMemcpyAsync(
           device_ptr, host_ptr, copy_size, cudaMemcpyHostToDevice, copy_stream.value()));
       }
-
       copy_stream.synchronize();
-    });
-  }
+      h2d_timer.end();
+    }
+  } else {
+    std::vector<std::thread> threads;
+    threads.reserve(num_threads);
+    rmm::cuda_stream copy_stream;
+    for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
+      threads.emplace_back(
+        [this, thread_idx, num_auxiliary_threads, alignment, pipelining, &offsets, block_bytes]() {
+          int chunk_cnt = 0;
+          rmm::cuda_stream copy_stream;
+          struct io_uring ring;
+          struct io_uring_params params;
+          memset(&params, 0, sizeof(params));
+          params.flags |= IORING_SETUP_SQPOLL;
+          auto estimated_num_blocks = 0;
+          for (std::size_t chunk_idx = thread_idx; chunk_idx < _column_chunks.size();
+               chunk_idx += num_auxiliary_threads) {
+            column_chunk_info& column_chunk = _column_chunks[chunk_idx];
+            estimated_num_blocks += column_chunk.estimated_num_blocks;
+          }
 
-  for (auto& thread : threads) {
-    thread.join();
-  }
+          std::vector<block_info> blocks;
+          blocks.reserve(estimated_num_blocks);
+          int block_count = 0;
+          if (io_uring_queue_init(estimated_num_blocks, &ring, 0) != 0) {
+            throw std::runtime_error("Customized Parquet reader: io_uring_queue_init failure");
+          }
+
+          for (std::size_t chunk_idx = thread_idx; chunk_idx < _column_chunks.size();
+               chunk_idx += num_auxiliary_threads) {
+            ++chunk_cnt;
+            column_chunk_info& column_chunk = _column_chunks[chunk_idx];
+            auto head_padding               = column_chunk.file_offset % alignment;
+            auto start_host_ptr    = static_cast<std::byte*>(column_chunk.host_ptr) - head_padding;
+            auto start_file_offset = column_chunk.file_offset - head_padding;
+            auto start_device_ptr = static_cast<std::byte*>(column_chunk.device_ptr) - head_padding;
+            int64_t total_size    = column_chunk.compressed_size + head_padding;
+            int num_blocks        = utility::divide_round_up(total_size, block_bytes);
+            for (std::size_t current_offset = 0; current_offset < num_blocks * block_bytes;
+                 current_offset += block_bytes) {
+              struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
+              auto block_size          = std::min(block_bytes, total_size - current_offset);
+              int fd = block_size == block_bytes ? column_chunk.direct_fd : column_chunk.fd;
+              auto file_offset = start_file_offset + current_offset;
+              if (file_offset % alignment) {
+                GQE_LOG_ERROR("column_chunk.file_offset %% io_alignment = {}",
+                              file_offset % alignment);
+              }
+              io_uring_prep_read(sqe, fd, start_host_ptr + current_offset, block_size, file_offset);
+              io_uring_sqe_set_data64(sqe, block_count);
+              if (io_uring_submit(&ring) != 1) {
+                // io_uring_submit should return 1 for a single submission success
+                throw std::runtime_error("Customized Parquet reader: io_uring_submit failure");
+              }
+              block_info block{
+                column_chunk,
+                file_offset,
+                block_size,
+                start_host_ptr + current_offset,
+                start_device_ptr + current_offset,
+              };
+              // We have calculated estimated_num_blocks before, which is upper bound of actual
+              // blocks so the std::vector will not get resized
+              blocks.push_back(block);
+              block_count++;
+            }
+          }
+          int count = 0;
+          struct io_uring_cqe* cqe;
+          while (count < block_count) {
+            if (io_uring_peek_cqe(&ring, &cqe) != 0) { continue; }
+            count++;
+            if (!cqe || cqe->res < 0) { GQE_LOG_ERROR("io_uring_wait_cqe error: {}", cqe->res); }
+            int bid           = io_uring_cqe_get_data64(cqe);
+            auto& block       = blocks[bid];
+            auto column_chunk = block.column_chunk;
+            auto offset       = block.offset;
+            io_uring_cqe_seen(&ring, cqe);
+            if (pipelining) {
+              GQE_CUDA_TRY(cudaMemcpyAsync(block.device_ptr,
+                                           block.host_ptr,
+                                           block.size,
+                                           cudaMemcpyHostToDevice,
+                                           copy_stream.value()));
+            }
+          }
+          io_uring_queue_exit(&ring);
+          if (pipelining) { copy_stream.synchronize(); }
+        });
+    }
+
+    for (auto& thread : threads) {
+      thread.join();
+    }
+    disk_timer.end();
+    if (!pipelining) {
+      h2d_timer.start();
+      h2d_timer.add(current_offset);
+      for (auto& _column_chunk : _column_chunks) {
+        auto column_chunk = _column_chunk.get();
+        auto host_ptr     = column_chunk.host_ptr;
+        auto device_ptr   = column_chunk.device_ptr;
+        auto copy_size    = column_chunk.compressed_size;
+        GQE_CUDA_TRY(cudaMemcpyAsync(
+          device_ptr, host_ptr, copy_size, cudaMemcpyHostToDevice, copy_stream.value()));
+      }
+      copy_stream.synchronize();
+      h2d_timer.end();
+    }
+  }  // end of liburing copy
 }
 
 void io_batch::decode_header()
 {
+  utility::nvtx_scoped_range range("io::decode_header");
   for (column_chunk_info& column_chunk : _column_chunks) {
     // Factory for thrift compact protocol used for decoding page headers
     apache::thrift::protocol::TCompactProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
@@ -405,13 +622,16 @@ __global__ void copy_uncompressed_buffers(void const* const* compressed_ptrs,
   }
 }
 
-void io_batch::decompress(rmm::cuda_stream_view stream)
+void io_batch::decompress(gqe::utility::bandwidth_timer& decomp_timer, rmm::cuda_stream_view stream)
 {
+  utility::nvtx_scoped_range range("io::decompress");
+  decomp_timer.start();
   // First pass: calculate the total decompressed size
-  int64_t decompressed_size = 0;
+  int64_t decompressed_size = 0, compressed_size = 0, num_pages = 0;
   for (column_chunk_info const& column_chunk : _column_chunks) {
     for (auto const& page : column_chunk.pages) {
       decompressed_size += page.uncompressed_page_size;
+      compressed_size += page.compressed_page_size;
     }
   }
 
@@ -438,7 +658,7 @@ void io_batch::decompress(rmm::cuda_stream_view stream)
     auto& comp_info = it->second;
 
     auto const compressed_base_ptr = column_chunk.device_ptr;
-
+    num_pages += column_chunk.pages.size();
     for (auto& page : column_chunk.pages) {
       auto const page_size = page.uncompressed_page_size;
       if (page_size > comp_info.max_chunk_bytes) comp_info.max_chunk_bytes = page_size;
@@ -453,6 +673,7 @@ void io_batch::decompress(rmm::cuda_stream_view stream)
 
       page.uncompressed_ptr = uncompressed_ptr;
       decompressed_offset += page_size;
+      decomp_timer.add(page.compressed_page_size, page.uncompressed_page_size);
     }
   }
 
@@ -507,6 +728,7 @@ void io_batch::decompress(rmm::cuda_stream_view stream)
       default: throw unsupported_error("Customized Parquet reader: Unsupported compression format");
     }
   }
+  decomp_timer.end();
 }
 
 /**
@@ -897,15 +1119,18 @@ __global__ void decode_pages_kernel(void const* const* page_data,
   }
 }
 
-void io_batch::decode(rmm::cuda_stream_view stream)
+void io_batch::decode(gqe::utility::bandwidth_timer& decode_timer, rmm::cuda_stream_view stream)
 {
+  utility::nvtx_scoped_range range("io::decode");
+  decode_timer.start();
   std::vector<void const*> page_data;
   std::vector<void*> output_data;
   std::vector<cudf::bitmask_type*> output_bitmask;
   std::vector<int32_t> physical_type_sizes;
   std::vector<cudf::type_id> logical_type_ids;
   std::vector<cudf::size_type> row_idx;
-  int32_t num_pages = 0;
+  int32_t num_pages          = 0;
+  int64_t total_encoded_size = 0;
 
   for (column_chunk_info& column_chunk : _column_chunks) {
     auto out_column_base_ptr  = column_chunk.out_column_base_ptr;
@@ -920,6 +1145,7 @@ void io_batch::decode(rmm::cuda_stream_view stream)
       logical_type_ids.push_back(type.logical_type.id());
       row_idx.push_back(page.row_idx);
       num_pages++;
+      total_encoded_size += page.uncompressed_page_size;
     }
   }
 
@@ -944,6 +1170,8 @@ void io_batch::decode(rmm::cuda_stream_view stream)
                                                     num_pages);
 
   stream.synchronize();
+  decode_timer.add(total_encoded_size, num_blocks);
+  decode_timer.end();
 }
 
 }  // namespace
@@ -953,6 +1181,14 @@ table_with_metadata read_parquet_custom(std::vector<std::string> file_paths,
                                         void* bounce_buffer,
                                         int64_t bounce_buffer_size,
                                         std::size_t num_auxiliary_threads,
+                                        std::size_t block_size,
+                                        io_engine_type engine,
+                                        bool pipelining,
+                                        std::size_t alignment,
+                                        gqe::utility::bandwidth_timer& disk_timer,
+                                        gqe::utility::bandwidth_timer& h2d_timer,
+                                        gqe::utility::bandwidth_timer& decomp_timer,
+                                        gqe::utility::bandwidth_timer& decode_timer,
                                         rmm::cuda_stream_view stream,
                                         rmm::mr::device_memory_resource* mr)
 {
@@ -963,7 +1199,7 @@ table_with_metadata read_parquet_custom(std::vector<std::string> file_paths,
   stream.synchronize();
 
   // Keep track of the opened file descriptors
-  std::vector<int> fds;
+  std::vector<int> fds, direct_fds;
 
   // Factory for thrift compact protocol used for decoding file metadata
   apache::thrift::protocol::TCompactProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
@@ -986,9 +1222,16 @@ table_with_metadata read_parquet_custom(std::vector<std::string> file_paths,
     // Open the Parquet file and get the file descriptor
     int fd = open(file_path.c_str(), O_RDONLY);
     if (fd == -1) {
-      throw std::runtime_error("Cannot open the file descriptor: " + std::string(strerror(errno)));
+      throw std::runtime_error("Cannot open fd of column chunk: " + std::string(strerror(errno)));
     }
     fds.push_back(fd);
+
+    int direct_fd = open(file_path.c_str(), O_RDONLY | O_DIRECT);
+    if (direct_fd == -1) {
+      throw std::runtime_error("Cannot open direct fd of column chunk: " +
+                               std::string(strerror(errno)));
+    }
+    direct_fds.push_back(direct_fd);
 
     // Retrieve the footer length, which is a 4B integer at 8B before the end of the file
     uint32_t footer_length;
@@ -1007,6 +1250,12 @@ table_with_metadata read_parquet_custom(std::vector<std::string> file_paths,
     if (read(fd, footer.data(), footer_length) != footer_length) {
       throw std::runtime_error("Cannot read footer: " + std::string(strerror(errno)));
     }
+
+    lseek(direct_fd, lseek(fd, 0, SEEK_CUR), SEEK_SET);
+
+    // GQE_LOG_INFO("fd off={} direct off={}", lseek(fd, 0, SEEK_CUR), lseek(direct_fd, 0,
+    // SEEK_CUR));
+    assert(lseek(fd, 0, SEEK_CUR) == lseek(direct_fd, 0, SEEK_CUR));
 
     // Decode the footer to get the file metadata
     auto footer_transport = std::make_shared<apache::thrift::transport::TMemoryBuffer>(
@@ -1097,6 +1346,7 @@ table_with_metadata read_parquet_custom(std::vector<std::string> file_paths,
 
         column_chunk_info column_info;
         column_info.fd                   = fd;
+        column_info.direct_fd            = direct_fd;
         column_info.file_offset          = meta_data.__isset.dictionary_page_offset
                                              ? meta_data.dictionary_page_offset
                                              : meta_data.data_page_offset;
@@ -1160,7 +1410,16 @@ table_with_metadata read_parquet_custom(std::vector<std::string> file_paths,
   }
 
   for (auto& batch : batches) {
-    batch.execute(num_auxiliary_threads, stream);
+    batch.execute(num_auxiliary_threads,
+                  block_size,
+                  engine,
+                  pipelining,
+                  alignment,
+                  disk_timer,
+                  h2d_timer,
+                  decomp_timer,
+                  decode_timer,
+                  stream);
   }
 
   // Since we change the bitmask during the page decoding, we need to rebuild the null count
@@ -1172,7 +1431,13 @@ table_with_metadata read_parquet_custom(std::vector<std::string> file_paths,
   // Close all opened file descriptors
   for (auto const& fd : fds) {
     if (close(fd) == -1) {
-      throw std::runtime_error("Cannot close fd: " + std::string(strerror(errno)));
+      throw std::runtime_error("Cannot close fd of column chunk: " + std::string(strerror(errno)));
+    }
+  }
+  for (auto const& direct_fd : direct_fds) {
+    if (close(direct_fd) == -1) {
+      throw std::runtime_error("Cannot close direct fd of column chunk: " +
+                               std::string(strerror(errno)));
     }
   }
 

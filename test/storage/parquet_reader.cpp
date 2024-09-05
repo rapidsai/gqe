@@ -63,13 +63,29 @@ gqe::storage::table_with_metadata write_file_and_load_back(cudf::table_view tabl
                                                      column_names,
                                                      bounce_buffer.data(),
                                                      bounce_buffer_size,
-                                                     opms.io_auxiliary_threads);
+                                                     qctx.parameters.io_auxiliary_threads,
+                                                     qctx.parameters.io_block_size,
+                                                     qctx.parameters.io_engine,
+                                                     qctx.parameters.io_pipelining,
+                                                     qctx.parameters.io_alignment,
+                                                     qctx.disk_timer,
+                                                     qctx.h2d_timer,
+                                                     qctx.decomp_timer,
+                                                     qctx.decode_timer);
   } else {
     result_table = gqe::storage::read_parquet_custom({table_filepath},
                                                      std::vector<std::string>(),
                                                      bounce_buffer.data(),
                                                      bounce_buffer_size,
-                                                     opms.io_auxiliary_threads);
+                                                     qctx.parameters.io_auxiliary_threads,
+                                                     qctx.parameters.io_block_size,
+                                                     qctx.parameters.io_engine,
+                                                     qctx.parameters.io_pipelining,
+                                                     qctx.parameters.io_alignment,
+                                                     qctx.disk_timer,
+                                                     qctx.h2d_timer,
+                                                     qctx.decomp_timer,
+                                                     qctx.decode_timer);
   }
 
   return result_table;

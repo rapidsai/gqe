@@ -97,5 +97,9 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | GQE_IO_BOUNCE_BUFFER_SIZE | 4 | Size in GB per worker of the page-locked CPU memory bounce buffer used for the customized Parquet reader. |
 | GQE_IO_AUXILIARY_THREADS | 8 | Number of auxiliary threads per worker launched by the customized Parquet reader. |
 | GQE_IN_MEMORY_TABLE_COMP_FORMAT | none | Compression format for the in-memory table. Supported values are `none` and `ans`. |
+| GQE_IO_BLOCK_SIZE | 2048 | Size in KiB of the block used by the customized Parquet reader when io_uring is enabled. |
+| GQE_IO_ENGINE | IO_URING | The I/O engine used by the customized Parquet reader. Supported values are `IO_URING`, `PSYNC` and `AUTO`. |
+| GQE_IO_PIPELINING_ENABLE | true | Enable pipelining disk read and H2D when using customized Parquet reader. |
+| GQE_IO_ALIGNMENT | 4096 | The alignment of the memory buffer used by the customized Parquet reader. |
 
 Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-24.06/CONTRIBUTING.md#build-cudf-from-source).

@@ -147,10 +147,19 @@ table_with_metadata table_from_parquet(query_context* qctx,
       rmm::device_buffer bounce_buffer(
         bounce_buffer_size, rmm::cuda_stream_default, qctx->io_bounce_buffer_mr.get());
 
-      auto const num_auxiliary_threads = qctx->parameters.io_auxiliary_threads;
-
-      result = gqe::storage::read_parquet_custom(
-        file_paths, column_names, bounce_buffer.data(), bounce_buffer_size, num_auxiliary_threads);
+      result = gqe::storage::read_parquet_custom(file_paths,
+                                                 column_names,
+                                                 bounce_buffer.data(),
+                                                 bounce_buffer_size,
+                                                 qctx->parameters.io_auxiliary_threads,
+                                                 qctx->parameters.io_block_size,
+                                                 qctx->parameters.io_engine,
+                                                 qctx->parameters.io_pipelining,
+                                                 qctx->parameters.io_alignment,
+                                                 qctx->disk_timer,
+                                                 qctx->h2d_timer,
+                                                 qctx->decomp_timer,
+                                                 qctx->decode_timer);
     } catch (gqe::storage::unsupported_error const& error) {
       GQE_LOG_TRACE(error.what());
       GQE_LOG_TRACE("Fallback to cuDF's Parquet reader when loading: " + file_paths[0]);

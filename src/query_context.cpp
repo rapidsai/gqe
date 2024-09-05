@@ -14,7 +14,7 @@
 #include <gqe/utility/error.hpp>
 
 #include <cstdlib>
-#include <stdexcept>
+#include <iomanip>
 
 namespace gqe {
 

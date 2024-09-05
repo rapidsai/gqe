@@ -12,6 +12,9 @@
 
 #pragma once
 
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/utility/timer.hpp>
+
 #include <cudf/table/table.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -76,6 +79,14 @@ struct unsupported_error : public std::runtime_error {
  * @param[in] bounce_buffer_size Size of `bounce_buffer`.
  * @param[in] num_auxiliary_threads Number of auxiliary host threads to launch for improving I/O
  * performance.
+ * @param[in] block_size Size of the I/O block used by the Parquet reader.
+ * @param[in] engine I/O engine to use for the Parquet reader.
+ * @param[in] pipelining Enable I/O pipelining for the Parquet reader.
+ * @param[in] alignment Alignment in bytes for the I/O buffer used by the Parquet reader.
+ * @param[in] disk_timer Timer to record disk I/O bandwidth.
+ * @param[in] h2d_timer Timer to record host-to-device memory copy bandwidth.
+ * @param[in] decomp_timer Timer to record decompression bandwidth.
+ * @param[in] decode_timer Timer to record decoding bandwidth.
  * @param[in] stream CUDA stream to operate on.
  * @param[in] mr Memory resource to use for allocating the result table and temporary device
  * buffers.
@@ -86,6 +97,14 @@ table_with_metadata read_parquet_custom(
   void* bounce_buffer,
   int64_t bounce_buffer_size,
   std::size_t num_auxiliary_threads,
+  std::size_t block_size,
+  io_engine_type engine,
+  bool pipelining,
+  std::size_t alignment,
+  gqe::utility::bandwidth_timer& disk_timer,
+  gqe::utility::bandwidth_timer& h2d_timer,
+  gqe::utility::bandwidth_timer& decomp_timer,
+  gqe::utility::bandwidth_timer& decode_timer,
   rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

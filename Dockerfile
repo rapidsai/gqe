@@ -32,7 +32,7 @@ SHELL ["/bin/bash", "-c"]
 COPY conda/*.yml /config/conda/
 RUN git clone https://github.com/rapidsai/cudf.git /cudf \
     && cd /cudf \
-    && git checkout branch-24.06 \
+    && git checkout branch-24.08 \
     && git submodule update --init --remote --recursive \
     && mamba env create -q --name gqe --file /config/conda/docker-$(uname -m).yml \
     && source activate gqe \

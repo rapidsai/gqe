@@ -49,12 +49,12 @@ __device__ __host__ size_t round_to_multiple_of_8(size_t num)
 size_t get_previous_multiple_of_8(size_t number) { return number / 8 * 8; }
 
 template <typename SetType>
-__device__ cudf::size_type find_local_mapping(cudf::size_type cur_idx,
-                                              cudf::size_type num_input_rows,
-                                              cudf::size_type* cardinality,
-                                              SetType shared_set,
-                                              cudf::size_type* local_mapping_index,
-                                              cudf::size_type* shared_set_indices)
+__device__ void find_local_mapping(cudf::size_type cur_idx,
+                                   cudf::size_type num_input_rows,
+                                   cudf::size_type* cardinality,
+                                   SetType shared_set,
+                                   cudf::size_type* local_mapping_index,
+                                   cudf::size_type* shared_set_indices)
 {
   cudf::size_type result_idx;
   bool inserted;
@@ -83,11 +83,11 @@ __device__ cudf::size_type find_local_mapping(cudf::size_type cur_idx,
 }
 
 template <typename SetType>
-__device__ cudf::size_type find_global_mapping(cudf::size_type cur_idx,
-                                               SetType global_set,
-                                               cudf::size_type* shared_set_indices,
-                                               cudf::size_type* global_mapping_index,
-                                               cudf::size_type shared_set_num_elements)
+__device__ void find_global_mapping(cudf::size_type cur_idx,
+                                    SetType global_set,
+                                    cudf::size_type* shared_set_indices,
+                                    cudf::size_type* global_mapping_index,
+                                    cudf::size_type shared_set_num_elements)
 {
   auto input_idx = shared_set_indices[cur_idx];
   auto result    = global_set.insert_and_find(input_idx);
@@ -430,6 +430,20 @@ struct initialize_sparse_table {
   }
 };
 
+// TODO: copied from cudf::detail::initialize_with_identity
+void initialize_with_identity(cudf::mutable_table_view& table,
+                              std::vector<cudf::aggregation::Kind> const& aggs,
+                              rmm::cuda_stream_view stream)
+{
+  // TODO: Initialize all the columns in a single kernel instead of invoking one
+  // kernel per column
+  for (cudf::size_type i = 0; i < table.num_columns(); ++i) {
+    auto col = table.column(i);
+    cudf::detail::dispatch_type_and_aggregation(
+      col.type(), aggs[i], cudf::detail::identity_initializer{}, col, stream);
+  }
+}
+
 template <typename GlobalSetType>
 auto create_sparse_results_table(cudf::table_view const& flattened_values,
                                  const cudf::aggregation::Kind* d_aggs,
@@ -478,7 +492,7 @@ auto create_sparse_results_table(cudf::table_view const& flattened_values,
   // Else initialise the whole table
   else {
     cudf::mutable_table_view sparse_table_view = sparse_table.mutable_view();
-    cudf::detail::initialize_with_identity(sparse_table_view, aggs, stream);
+    gqe::groupby::hash::initialize_with_identity(sparse_table_view, aggs, stream);
   }
 
   return sparse_table;
@@ -688,14 +702,13 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
   return populated_keys;
 }
 
-std::pair<std::unique_ptr<cudf::table>, std::vector<cudf::groupby::aggregation_result>> groupby(
+rmm::device_uvector<cudf::size_type> groupby(
+  cudf::detail::result_cache* dense_results,
   cudf::table_view const& keys,
   cudf::host_span<cudf::groupby::aggregation_request const> requests,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  cudf::detail::result_cache dense_results(requests.size());
-
   auto const num_keys            = keys.num_rows();
   auto const null_keys_are_equal = cudf::null_equality::EQUAL;
   auto const has_null            = cudf::nullate::DYNAMIC{cudf::has_nested_nulls(keys)};
@@ -740,13 +753,25 @@ std::pair<std::unique_ptr<cudf::table>, std::vector<cudf::groupby::aggregation_r
   gqe::sparse_to_dense_results(keys,
                                requests,
                                &sparse_results,
-                               &dense_results,
+                               dense_results,
                                gather_map,
                                global_agg_set.ref(cuco::find),
                                0,
                                cudf::null_policy::INCLUDE,
                                stream,
                                mr);
+  return gather_map;
+}
+
+std::pair<std::unique_ptr<cudf::table>, std::vector<cudf::groupby::aggregation_result>> groupby(
+  cudf::table_view const& keys,
+  cudf::host_span<cudf::groupby::aggregation_request const> requests,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr)
+{
+  cudf::detail::result_cache dense_results(requests.size());
+
+  auto gather_map = groupby(&dense_results, keys, requests, stream, mr);
 
   auto unique_keys = cudf::detail::gather(keys,
                                           gather_map,

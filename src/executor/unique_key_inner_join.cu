@@ -199,8 +199,8 @@ struct comparator_adapter {
   }
 
   __device__ constexpr auto operator()(
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::lhs_index_type> const&,
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::lhs_index_type> const&)
+    cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type> const&,
+    cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type> const&)
     const noexcept
   {
     // All build table keys are distinct thus `false` no matter what
@@ -390,15 +390,15 @@ cudf::size_type perform_join(cudf::table_view build_keys,
     device_row_hasher<cudf::hashing::detail::default_hash>{*build_keys_view, build_keys_has_nulls};
 
   rmm::mr::polymorphic_allocator<
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::lhs_index_type>>
+    cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type>>
     polly_alloc;
   auto stream_alloc = rmm::mr::make_stream_allocator_adaptor(polly_alloc, stream);
 
   auto empty_key_sentinel =
     cuco::empty_key{cuco::pair{std::numeric_limits<cudf::hash_value_type>::max(),
-                               cudf::experimental::row::lhs_index_type{-1}}};
-  auto comparator_adapter_obj = comparator_adapter{*build_keys_view,
-                                                   *probe_keys_view,
+                               cudf::experimental::row::rhs_index_type{-1}}};
+  auto comparator_adapter_obj = comparator_adapter{*probe_keys_view,
+                                                   *build_keys_view,
                                                    build_keys_has_nulls || probe_keys_has_nulls,
                                                    compare_nulls};
 
@@ -414,7 +414,7 @@ cudf::size_type perform_join(cudf::table_view build_keys,
 
   auto const build_iter = cudf::detail::make_counting_transform_iterator(
     0,
-    create_input_pair<decltype(d_build_hasher), cudf::experimental::row::lhs_index_type>{
+    create_input_pair<decltype(d_build_hasher), cudf::experimental::row::rhs_index_type>{
       d_build_hasher});
   build_set.insert(build_iter, build_iter + build_keys.num_rows(), stream.value());
 
@@ -422,7 +422,7 @@ cudf::size_type perform_join(cudf::table_view build_keys,
     device_row_hasher<cudf::hashing::detail::default_hash>{*probe_keys_view, probe_keys_has_nulls};
   auto const probe_iter = cudf::detail::make_counting_transform_iterator(
     0,
-    create_input_pair<decltype(d_probe_hasher), cudf::experimental::row::rhs_index_type>{
+    create_input_pair<decltype(d_probe_hasher), cudf::experimental::row::lhs_index_type>{
       d_probe_hasher});
 
   // Thread block size of the "probe_hash_set" kernel, must be a multiple of `warp_size`

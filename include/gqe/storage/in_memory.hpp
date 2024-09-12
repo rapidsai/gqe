@@ -14,6 +14,7 @@
 
 #include <gqe/executor/read.hpp>
 #include <gqe/executor/write.hpp>
+#include <gqe/optimizer/statistics.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/table.hpp>
@@ -477,6 +478,7 @@ class in_memory_write_task : public write_task_base {
    * @param[in] data_types Expected data types of each column. If the actual data type of a loaded
    * column is different from expected, the column will be casted to the data type specified. Must
    * have the same length as `column_names`.
+   * @param[in] statistics Statistics manager of the in-memory table
    */
   in_memory_write_task(query_context* query_context,
                        int32_t task_id,
@@ -485,7 +487,8 @@ class in_memory_write_task : public write_task_base {
                        rmm::mr::device_memory_resource* non_owned_memory_resource,
                        in_memory_table::row_group_appender appender,
                        std::vector<cudf::size_type> column_indexes,
-                       std::vector<cudf::data_type> data_types);
+                       std::vector<cudf::data_type> data_types,
+                       table_statistics_manager* statistics);
 
   in_memory_write_task(const in_memory_write_task&) = delete;
   in_memory_write_task& operator=(const in_memory_write_task&) = delete;
@@ -500,6 +503,7 @@ class in_memory_write_task : public write_task_base {
     _appender; /**< Implicitly holds a non-owning reference to an in_memory_table */
   std::vector<cudf::size_type> _column_indexes;
   std::vector<cudf::data_type> _data_types;
+  table_statistics_manager* _statistics;
 };
 
 /**
@@ -543,7 +547,8 @@ class in_memory_writeable_view : public writeable_view {
     query_context* query_context,
     int32_t stage_id,
     std::vector<std::string> column_names,
-    std::vector<cudf::data_type> data_types) override;
+    std::vector<cudf::data_type> data_types,
+    table_statistics_manager* statistics) override;
 
  private:
   in_memory_writeable_view(in_memory_table* non_owning_table);

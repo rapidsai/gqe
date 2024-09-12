@@ -70,6 +70,7 @@ add_library(
     optimizer/rules/push_projection_to_filter.cpp
     optimizer/rules/join_children_swap.cpp
     optimizer/rules/not_not.cpp
+    optimizer/statistics.cpp
     storage/in_memory.cpp
     storage/parquet.cpp
     storage/parquet.cu

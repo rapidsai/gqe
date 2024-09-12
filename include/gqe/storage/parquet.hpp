@@ -14,6 +14,7 @@
 
 #include <gqe/executor/read.hpp>
 #include <gqe/executor/write.hpp>
+#include <gqe/optimizer/statistics.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/table.hpp>
@@ -215,7 +216,8 @@ class parquet_writeable_view : public writeable_view {
     query_context* query_context,
     int32_t stage_id,
     std::vector<std::string> column_names,
-    std::vector<cudf::data_type> data_types) override;
+    std::vector<cudf::data_type> data_types,
+    table_statistics_manager* statistics) override;
 
  private:
   parquet_writeable_view(std::vector<std::string>* non_owning_file_paths);

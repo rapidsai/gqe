@@ -59,9 +59,7 @@ void catalog::register_table(std::string table_name,
     num_rows = default_num_rows_per_file * file->file_paths.size();
   }
 
-  table_statistics stats;
-  stats.num_rows         = num_rows;
-  table_info._statistics = stats;
+  table_info._statistics = std::make_unique<table_statistics_manager>(table_statistics{num_rows});
 
   std::unique_ptr<storage::table> table = std::visit(
     utility::overloaded{
@@ -132,14 +130,15 @@ storage_kind::type catalog::storage_kind(const std::string& table_name) const
   return table_info_iter->second.info._storage;
 }
 
-table_statistics catalog::statistics(std::string const& table_name) const
+table_statistics_manager* catalog::statistics(std::string const& table_name) const
 {
   auto const table_info_iter = _table_entries.find(table_name);
 
-  if (table_info_iter == _table_entries.end())
+  if (table_info_iter == _table_entries.end()) {
     throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
+  }
 
-  return table_info_iter->second.info._statistics;
+  return table_info_iter->second.info._statistics.get();
 }
 
 bool catalog::is_readable(std::string const& table_name) const

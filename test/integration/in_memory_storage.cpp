@@ -128,10 +128,12 @@ TEST(InMemoryStorage, CopyTable)
   gqe::execute_task_graph_single_gpu(&qctx, task_graph_check.get());
 
   // Verify the execution result
-  auto result_table = task_graph_check->root_tasks.at(0)->result().value();
+  auto result_table       = task_graph_check->root_tasks.at(0)->result().value();
+  auto statistics_manager = catalog.statistics("out_table");
 
   ASSERT_EQ(result_table.num_columns(), 2);
   ASSERT_EQ(result_table.num_rows(), 4);
+  ASSERT_EQ((statistics_manager->statistics()).num_rows, 4);
   CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(in_table->view(), result_table);
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_table->view(), result_table);
 }
@@ -238,11 +240,13 @@ TEST(InMemoryStorage, CopyTableParallel)
   // Verify the execution result
   auto result_table_part_0 = task_graph_check->root_tasks.at(0)->result().value();
   auto result_table_part_1 = task_graph_check->root_tasks.at(1)->result().value();
+  auto statistics_manager  = catalog.statistics("out_table");
 
   ASSERT_EQ(result_table_part_0.num_columns(), 2);
   ASSERT_EQ(result_table_part_1.num_columns(), 2);
   ASSERT_EQ(result_table_part_0.num_rows(), 4);
   ASSERT_EQ(result_table_part_1.num_rows(), 4);
+  ASSERT_EQ((statistics_manager->statistics()).num_rows, 8);
 
   CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(in_table_part_0->view(), result_table_part_0);
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_table_part_0->view(), result_table_part_0);

@@ -247,11 +247,14 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::write_rela
       return {_builder->_current_task_id++, std::move(*it++)};
     });
 
+  auto statistics = _builder->_catalog->statistics(table_name);
+
   auto tasks = writeable_view->get_write_tasks(std::move(task_parameters),
                                                _builder->_query_context,
                                                _builder->_current_stage_id,
                                                std::move(column_names),
-                                               std::move(data_types));
+                                               std::move(data_types),
+                                               statistics);
 
   _generated_tasks.reserve(_generated_tasks.size() + tasks.size());
   std::move(tasks.begin(), tasks.end(), std::back_inserter(_generated_tasks));

@@ -524,7 +524,8 @@ std::vector<std::unique_ptr<write_task_base>> parquet_writeable_view::get_write_
   query_context* query_context,
   int32_t stage_id,
   std::vector<std::string> column_names,
-  std::vector<cudf::data_type> data_types)
+  std::vector<cudf::data_type> data_types,
+  table_statistics_manager* statistics)
 {
   assert(!task_parameters.empty());
   assert(std::all_of(task_parameters.cbegin(),

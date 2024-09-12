@@ -534,12 +534,14 @@ in_memory_write_task::in_memory_write_task(
   rmm::mr::device_memory_resource* non_owned_memory_resource,
   in_memory_table::row_group_appender appender,
   std::vector<cudf::size_type> column_indexes,
-  std::vector<cudf::data_type> data_types)
+  std::vector<cudf::data_type> data_types,
+  table_statistics_manager* statistics)
   : write_task_base(query_context, task_id, stage_id, input),
     _non_owned_memory_resource(non_owned_memory_resource),
     _appender(std::move(appender)),
     _column_indexes(std::move(column_indexes)),
-    _data_types(std::move(data_types))
+    _data_types(std::move(data_types)),
+    _statistics(statistics)
 {
 }
 
@@ -598,6 +600,7 @@ void in_memory_write_task::execute()
 
   // Append row group to table
   _appender(std::move(row_group));
+  _statistics->add_rows(input_table.num_rows());
 
   GQE_LOG_TRACE("Execute in-memory write task: task_id={}, stage_id={}, input_size={}.",
                 task_id(),
@@ -698,7 +701,8 @@ std::vector<std::unique_ptr<write_task_base>> in_memory_writeable_view::get_writ
   query_context* query_context,
   int32_t stage_id,
   std::vector<std::string> column_names,
-  std::vector<cudf::data_type> data_types)
+  std::vector<cudf::data_type> data_types,
+  table_statistics_manager* statistics)
 {
   assert(!task_parameters.empty() && "Must have at least one write task");
   assert(std::all_of(task_parameters.cbegin(),
@@ -733,7 +737,8 @@ std::vector<std::unique_ptr<write_task_base>> in_memory_writeable_view::get_writ
                                              _non_owning_table->_memory_resource.get(),
                                              std::move(appender),
                                              column_indexes,
-                                             data_types);
+                                             data_types,
+                                             statistics);
     write_tasks.push_back(std::move(write_task));
   }
 

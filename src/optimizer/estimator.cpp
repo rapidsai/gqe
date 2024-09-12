@@ -14,6 +14,7 @@
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/set.hpp>
 #include <gqe/optimizer/estimator.hpp>
+#include <gqe/optimizer/statistics.hpp>
 
 #include <algorithm>
 #include <stdexcept>
@@ -46,7 +47,7 @@ table_statistics estimator::operator()(logical::relation const* input_relation) 
     }
     case logical::relation::relation_type::read: {
       auto read_input_relation = dynamic_cast<logical::read_relation const*>(input_relation);
-      stats                    = _catalog->statistics(read_input_relation->table_name());
+      stats = _catalog->statistics(read_input_relation->table_name())->statistics();
       break;
     }
     case logical::relation::relation_type::join: {

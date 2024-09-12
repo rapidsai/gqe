@@ -13,6 +13,7 @@
 #pragma once
 
 #include <gqe/executor/write.hpp>
+#include <gqe/optimizer/statistics.hpp>
 #include <gqe/query_context.hpp>
 
 #include <memory>
@@ -48,6 +49,7 @@ class writeable_view {
    * @param[in] data_types Expected data types of each column. If the actual data type of a stored
    * column is different from expected, a `std::invalid_argument` exception will
    * be thrown at runtime. Must have the same length as `column_names`.
+   *  @param[in] statistics Statistics manager of the table
    *
    * == Thread Safety ==
    *
@@ -58,7 +60,8 @@ class writeable_view {
     query_context* query_context,
     int32_t stage_id,
     std::vector<std::string> column_names,
-    std::vector<cudf::data_type> data_types) = 0;
+    std::vector<cudf::data_type> data_types,
+    table_statistics_manager* statistics) = 0;
 };
 
 };  // namespace storage

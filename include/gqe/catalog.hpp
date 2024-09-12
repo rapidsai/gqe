@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/optimizer/statistics.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/table.hpp>
 #include <gqe/storage/writeable_view.hpp>
@@ -74,11 +75,11 @@ class catalog {
   storage_kind::type storage_kind(std::string const& table_name) const;
 
   /**
-   * @brief Return the estimated statistics of a table.
+   * @brief Returns unowned pointer to statistics manager of the table.
    *
    * @throw std::logic_error if the table is not found in the catalog.
    */
-  table_statistics statistics(std::string const& table_name) const;
+  table_statistics_manager* statistics(std::string const& table_name) const;
 
   /**
    * @brief Return whether the table is readable or not.
@@ -129,7 +130,7 @@ class catalog {
       _column_name_to_type;  ///< map from column names to their data types
     storage_kind::type _storage;
     partitioning_schema_kind::type _partitioning_schema;
-    table_statistics _statistics;
+    std::unique_ptr<table_statistics_manager> _statistics;
   };
 
   struct table_entry {

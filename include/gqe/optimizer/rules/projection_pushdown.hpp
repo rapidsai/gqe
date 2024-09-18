@@ -17,22 +17,32 @@
 namespace gqe {
 namespace optimizer {
 using relation_t = gqe::logical::relation::relation_type;
+
+template <typename T>
+constexpr bool optimizable_child_relation()
+{
+  return std::is_same_v<T, gqe::logical::filter_relation> ||
+         std::is_same_v<T, gqe::logical::join_relation>;
+}
+
 /**
- * @brief This rule pushes projection to filter by using the projection indices of filter relation
- * to materialize only necessary columns, and in the correct order, if required.
+ * @brief This rule optimizes the logical plan by attempting to push projection to its child
+ * relation. Projection indices of the child relation are used to materialize only necessary
+ * columns, and in the correct order, if required. Currently, this is only supported by filter and
+ * join relations
  *
  * When the project relation does only dropping/reordering of columns, we can accomplish
- * that directly in the filter relation using its projection indices. Hence, optimizer
+ * that directly in the filter/join relation using its projection indices. Hence, optimizer
  * removes the project relation from the query plan
  *
  * Whereas, if the project relation has column operations (ex. unary op, binary op, etc)
  * optimizer keeps the project relation to do any operations and reordering,
- * but uses the filter relation to drop any non-necessary columns.
+ * but uses the filter/join relation to drop any non-necessary columns.
  * The column references in the project relation are modified accordingly.
  */
-class push_projection_to_filter : public optimization_rule {
+class projection_pushdown : public optimization_rule {
  public:
-  push_projection_to_filter(catalog const* cat)
+  projection_pushdown(catalog const* cat)
     : optimization_rule(cat, optimization_rule::transform_direction::UP)
   {
   }
@@ -42,15 +52,22 @@ class push_projection_to_filter : public optimization_rule {
 
   [[nodiscard]] logical_optimization_rule_type type() const noexcept override
   {
-    return logical_optimization_rule_type::push_projection_to_filter;
+    return logical_optimization_rule_type::projection_pushdown;
   }
 
  private:
-  void rewrite_project_relation(std::shared_ptr<gqe::logical::relation> project,
+  void rewrite_project_relation(std::shared_ptr<gqe::logical::project_relation> project,
                                 std::vector<cudf::size_type> const& required_cr_indices) const;
 
-  void rewrite_filter_relation(std::shared_ptr<gqe::logical::filter_relation> filter,
-                               std::vector<cudf::size_type> const& required_cr_indices) const;
+  template <typename T, typename = std::enable_if_t<optimizable_child_relation<T>()>>
+  void rewrite_child_relation(std::shared_ptr<T> child_relation,
+                              std::vector<cudf::size_type> const& required_cr_indices) const;
+
+  template <typename T, typename = std::enable_if_t<optimizable_child_relation<T>()>>
+  std::shared_ptr<logical::relation> try_pushdown(
+    std::shared_ptr<gqe::logical::project_relation> project,
+    std::shared_ptr<gqe::logical::relation> child,
+    bool& rule_applied) const;
 };
 
 }  // namespace optimizer

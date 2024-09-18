@@ -18,11 +18,13 @@ namespace gqe {
 namespace optimizer {
 class join_children_swap;
 class optimization_rule;
+class projection_pushdown;
 }  // namespace optimizer
 namespace logical {
 
 class join_relation : public relation {
   friend class gqe::optimizer::join_children_swap;
+  friend class gqe::optimizer::projection_pushdown;
   friend class gqe::optimizer::optimization_rule;
 
  public:

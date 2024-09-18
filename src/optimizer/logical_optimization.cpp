@@ -21,7 +21,7 @@
 #include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/rules/join_children_swap.hpp>
 #include <gqe/optimizer/rules/not_not.hpp>
-#include <gqe/optimizer/rules/push_projection_to_filter.hpp>
+#include <gqe/optimizer/rules/projection_pushdown.hpp>
 #include <gqe/physical/join.hpp>
 
 #include <cstddef>
@@ -103,8 +103,8 @@ std::unique_ptr<gqe::optimizer::optimization_rule> gqe::optimizer::logical_optim
       return std::make_unique<not_not_rewrite>(cat);
     case logical_optimization_rule_type::join_children_swap:
       return std::make_unique<join_children_swap>(cat, gqe::physical::broadcast_policy::right);
-    case logical_optimization_rule_type::push_projection_to_filter:
-      return std::make_unique<push_projection_to_filter>(cat);
+    case logical_optimization_rule_type::projection_pushdown:
+      return std::make_unique<projection_pushdown>(cat);
     default:
       throw std::runtime_error("Logical Optimizer: logical_optimization_rule_type " +
                                std::to_string(static_cast<size_t>(rule_type)) + " not supported");

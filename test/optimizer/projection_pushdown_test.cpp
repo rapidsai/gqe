@@ -38,8 +38,11 @@
 auto const temp_env = static_cast<cudf::test::TempDirTestEnvironment*>(
   ::testing::AddGlobalTestEnvironment(new cudf::test::TempDirTestEnvironment));
 
-class PushProjectionToFilter : public ::testing::Test {
- public:
+typedef ::testing::Types<gqe::logical::filter_relation, gqe::logical::join_relation> ChildTypes;
+
+template <typename T>
+class ProjectionPushdown : public ::testing::Test {
+ protected:
   enum class test_type {
     no_opt,
     col_ref_only,
@@ -48,7 +51,6 @@ class PushProjectionToFilter : public ::testing::Test {
     transformation_direction_up
   };
 
- protected:
   void initialize_optimizer(gqe::optimizer::optimization_configuration rule_config)
   {
     // Create tables
@@ -92,10 +94,78 @@ class PushProjectionToFilter : public ::testing::Test {
     return _construct_plan(true, test);
   }
 
+  void projection_pushdown_helper(test_type test)
+  {
+    gqe::optimizer::optimization_configuration logical_rule_config(
+      {gqe::optimizer::logical_optimization_rule_type::projection_pushdown}, {});
+
+    initialize_optimizer(logical_rule_config);
+
+    // Construct test and ref plans
+    auto test_plan = construct_test_plan(test);
+
+    // Optimize
+    assert(optimizer);
+
+    auto optimized_plan = optimizer->optimize(test_plan);
+
+    // Test
+    if (test == test_type::no_opt) {
+      EXPECT_EQ(optimizer->get_rule_count(
+                  gqe::optimizer::logical_optimization_rule_type::projection_pushdown),
+                0);
+      EXPECT_EQ(*test_plan, *optimized_plan);
+    } else {
+      auto ref_plan = construct_optimized_plan(test);
+      EXPECT_EQ(optimizer->get_rule_count(
+                  gqe::optimizer::logical_optimization_rule_type::projection_pushdown),
+                1);
+      EXPECT_EQ(*ref_plan, *optimized_plan);
+    }
+  }
+
   gqe::catalog catalog;
   std::unique_ptr<gqe::optimizer::logical_optimizer> optimizer;
 
  private:
+  /*
+    Constructs and returns a unique pointer to a filter_relation.
+    The filter applies a 'Column(1) >= Column(2)' condition on the 'table' and outputs only the
+    specified projection indices.
+  */
+  template <typename U                                                                       = T,
+            typename std::enable_if_t<std::is_same_v<U, gqe::logical::filter_relation>, int> = 0>
+  std::unique_ptr<U> _construct_child(std::shared_ptr<gqe::logical::read_relation> table,
+                                      std::vector<cudf::size_type> projection_indices)
+  {
+    return std::make_unique<U>(std::move(table),
+                               std::vector<std::shared_ptr<gqe::logical::relation>>(),
+                               std::make_unique<gqe::greater_equal_expression>(
+                                 std::make_shared<gqe::column_reference_expression>(1),
+                                 std::make_shared<gqe::column_reference_expression>(2)),
+                               projection_indices);
+  }
+
+  /*
+    Constructs and returns a unique pointer to a join_relation.
+    This performs an inner join between 'table' and 'table', with the condition 'Column(0) ==
+    Column(4)' and outputs only the specified projection indices.
+  */
+  template <typename U                                                                     = T,
+            typename std::enable_if_t<std::is_same_v<U, gqe::logical::join_relation>, int> = 0>
+  std::unique_ptr<U> _construct_child(std::shared_ptr<gqe::logical::read_relation> temp_table,
+                                      std::vector<cudf::size_type> projection_indices)
+  {
+    return std::make_unique<U>(temp_table,
+                               temp_table,
+                               std::vector<std::shared_ptr<gqe::logical::relation>>(),
+                               std::make_unique<gqe::equal_expression>(
+                                 std::make_shared<gqe::column_reference_expression>(0),
+                                 std::make_shared<gqe::column_reference_expression>(4)),
+                               gqe::join_type_type::inner,
+                               projection_indices);
+  }
+
   std::unique_ptr<gqe::logical::relation> _construct_plan(bool optimized, test_type test)
   {
     // Hand coded logical plan for testing
@@ -114,13 +184,7 @@ class PushProjectionToFilter : public ::testing::Test {
       nullptr);
 
     if (test == test_type::no_opt) {
-      auto filter = std::make_unique<gqe::logical::filter_relation>(
-        std::move(temp_table),
-        std::vector<std::shared_ptr<gqe::logical::relation>>(),
-        std::make_unique<gqe::greater_equal_expression>(
-          std::make_shared<gqe::column_reference_expression>(1),
-          std::make_shared<gqe::column_reference_expression>(2)),
-        std::vector<cudf::size_type>({0, 1, 2}));
+      auto child = std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0, 1, 2})));
       std::vector<std::unique_ptr<gqe::expression>> project_exprs;
 
       project_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(0));
@@ -132,7 +196,7 @@ class PushProjectionToFilter : public ::testing::Test {
       project_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(1));
 
       auto project = std::make_unique<gqe::logical::project_relation>(
-        std::move(filter),
+        std::move(child),
         std::vector<std::shared_ptr<gqe::logical::relation>>(),
         std::move(project_exprs));
       return project;
@@ -140,74 +204,47 @@ class PushProjectionToFilter : public ::testing::Test {
 
     if (test == test_type::col_ref_only) {
       if (!optimized) {
-        auto filter = std::make_unique<gqe::logical::filter_relation>(
-          std::move(temp_table),
-          std::vector<std::shared_ptr<gqe::logical::relation>>(),
-          std::make_unique<gqe::greater_equal_expression>(
-            std::make_shared<gqe::column_reference_expression>(1),
-            std::make_shared<gqe::column_reference_expression>(2)),
-          std::vector<cudf::size_type>({0, 1, 2}));
+        auto child =
+          std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0, 1, 2})));
         std::vector<std::unique_ptr<gqe::expression>> col_0_exprs;
         col_0_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(0));
 
         auto project = std::make_unique<gqe::logical::project_relation>(
-          std::move(filter),
+          std::move(child),
           std::vector<std::shared_ptr<gqe::logical::relation>>(),
           std::move(col_0_exprs));
 
         return project;
       } else {
-        auto filter = std::make_unique<gqe::logical::filter_relation>(
-          std::move(temp_table),
-          std::vector<std::shared_ptr<gqe::logical::relation>>(),
-          std::make_unique<gqe::greater_equal_expression>(
-            std::make_shared<gqe::column_reference_expression>(1),
-            std::make_shared<gqe::column_reference_expression>(2)),
-          std::vector<cudf::size_type>({0}));
-        return filter;
+        auto child = std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0})));
+        return child;
       }
     }
 
     if (test == test_type::col_ref_with_reordering) {
       if (!optimized) {
-        auto filter = std::make_unique<gqe::logical::filter_relation>(
-          std::move(temp_table),
-          std::vector<std::shared_ptr<gqe::logical::relation>>(),
-          std::make_unique<gqe::greater_equal_expression>(
-            std::make_shared<gqe::column_reference_expression>(1),
-            std::make_shared<gqe::column_reference_expression>(2)),
-          std::vector<cudf::size_type>({0, 1, 2}));
+        auto child =
+          std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0, 1, 2})));
         std::vector<std::unique_ptr<gqe::expression>> col_exprs;
         col_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(1));
         col_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(0));
 
         auto project = std::make_unique<gqe::logical::project_relation>(
-          std::move(filter),
+          std::move(child),
           std::vector<std::shared_ptr<gqe::logical::relation>>(),
           std::move(col_exprs));
 
         return project;
       } else {
-        auto filter = std::make_unique<gqe::logical::filter_relation>(
-          std::move(temp_table),
-          std::vector<std::shared_ptr<gqe::logical::relation>>(),
-          std::make_unique<gqe::greater_equal_expression>(
-            std::make_shared<gqe::column_reference_expression>(1),
-            std::make_shared<gqe::column_reference_expression>(2)),
-          std::vector<cudf::size_type>({1, 0}));
-        return filter;
+        auto child = std::move(_construct_child(temp_table, std::vector<cudf::size_type>({1, 0})));
+        return child;
       }
     }
 
     if (test == test_type::mixed_expression) {
       if (!optimized) {
-        auto filter = std::make_unique<gqe::logical::filter_relation>(
-          std::move(temp_table),
-          std::vector<std::shared_ptr<gqe::logical::relation>>(),
-          std::make_unique<gqe::greater_equal_expression>(
-            std::make_shared<gqe::column_reference_expression>(1),
-            std::make_shared<gqe::column_reference_expression>(2)),
-          std::vector<cudf::size_type>({0, 2, 3, 4}));
+        auto child =
+          std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0, 2, 3, 4})));
         std::vector<std::unique_ptr<gqe::expression>> project_exprs;
 
         project_exprs.emplace_back(std::make_unique<gqe::if_then_else_expression>(
@@ -218,18 +255,13 @@ class PushProjectionToFilter : public ::testing::Test {
           std::make_shared<gqe::column_reference_expression>(3)));
 
         auto project = std::make_unique<gqe::logical::project_relation>(
-          std::move(filter),
+          std::move(child),
           std::vector<std::shared_ptr<gqe::logical::relation>>(),
           std::move(project_exprs));
         return project;
       } else {
-        auto filter = std::make_unique<gqe::logical::filter_relation>(
-          std::move(temp_table),
-          std::vector<std::shared_ptr<gqe::logical::relation>>(),
-          std::make_unique<gqe::greater_equal_expression>(
-            std::make_shared<gqe::column_reference_expression>(1),
-            std::make_shared<gqe::column_reference_expression>(2)),
-          std::vector<cudf::size_type>({0, 3, 4}));
+        auto child =
+          std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0, 3, 4})));
         std::vector<std::unique_ptr<gqe::expression>> project_exprs;
 
         project_exprs.emplace_back(std::make_unique<gqe::if_then_else_expression>(
@@ -240,7 +272,7 @@ class PushProjectionToFilter : public ::testing::Test {
           std::make_shared<gqe::column_reference_expression>(2)));
 
         auto project = std::make_unique<gqe::logical::project_relation>(
-          std::move(filter),
+          std::move(child),
           std::vector<std::shared_ptr<gqe::logical::relation>>(),
           std::move(project_exprs));
         return project;
@@ -255,13 +287,8 @@ class PushProjectionToFilter : public ::testing::Test {
     */
     if (test == test_type::transformation_direction_up) {
       if (!optimized) {
-        auto filter = std::make_unique<gqe::logical::filter_relation>(
-          std::move(temp_table),
-          std::vector<std::shared_ptr<gqe::logical::relation>>(),
-          std::make_unique<gqe::greater_equal_expression>(
-            std::make_shared<gqe::column_reference_expression>(1),
-            std::make_shared<gqe::column_reference_expression>(2)),
-          std::vector<cudf::size_type>({0, 1, 2}));
+        auto child =
+          std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0, 1, 2})));
 
         std::vector<std::unique_ptr<gqe::expression>> project_0_exprs;
         project_0_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(0));
@@ -271,7 +298,7 @@ class PushProjectionToFilter : public ::testing::Test {
         project_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(0));
 
         auto project_0 = std::make_unique<gqe::logical::project_relation>(
-          std::move(filter),
+          std::move(child),
           std::vector<std::shared_ptr<gqe::logical::relation>>(),
           std::move(project_0_exprs));
 
@@ -284,15 +311,9 @@ class PushProjectionToFilter : public ::testing::Test {
       }
 
       else {
-        auto filter = std::make_unique<gqe::logical::filter_relation>(
-          std::move(temp_table),
-          std::vector<std::shared_ptr<gqe::logical::relation>>(),
-          std::make_unique<gqe::greater_equal_expression>(
-            std::make_shared<gqe::column_reference_expression>(1),
-            std::make_shared<gqe::column_reference_expression>(2)),
-          std::vector<cudf::size_type>({0}));
+        auto child = std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0})));
 
-        return filter;
+        return child;
       }
     }
 
@@ -302,117 +323,39 @@ class PushProjectionToFilter : public ::testing::Test {
   }
 };
 
-TEST_F(PushProjectionToFilter, ColRefOnly)
+TYPED_TEST_SUITE(ProjectionPushdown, ChildTypes);
+
+TYPED_TEST(ProjectionPushdown, ColRefOnly)
 {
-  // Initialize and create optimizer
-  gqe::optimizer::optimization_configuration logical_rule_config(
-    {gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter}, {});
-  initialize_optimizer(logical_rule_config);
+  auto test_type = ProjectionPushdown<TypeParam>::test_type::col_ref_only;
 
-  // Construct test and ref plans
-  auto test_plan = construct_test_plan(test_type::col_ref_only);
-  auto ref_plan  = construct_optimized_plan(test_type::col_ref_only);
-
-  // Optimize
-  assert(optimizer);
-
-  auto optimized_plan = optimizer->optimize(test_plan);
-
-  // Test
-  EXPECT_EQ(optimizer->get_rule_count(
-              gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter),
-            1);
-  EXPECT_EQ(*ref_plan, *optimized_plan);
+  this->projection_pushdown_helper(test_type);
 }
 
-TEST_F(PushProjectionToFilter, ColRefWithReordering)
+TYPED_TEST(ProjectionPushdown, ColRefWithReordering)
 {
-  // Initialize and create optimizer
-  gqe::optimizer::optimization_configuration logical_rule_config(
-    {gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter}, {});
-  initialize_optimizer(logical_rule_config);
+  auto test_type = ProjectionPushdown<TypeParam>::test_type::col_ref_with_reordering;
 
-  // Construct test and ref plans
-  auto test_plan = construct_test_plan(test_type::col_ref_with_reordering);
-  auto ref_plan  = construct_optimized_plan(test_type::col_ref_with_reordering);
-
-  // Optimize
-  assert(optimizer);
-
-  auto optimized_plan = optimizer->optimize(test_plan);
-
-  // Test
-  EXPECT_EQ(optimizer->get_rule_count(
-              gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter),
-            1);
-  EXPECT_EQ(*ref_plan, *optimized_plan);
+  this->projection_pushdown_helper(test_type);
 }
 
-TEST_F(PushProjectionToFilter, MixedExpressions)
+TYPED_TEST(ProjectionPushdown, MixedExpression)
 {
-  // Initialize and create optimizer
-  gqe::optimizer::optimization_configuration logical_rule_config(
-    {gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter}, {});
-  initialize_optimizer(logical_rule_config);
+  auto test_type = ProjectionPushdown<TypeParam>::test_type::mixed_expression;
 
-  // Construct test and ref plans
-  auto test_plan = construct_test_plan(test_type::mixed_expression);
-  auto ref_plan  = construct_optimized_plan(test_type::mixed_expression);
-
-  // Optimize
-  assert(optimizer);
-
-  auto optimized_plan = optimizer->optimize(test_plan);
-
-  // Test
-  EXPECT_EQ(optimizer->get_rule_count(
-              gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter),
-            1);
-  EXPECT_EQ(*ref_plan, *optimized_plan);
+  this->projection_pushdown_helper(test_type);
 }
 
-TEST_F(PushProjectionToFilter, TransformationDirectionUp)
+TYPED_TEST(ProjectionPushdown, TransformationDirectionUp)
 {
-  // Initialize and create optimizer
-  gqe::optimizer::optimization_configuration logical_rule_config(
-    {gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter}, {});
-  initialize_optimizer(logical_rule_config);
+  auto test_type = ProjectionPushdown<TypeParam>::test_type::transformation_direction_up;
 
-  // Construct test and ref plans
-  auto test_plan = construct_test_plan(test_type::transformation_direction_up);
-  auto ref_plan  = construct_optimized_plan(test_type::transformation_direction_up);
-
-  // Optimize
-  assert(optimizer);
-
-  auto optimized_plan = optimizer->optimize(test_plan);
-
-  // Test
-  EXPECT_EQ(optimizer->get_rule_count(
-              gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter),
-            1);
-  EXPECT_EQ(*ref_plan, *optimized_plan);
+  this->projection_pushdown_helper(test_type);
 }
 
-TEST_F(PushProjectionToFilter, NoOpt)
+TYPED_TEST(ProjectionPushdown, NoOpt)
 {
-  // Initialize and create optimizer
-  gqe::optimizer::optimization_configuration logical_rule_config(
-    {gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter}, {});
-  initialize_optimizer(logical_rule_config);
+  auto test_type = ProjectionPushdown<TypeParam>::test_type::no_opt;
 
-  // Construct test and ref plans
-  auto test_plan = construct_test_plan(test_type::no_opt);
-  auto ref_plan  = construct_optimized_plan(test_type::no_opt);
-
-  // Optimize
-  assert(optimizer);
-
-  auto optimized_plan = optimizer->optimize(test_plan);
-
-  // Test
-  EXPECT_EQ(optimizer->get_rule_count(
-              gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter),
-            0);
-  EXPECT_EQ(*ref_plan, *optimized_plan);
+  this->projection_pushdown_helper(test_type);
 }

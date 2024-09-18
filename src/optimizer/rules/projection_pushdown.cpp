@@ -13,7 +13,7 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/logical/filter.hpp>
 #include <gqe/logical/project.hpp>
-#include <gqe/optimizer/rules/push_projection_to_filter.hpp>
+#include <gqe/optimizer/rules/projection_pushdown.hpp>
 
 #include <iostream>
 #include <memory>
@@ -63,7 +63,7 @@ void extract_required_columns(gqe::expression const* expr,
 
 /*
  * Since, project relation will be removed,
- * reordering must be done in filter relation
+ * reordering must be done in child relation
  * order of required indices needs to preserved
  *
  * This function expects all expressions to be column references
@@ -131,17 +131,17 @@ std::vector<cudf::size_type> get_updated_projection_indices(
 
 }  // namespace
 
-void gqe::optimizer::push_projection_to_filter::rewrite_filter_relation(
-  std::shared_ptr<gqe::logical::filter_relation> filter,
-  std::vector<cudf::size_type> const& required_cr_indices) const
+template <typename T, typename = std::enable_if_t<gqe::optimizer::optimizable_child_relation<T>()>>
+void gqe::optimizer::projection_pushdown::rewrite_child_relation(
+  std::shared_ptr<T> child_relation, std::vector<cudf::size_type> const& required_cr_indices) const
 {
   auto projection_indices =
-    get_updated_projection_indices(filter->_projection_indices, required_cr_indices);
-  filter->_projection_indices = projection_indices;
+    get_updated_projection_indices(child_relation->_projection_indices, required_cr_indices);
+  child_relation->_projection_indices = projection_indices;
 }
 
-void gqe::optimizer::push_projection_to_filter::rewrite_project_relation(
-  std::shared_ptr<gqe::logical::relation> project,
+void gqe::optimizer::projection_pushdown::rewrite_project_relation(
+  std::shared_ptr<gqe::logical::project_relation> project,
   std::vector<cudf::size_type> const& required_cr_indices) const
 {
   auto map = construct_map(required_cr_indices);
@@ -164,49 +164,66 @@ void gqe::optimizer::push_projection_to_filter::rewrite_project_relation(
   rewrite_relation_expressions(project.get(), expr_modifier, transform_direction::DOWN);
 }
 
-std::shared_ptr<gqe::logical::relation> gqe::optimizer::push_projection_to_filter::try_optimize(
-  std::shared_ptr<logical::relation> logical_relation, bool& rule_applied) const
+template <typename T, typename = std::enable_if_t<gqe::optimizer::optimizable_child_relation<T>()>>
+std::shared_ptr<gqe::logical::relation> gqe::optimizer::projection_pushdown::try_pushdown(
+  std::shared_ptr<gqe::logical::project_relation> project,
+  std::shared_ptr<gqe::logical::relation> child,
+  bool& rule_applied) const
 {
-  // Check if it's a project relation
-  if (logical_relation->type() != relation_t::project) return logical_relation;
-  auto project = std::dynamic_pointer_cast<logical::project_relation>(logical_relation);
-
-  // Check if project's child is filter
-  auto children = project->children_safe();
-  assert(children.size() == 1);
-  auto child = children[0];
-  if (child->type() != relation_t::filter) return logical_relation;
+  std::shared_ptr<T> child_relation = std::dynamic_pointer_cast<T>(child);
 
   // Identify which columns are used by project relation
   bool all_col_ref;
   auto required_cr_indices =
     inspect_output_expressions(project->const_output_expressions_unsafe(), all_col_ref);
 
-  std::shared_ptr<logical::filter_relation> filter =
-    std::dynamic_pointer_cast<logical::filter_relation>(child);
-
   if (all_col_ref) {
     // If the project relation has only column reference expressions, we can remove the project
     // relation from the query plan.
     rule_applied = true;
-    rewrite_filter_relation(filter, required_cr_indices);
-    return filter;
+    rewrite_child_relation(child_relation, required_cr_indices);
+    return child_relation;
   } else {
-    // Otherwise, we push the column indices needed for the project relation to the filter relation,
+    // Otherwise, we push the column indices needed for the project relation to the child relation,
     // and rewrite both relations to update the column references.
-    auto old_projection_indices = filter->_projection_indices;
+    auto old_projection_indices = child_relation->_projection_indices;
 
     // If no columns to be dropped, no rewriting
     if (old_projection_indices.size() == required_cr_indices.size()) {
-      return logical_relation;
+      return project;
     }
 
-    // Update the projection indices of filter and column references of project
+    // Update the projection indices of child relation and column references of project
     else {
       rule_applied = true;
-      rewrite_filter_relation(filter, required_cr_indices);
-      rewrite_project_relation(logical_relation, required_cr_indices);
-      return logical_relation;
+      rewrite_child_relation(child_relation, required_cr_indices);
+      rewrite_project_relation(project, required_cr_indices);
+      return project;
     }
+  }
+}
+
+std::shared_ptr<gqe::logical::relation> gqe::optimizer::projection_pushdown::try_optimize(
+  std::shared_ptr<logical::relation> logical_relation, bool& rule_applied) const
+{
+  // Check if it's a project relation
+  if (logical_relation->type() != relation_t::project) return logical_relation;
+  auto project = std::dynamic_pointer_cast<logical::project_relation>(logical_relation);
+
+  // Check if project's child is filter/join
+  auto children = project->children_safe();
+  assert(children.size() == 1);
+  auto child = children[0];
+
+  switch (child->type()) {
+    case relation_t::filter: {
+      return try_pushdown<logical::filter_relation>(project, child, rule_applied);
+    }
+
+    case relation_t::join: {
+      return try_pushdown<logical::join_relation>(project, child, rule_applied);
+    }
+
+    default: return logical_relation;
   }
 }

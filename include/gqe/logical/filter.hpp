@@ -16,13 +16,13 @@
 
 namespace gqe {
 namespace optimizer {
-class push_projection_to_filter;
+class projection_pushdown;
 class optimization_rule;
 }  // namespace optimizer
 namespace logical {
 
 class filter_relation : public relation {
-  friend class gqe::optimizer::push_projection_to_filter;
+  friend class gqe::optimizer::projection_pushdown;
   friend class gqe::optimizer::optimization_rule;
 
  public:

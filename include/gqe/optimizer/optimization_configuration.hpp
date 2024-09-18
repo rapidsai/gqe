@@ -22,7 +22,7 @@ namespace optimizer {
 enum class logical_optimization_rule_type {
   not_not_rewrite,
   join_children_swap,
-  push_projection_to_filter,
+  projection_pushdown,
   num_rules
 };
 

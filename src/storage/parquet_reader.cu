@@ -283,7 +283,7 @@ class io_batch {
   rmm::device_buffer _decompressed;
 
   static constexpr int64_t IO_URING_SIZE_THRESHOLD = 1024 * 1024 * 1024;
-  static constexpr int64_t IO_URING_BUFFER_SIZE    = 1000 * 1024 * 1024;
+  // static constexpr int64_t IO_URING_BUFFER_SIZE    = 1000 * 1024 * 1024;
 };
 
 bool io_batch::try_add(column_chunk_info& chunk)
@@ -415,6 +415,7 @@ void io_batch::copy(std::size_t num_auxiliary_threads,
       h2d_timer.end();
     }
   } else {
+    print_sq_poll_kernel_thread_status();
     std::vector<std::thread> threads;
     threads.reserve(num_threads);
     rmm::cuda_stream copy_stream;
@@ -489,7 +490,6 @@ void io_batch::copy(std::size_t num_auxiliary_threads,
             int bid           = io_uring_cqe_get_data64(cqe);
             auto& block       = blocks[bid];
             auto column_chunk = block.column_chunk;
-            auto offset       = block.offset;
             io_uring_cqe_seen(&ring, cqe);
             if (pipelining) {
               GQE_CUDA_TRY(cudaMemcpyAsync(block.device_ptr,

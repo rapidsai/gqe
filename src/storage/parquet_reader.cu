@@ -364,35 +364,38 @@ void io_batch::copy(std::size_t num_auxiliary_threads,
   disk_timer.start();
   disk_timer.add(current_offset);
 
+  std::vector<std::thread> threads;
+  threads.reserve(num_threads);
+  std::vector<rmm::cuda_stream> copy_streams(num_threads);
+
   // Launch multiple threads to copy column chunks from disk into CPU memory and then into GPU
   // memory.
   // Using multiple threads increases the number of concurrent I/O requests to the storage, which
   // usually improves performance.
   if (effective_engine == io_engine_type::PSYNC) {
-    std::vector<std::thread> threads;
-    threads.reserve(num_threads);
-
     for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
-      threads.emplace_back([this, thread_idx, num_auxiliary_threads, pipelining, &offsets]() {
-        rmm::cuda_stream copy_stream;
+      threads.emplace_back(
+        [this, thread_idx, num_auxiliary_threads, pipelining, &offsets, &copy_streams]() {
+          rmm::cuda_stream& copy_stream = copy_streams[thread_idx];
 
-        for (std::size_t chunk_idx = thread_idx; chunk_idx < _column_chunks.size();
-             chunk_idx += num_auxiliary_threads) {
-          column_chunk_info& column_chunk = _column_chunks[chunk_idx];
-          auto host_ptr                   = column_chunk.host_ptr;
-          auto device_ptr                 = column_chunk.device_ptr;
-          auto const copy_size            = column_chunk.compressed_size;
+          for (std::size_t chunk_idx = thread_idx; chunk_idx < _column_chunks.size();
+               chunk_idx += num_auxiliary_threads) {
+            column_chunk_info& column_chunk = _column_chunks[chunk_idx];
+            auto host_ptr                   = column_chunk.host_ptr;
+            auto device_ptr                 = column_chunk.device_ptr;
+            auto const copy_size            = column_chunk.compressed_size;
 
-          if (pread(column_chunk.fd, host_ptr, copy_size, column_chunk.file_offset) != copy_size) {
-            throw std::runtime_error("Customized Parquet reader: pread failure");
+            if (pread(column_chunk.fd, host_ptr, copy_size, column_chunk.file_offset) !=
+                copy_size) {
+              throw std::runtime_error("Customized Parquet reader: pread failure");
+            }
+            if (pipelining) {
+              GQE_CUDA_TRY(cudaMemcpyAsync(
+                device_ptr, host_ptr, copy_size, cudaMemcpyHostToDevice, copy_stream.value()));
+            }
           }
-          if (pipelining) {
-            GQE_CUDA_TRY(cudaMemcpyAsync(
-              device_ptr, host_ptr, copy_size, cudaMemcpyHostToDevice, copy_stream.value()));
-          }
-        }
-        if (pipelining) { copy_stream.synchronize(); }
-      });
+          if (pipelining) { copy_stream.synchronize(); }
+        });
     }
 
     for (auto& thread : threads) {
@@ -402,7 +405,7 @@ void io_batch::copy(std::size_t num_auxiliary_threads,
     if (!pipelining) {
       h2d_timer.start();
       h2d_timer.add(current_offset);
-      rmm::cuda_stream copy_stream;
+      rmm::cuda_stream& copy_stream = copy_streams[0];
       for (auto& _column_chunk : _column_chunks) {
         auto column_chunk = _column_chunk.get();
         auto host_ptr     = column_chunk.host_ptr;
@@ -416,92 +419,95 @@ void io_batch::copy(std::size_t num_auxiliary_threads,
     }
   } else {
     print_sq_poll_kernel_thread_status();
-    std::vector<std::thread> threads;
-    threads.reserve(num_threads);
-    rmm::cuda_stream copy_stream;
     for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
-      threads.emplace_back(
-        [this, thread_idx, num_auxiliary_threads, alignment, pipelining, &offsets, block_bytes]() {
-          int chunk_cnt = 0;
-          rmm::cuda_stream copy_stream;
-          struct io_uring ring;
-          struct io_uring_params params;
-          memset(&params, 0, sizeof(params));
-          params.flags |= IORING_SETUP_SQPOLL;
-          auto estimated_num_blocks = 0;
-          for (std::size_t chunk_idx = thread_idx; chunk_idx < _column_chunks.size();
-               chunk_idx += num_auxiliary_threads) {
-            column_chunk_info& column_chunk = _column_chunks[chunk_idx];
-            estimated_num_blocks += column_chunk.estimated_num_blocks;
-          }
+      threads.emplace_back([this,
+                            thread_idx,
+                            num_auxiliary_threads,
+                            alignment,
+                            pipelining,
+                            &offsets,
+                            &copy_streams,
+                            block_bytes]() {
+        int chunk_cnt                 = 0;
+        rmm::cuda_stream& copy_stream = copy_streams[thread_idx];
+        struct io_uring ring;
+        struct io_uring_params params;
+        memset(&params, 0, sizeof(params));
+        params.flags |= IORING_SETUP_SQPOLL;
+        auto estimated_num_blocks = 0;
+        for (std::size_t chunk_idx = thread_idx; chunk_idx < _column_chunks.size();
+             chunk_idx += num_auxiliary_threads) {
+          column_chunk_info& column_chunk = _column_chunks[chunk_idx];
+          estimated_num_blocks += column_chunk.estimated_num_blocks;
+        }
 
-          std::vector<block_info> blocks;
-          blocks.reserve(estimated_num_blocks);
-          int block_count = 0;
-          if (io_uring_queue_init(estimated_num_blocks, &ring, 0) != 0) {
-            throw std::runtime_error("Customized Parquet reader: io_uring_queue_init failure");
-          }
+        std::vector<block_info> blocks;
+        blocks.reserve(estimated_num_blocks);
+        int block_count = 0;
+        if (io_uring_queue_init(estimated_num_blocks, &ring, 0) != 0) {
+          throw std::runtime_error("Customized Parquet reader: io_uring_queue_init failure");
+        }
 
-          for (std::size_t chunk_idx = thread_idx; chunk_idx < _column_chunks.size();
-               chunk_idx += num_auxiliary_threads) {
-            ++chunk_cnt;
-            column_chunk_info& column_chunk = _column_chunks[chunk_idx];
-            auto head_padding               = column_chunk.file_offset % alignment;
-            auto start_host_ptr    = static_cast<std::byte*>(column_chunk.host_ptr) - head_padding;
-            auto start_file_offset = column_chunk.file_offset - head_padding;
-            auto start_device_ptr = static_cast<std::byte*>(column_chunk.device_ptr) - head_padding;
-            int64_t total_size    = column_chunk.compressed_size + head_padding;
-            int num_blocks        = utility::divide_round_up(total_size, block_bytes);
-            for (std::size_t current_offset = 0; current_offset < num_blocks * block_bytes;
-                 current_offset += block_bytes) {
-              struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
-              auto block_size          = std::min(block_bytes, total_size - current_offset);
-              int fd = block_size == block_bytes ? column_chunk.direct_fd : column_chunk.fd;
-              auto file_offset = start_file_offset + current_offset;
-              if (file_offset % alignment) {
-                GQE_LOG_ERROR("column_chunk.file_offset %% io_alignment = {}",
-                              file_offset % alignment);
-              }
-              io_uring_prep_read(sqe, fd, start_host_ptr + current_offset, block_size, file_offset);
-              io_uring_sqe_set_data64(sqe, block_count);
-              if (io_uring_submit(&ring) != 1) {
-                // io_uring_submit should return 1 for a single submission success
-                throw std::runtime_error("Customized Parquet reader: io_uring_submit failure");
-              }
-              block_info block{
-                column_chunk,
-                file_offset,
-                block_size,
-                start_host_ptr + current_offset,
-                start_device_ptr + current_offset,
-              };
-              // We have calculated estimated_num_blocks before, which is upper bound of actual
-              // blocks so the std::vector will not get resized
-              blocks.push_back(block);
-              block_count++;
+        for (std::size_t chunk_idx = thread_idx; chunk_idx < _column_chunks.size();
+             chunk_idx += num_auxiliary_threads) {
+          ++chunk_cnt;
+          column_chunk_info& column_chunk = _column_chunks[chunk_idx];
+          auto head_padding               = column_chunk.file_offset % alignment;
+          auto start_host_ptr    = static_cast<std::byte*>(column_chunk.host_ptr) - head_padding;
+          auto start_file_offset = column_chunk.file_offset - head_padding;
+          auto start_device_ptr  = static_cast<std::byte*>(column_chunk.device_ptr) - head_padding;
+          int64_t total_size     = column_chunk.compressed_size + head_padding;
+          int num_blocks         = utility::divide_round_up(total_size, block_bytes);
+          for (std::size_t current_offset = 0; current_offset < num_blocks * block_bytes;
+               current_offset += block_bytes) {
+            struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
+            auto block_size          = std::min(block_bytes, total_size - current_offset);
+            int fd           = block_size == block_bytes ? column_chunk.direct_fd : column_chunk.fd;
+            auto file_offset = start_file_offset + current_offset;
+            if (file_offset % alignment) {
+              GQE_LOG_ERROR("column_chunk.file_offset %% io_alignment = {}",
+                            file_offset % alignment);
             }
-          }
-          int count = 0;
-          struct io_uring_cqe* cqe;
-          while (count < block_count) {
-            if (io_uring_peek_cqe(&ring, &cqe) != 0) { continue; }
-            count++;
-            if (!cqe || cqe->res < 0) { GQE_LOG_ERROR("io_uring_wait_cqe error: {}", cqe->res); }
-            int bid           = io_uring_cqe_get_data64(cqe);
-            auto& block       = blocks[bid];
-            auto column_chunk = block.column_chunk;
-            io_uring_cqe_seen(&ring, cqe);
-            if (pipelining) {
-              GQE_CUDA_TRY(cudaMemcpyAsync(block.device_ptr,
-                                           block.host_ptr,
-                                           block.size,
-                                           cudaMemcpyHostToDevice,
-                                           copy_stream.value()));
+            io_uring_prep_read(sqe, fd, start_host_ptr + current_offset, block_size, file_offset);
+            io_uring_sqe_set_data64(sqe, block_count);
+            if (io_uring_submit(&ring) != 1) {
+              // io_uring_submit should return 1 for a single submission success
+              throw std::runtime_error("Customized Parquet reader: io_uring_submit failure");
             }
+            block_info block{
+              column_chunk,
+              file_offset,
+              block_size,
+              start_host_ptr + current_offset,
+              start_device_ptr + current_offset,
+            };
+            // We have calculated estimated_num_blocks before, which is upper bound of actual
+            // blocks so the std::vector will not get resized
+            blocks.push_back(block);
+            block_count++;
           }
-          io_uring_queue_exit(&ring);
-          if (pipelining) { copy_stream.synchronize(); }
-        });
+        }
+        int count = 0;
+        struct io_uring_cqe* cqe;
+        while (count < block_count) {
+          if (io_uring_peek_cqe(&ring, &cqe) != 0) { continue; }
+          count++;
+          if (!cqe || cqe->res < 0) { GQE_LOG_ERROR("io_uring_wait_cqe error: {}", cqe->res); }
+          int bid           = io_uring_cqe_get_data64(cqe);
+          auto& block       = blocks[bid];
+          auto column_chunk = block.column_chunk;
+          io_uring_cqe_seen(&ring, cqe);
+          if (pipelining) {
+            GQE_CUDA_TRY(cudaMemcpyAsync(block.device_ptr,
+                                         block.host_ptr,
+                                         block.size,
+                                         cudaMemcpyHostToDevice,
+                                         copy_stream.value()));
+          }
+        }
+        io_uring_queue_exit(&ring);
+        if (pipelining) { copy_stream.synchronize(); }
+      });
     }
 
     for (auto& thread : threads) {
@@ -509,6 +515,7 @@ void io_batch::copy(std::size_t num_auxiliary_threads,
     }
     disk_timer.end();
     if (!pipelining) {
+      rmm::cuda_stream& copy_stream = copy_streams[0];
       h2d_timer.start();
       h2d_timer.add(current_offset);
       for (auto& _column_chunk : _column_chunks) {

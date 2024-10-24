@@ -244,7 +244,7 @@ void custom_task::execute()
 
   // Construct a hash map for the date_dim table
   rmm::mr::polymorphic_allocator<cuco::pair<int64_t, int64_t>> polly_alloc;
-  auto stream_alloc = rmm::mr::make_stream_allocator_adaptor(polly_alloc, rmm::cuda_stream_default);
+  auto stream_alloc = rmm::mr::stream_allocator_adaptor(polly_alloc, rmm::cuda_stream_default);
 
   auto date_dim_map =
     cuco::static_map{date_dim_capacity,

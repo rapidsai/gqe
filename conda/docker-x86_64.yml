@@ -7,14 +7,14 @@ dependencies:
   - libnuma
   - numactl
   - rust
-  - python=3.10
+  - python=3.12
   - cuda-cccl
   - cuda-cudart
   - cuda-cudart-dev
   - cuda-nvcc
   - cuda-nvrtc-dev
   - cuda-nvtx-dev
-  - cuda-version=12.2
+  - cuda-version=12.6
   - cmake
   - c-compiler
   - cxx-compiler
@@ -24,8 +24,9 @@ dependencies:
   - libprotobuf=4.*
   - pandas
   - pyarrow=16.1.0
+  - pybind11=2.13.6
   - thrift-compiler=0.19
   - libthrift=0.19
   - zlib  # libthrift checks zlib during CMake configuration, but conda-forge doesn't install it automatically
-  - nvcomp=3.0.6
+  - nvcomp=4.0.1
   - liburing

@@ -714,7 +714,7 @@ rmm::device_uvector<cudf::size_type> groupby(
   auto const has_null            = cudf::nullate::DYNAMIC{cudf::has_nested_nulls(keys)};
 
   rmm::mr::polymorphic_allocator<cudf::size_type> polly_alloc;
-  auto stream_alloc = rmm::mr::make_stream_allocator_adaptor(polly_alloc, stream);
+  auto stream_alloc = rmm::mr::stream_allocator_adaptor(polly_alloc, stream);
 
   auto preprocessed_keys = cudf::experimental::row::hash::preprocessed_table::create(keys, stream);
   auto const comparator  = cudf::experimental::row::equality::self_comparator{preprocessed_keys};

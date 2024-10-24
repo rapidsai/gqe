@@ -392,7 +392,7 @@ cudf::size_type perform_join(cudf::table_view build_keys,
   rmm::mr::polymorphic_allocator<
     cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type>>
     polly_alloc;
-  auto stream_alloc = rmm::mr::make_stream_allocator_adaptor(polly_alloc, stream);
+  auto stream_alloc = rmm::mr::stream_allocator_adaptor(polly_alloc, stream);
 
   auto empty_key_sentinel =
     cuco::empty_key{cuco::pair{std::numeric_limits<cudf::hash_value_type>::max(),

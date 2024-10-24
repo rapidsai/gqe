@@ -5,25 +5,25 @@ WORKDIR /
 
 # Install common packages for development
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
-        build-essential \
-        ninja-build \
-        wget \
-        git \
-        vim \
-        libpciaccess-dev \
-        pciutils \
-        ca-certificates \
-        gnupg \
-        file \
-        pkg-config \
-        binutils \
-        binutils-dev \
-        openssh-client \
+    build-essential \
+    ninja-build \
+    wget \
+    git \
+    vim \
+    libpciaccess-dev \
+    pciutils \
+    ca-certificates \
+    gnupg \
+    file \
+    pkg-config \
+    binutils \
+    binutils-dev \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install mamba
-RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-$(uname -m).sh -O /mambaforge.sh
-RUN sh /mambaforge.sh -b -p /conda
+# Install Miniforge3
+RUN wget "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" -O /miniforge.sh
+RUN sh /miniforge.sh -b -p /conda
 ENV PATH=${PATH}:/conda/bin
 # Enables "source activate"
 SHELL ["/bin/bash", "-c"]
@@ -46,14 +46,14 @@ RUN git clone https://github.com/llvm/llvm-project.git \
     && git checkout -b llvmorg-18.1.8 \
     && source activate gqe \
     && cmake -G Ninja ../llvm \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DLLVM_ENABLE_PROJECTS=mlir \
-        -DLLVM_BUILD_EXAMPLES=OFF \
-        -DLLVM_TARGETS_TO_BUILD="Native;NVPTX" \
-        -DLLVM_ENABLE_ASSERTIONS=ON \
-        -DLLVM_USE_SPLIT_DWARF=ON \
-        -DMLIR_ENABLE_CUDA_CONVERSIONS=ON \
-        -DMLIR_ENABLE_CUDA_RUNNER=ON \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLLVM_ENABLE_PROJECTS=mlir \
+    -DLLVM_BUILD_EXAMPLES=OFF \
+    -DLLVM_TARGETS_TO_BUILD="Native;NVPTX" \
+    -DLLVM_ENABLE_ASSERTIONS=ON \
+    -DLLVM_USE_SPLIT_DWARF=ON \
+    -DMLIR_ENABLE_CUDA_CONVERSIONS=ON \
+    -DMLIR_ENABLE_CUDA_RUNNER=ON \
     && cmake --build . --target install \
     && popd \
     && rm -rf llvm-project

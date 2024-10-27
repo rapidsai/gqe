@@ -13,7 +13,7 @@
 use crate::error::{pg_wire_usererror, PgErrorCode, PgErrorSeverity};
 use crate::Result;
 use async_walkdir::{Filtering, WalkDir};
-use gqe_rs::api::DataType as GqeDataType;
+use gqe_rs::api::{CompressionFormat, DataType as GqeDataType, IOEngineType};
 use gqe_rs::executor::OptimizationParameters;
 use pgwire::error::{ErrorInfo, PgWireError};
 use sqlparser::ast::{self, DataType as DfDataType};
@@ -134,6 +134,34 @@ pub fn try_set_optimization_parameter(
         "GQE_IO_AUXILIARY_THREADS" => {
             opms.io_auxiliary_threads = value.parse().map_err(move |_| error())?
         }
+        "GQE_IN_MEMORY_TABLE_COMP_FORMAT" => {
+            opms.in_memory_table_compression_format = match value.to_lowercase().as_str() {
+                "none" => CompressionFormat::None,
+                "ans" => CompressionFormat::ANS,
+                _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                    "ERROR".to_owned(),
+                    PgErrorCode::UndefinedParameter.as_code().to_owned(),
+                    format!("Compression format \"{}\" is invalid.", value),
+                ))))?,
+            }
+        }
+        "GQE_IO_BLOCK_SIZE" => opms.io_block_size = value.parse().map_err(move |_| error())?,
+        "GQE_IO_ENGINE" => {
+            opms.io_engine = match value.to_lowercase().as_str() {
+                "auto" | "automatic" => IOEngineType::Automatic,
+                "io_uring" => IOEngineType::IOUring,
+                "psync" => IOEngineType::PSync,
+                _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                    "ERROR".to_owned(),
+                    PgErrorCode::UndefinedParameter.as_code().to_owned(),
+                    format!("I/O engine type \"{}\" is invalid.", value),
+                ))))?,
+            }
+        }
+        "GQE_IO_PIPELINING_ENABLE" => {
+            opms.io_pipelining = value.parse().map_err(move |_| error())?
+        }
+        "GQE_IO_ALIGNMENT" => opms.io_alignment = value.parse().map_err(move |_| error())?,
         _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
             "ERROR".to_owned(),
             PgErrorCode::UndefinedParameter.as_code().to_owned(),

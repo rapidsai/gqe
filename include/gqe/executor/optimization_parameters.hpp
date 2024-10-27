@@ -59,7 +59,7 @@ struct optimization_parameters {
   std::size_t io_block_size =
     2048;  ///< Size in KiB of the I/O block used by the customized Parquet reader.
   io_engine_type io_engine =
-    io_engine_type::IO_URING;       ///< I/O engine to use for the customized Parquet reader:
+    io_engine_type::io_uring;       ///< I/O engine to use for the customized Parquet reader:
                                     ///< IO_URING or PSYNC or AUTO.
   bool io_pipelining       = true;  ///< Enable I/O pipelining for the customized Parquet reader.
   std::size_t io_alignment = 4096;  ///< Alignment in bytes for the I/O buffer used by the

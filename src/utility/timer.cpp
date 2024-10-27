@@ -16,6 +16,38 @@ namespace gqe::utility {
 
 bandwidth_timer::bandwidth_timer(std::string name) : total_elapsed_time(0), name(std::move(name)) {}
 
+bandwidth_timer::bandwidth_timer(bandwidth_timer&& other)
+{
+  elapsed_time       = other.elapsed_time;
+  total_elapsed_time = other.total_elapsed_time;
+  start_time         = other.start_time;
+
+  input_bytes.store(other.input_bytes.load());
+  total_input_bytes.store(other.total_input_bytes.load());
+  units.store(other.units.load());
+  total_units.store(other.total_units.load());
+
+  std::swap(name, other.name);
+  std::swap(data_history, other.data_history);
+}
+
+bandwidth_timer& bandwidth_timer::operator=(bandwidth_timer&& other)
+{
+  elapsed_time       = other.elapsed_time;
+  total_elapsed_time = other.total_elapsed_time;
+  start_time         = other.start_time;
+
+  input_bytes.store(other.input_bytes.load());
+  total_input_bytes.store(other.total_input_bytes.load());
+  units.store(other.units.load());
+  total_units.store(other.total_units.load());
+
+  std::swap(name, other.name);
+  std::swap(data_history, other.data_history);
+
+  return *this;
+}
+
 void bandwidth_timer::start()
 {
   start_time  = std::chrono::high_resolution_clock::now();

@@ -81,4 +81,18 @@ using type_id = cudf::type_id;
  */
 using page_kind_type = gqe::page_kind::type;
 
+/*
+ * @brief Compression format helper.
+ *
+ * Shares `gqe::compression_format` with Rust.
+ */
+using compression_format = gqe::compression_format;
+
+/*
+ * @brief IO engine type helper.
+ *
+ * Shares `gqe::io_engine_type` with Rust.
+ */
+using io_engine_type = gqe::io_engine_type;
+
 }  // namespace cxx_gqe

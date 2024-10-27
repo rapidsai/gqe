@@ -73,6 +73,11 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=spdlog");
     println!("cargo:rustc-link-lib=dylib=numa");
 
+    // Link NVcomp.
+    //
+    // Needs to be linked after spdlog, as otherwise GQE pulls in the spdlog symbols from nvcomp.
+    println!("cargo:rustc-link-lib=dylib=nvcomp");
+
     // Link Conda-specific system libraries
     if env::var("CONDA_PREFIX").is_ok() {
         println!("cargo:rustc-link-lib=dylib=absl_log_internal_check_op");

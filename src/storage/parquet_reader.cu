@@ -354,11 +354,11 @@ void io_batch::copy(std::size_t num_auxiliary_threads,
   GQE_LOG_TRACE("chunk count: {}, read size: {} MB", _column_chunks.size(), current_offset / 1e6);
 
   auto effective_engine = engine;
-  if (effective_engine == io_engine_type::AUTO) {  // AUTO
+  if (effective_engine == io_engine_type::automatic) {  // AUTO
     if (current_offset > IO_URING_SIZE_THRESHOLD)
-      effective_engine = io_engine_type::IO_URING;
+      effective_engine = io_engine_type::io_uring;
     else
-      effective_engine = io_engine_type::PSYNC;
+      effective_engine = io_engine_type::psync;
   }
 
   disk_timer.start();
@@ -372,7 +372,7 @@ void io_batch::copy(std::size_t num_auxiliary_threads,
   // memory.
   // Using multiple threads increases the number of concurrent I/O requests to the storage, which
   // usually improves performance.
-  if (effective_engine == io_engine_type::PSYNC) {
+  if (effective_engine == io_engine_type::psync) {
     for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
       threads.emplace_back(
         [this, thread_idx, num_auxiliary_threads, pipelining, &offsets, &copy_streams]() {

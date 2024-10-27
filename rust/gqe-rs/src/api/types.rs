@@ -19,6 +19,12 @@ use crate::utility::CpuSet;
 /// Specifies the kind of operating system page.
 pub type PageKind = gqe_sys::PageKindType;
 
+/// Specifies which compression format is used.
+pub type CompressionFormat = gqe_sys::CompressionFormat;
+
+/// Specifies the I/O engine to use for the customized Parquet reader.
+pub type IOEngineType = gqe_sys::IOEngineType;
+
 /// A [cuDF data type](https://docs.rapids.ai/api/libcudf/stable/group__utility__types.html#gadf077607da617d1dadcc5417e2783539).
 pub type DataType = gqe_sys::DataType;
 

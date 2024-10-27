@@ -141,6 +141,11 @@ mod ffi {
         pub use_customized_io: bool,
         pub io_bounce_buffer_size: i32,
         pub io_auxiliary_threads: usize,
+        pub in_memory_table_compression_format: CompressionFormat,
+        pub io_block_size: usize,
+        pub io_engine: IOEngineType,
+        pub io_pipelining: bool,
+        pub io_alignment: usize,
     }
 
     /// Page kind for the memory allocator
@@ -216,6 +221,30 @@ mod ffi {
     #[cxx_name = "key_schema_info"]
     pub struct KeySchemaInfo {
         columns: Vec<String>,
+    }
+
+    /// Compression format kind
+    #[derive(Copy, Clone, Debug)]
+    #[cxx_name = "compression_format"]
+    #[repr(i32)]
+    pub enum CompressionFormat {
+        #[cxx_name = "none"]
+        None = 0,
+        #[cxx_name = "ans"]
+        ANS,
+    }
+
+    /// IO engine type
+    #[derive(Copy, Clone, Debug)]
+    #[cxx_name = "io_engine_type"]
+    #[repr(i32)]
+    pub enum IOEngineType {
+        #[cxx_name = "automatic"]
+        Automatic = 0,
+        #[cxx_name = "io_uring"]
+        IOUring,
+        #[cxx_name = "psync"]
+        PSync,
     }
 
     /// cuDF data type
@@ -337,6 +366,12 @@ mod ffi {
 
         #[cxx_name = "page_kind_type"]
         pub type PageKindType;
+
+        #[cxx_name = "compression_format"]
+        pub type CompressionFormat;
+
+        #[cxx_name = "io_engine_type"]
+        pub type IOEngineType;
 
         #[cxx_name = "catalog"]
         pub type Catalog;

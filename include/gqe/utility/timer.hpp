@@ -23,6 +23,13 @@ namespace gqe::utility {
 class bandwidth_timer {
  public:
   bandwidth_timer(std::string name);
+
+  bandwidth_timer(bandwidth_timer&& other);
+  bandwidth_timer& operator=(bandwidth_timer&& other);
+
+  bandwidth_timer(const bandwidth_timer&) = delete;
+  bandwidth_timer& operator=(const bandwidth_timer&) = delete;
+
   void start();
   void end();
   void add(uint64_t bytes, uint64_t units = 0);

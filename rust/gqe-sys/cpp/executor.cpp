@@ -37,21 +37,31 @@ cxx_gqe::optimization_parameters new_optimization_parameters()
           p.read_zero_copy_enable,
           p.use_customized_io,
           p.io_bounce_buffer_size,
-          p.io_auxiliary_threads};
+          p.io_auxiliary_threads,
+          p.in_memory_table_compression_format,
+          p.io_block_size,
+          p.io_engine,
+          p.io_pipelining,
+          p.io_alignment};
 }
 
 gqe::optimization_parameters to_gqe(cxx_gqe::optimization_parameters const& p)
 {
   gqe::optimization_parameters n(true);
 
-  n.max_num_workers         = p.max_num_workers;
-  n.max_num_partitions      = p.max_num_partitions;
-  n.log_level               = std::string(p.log_level);
-  n.join_use_hash_map_cache = p.join_use_hash_map_cache;
-  n.read_zero_copy_enable   = p.read_zero_copy_enable;
-  n.use_customized_io       = p.use_customized_io;
-  n.io_bounce_buffer_size   = p.io_bounce_buffer_size;
-  n.io_auxiliary_threads    = p.io_auxiliary_threads;
+  n.max_num_workers                    = p.max_num_workers;
+  n.max_num_partitions                 = p.max_num_partitions;
+  n.log_level                          = std::string(p.log_level);
+  n.join_use_hash_map_cache            = p.join_use_hash_map_cache;
+  n.read_zero_copy_enable              = p.read_zero_copy_enable;
+  n.use_customized_io                  = p.use_customized_io;
+  n.io_bounce_buffer_size              = p.io_bounce_buffer_size;
+  n.io_auxiliary_threads               = p.io_auxiliary_threads;
+  n.in_memory_table_compression_format = p.in_memory_table_compression_format;
+  n.io_block_size                      = p.io_block_size;
+  n.io_engine                          = p.io_engine;
+  n.io_pipelining                      = p.io_pipelining;
+  n.io_alignment                       = p.io_alignment;
 
   return n;
 }

@@ -154,11 +154,12 @@ optimization_parameters::optimization_parameters(bool only_defaults)
     auto io_engine_str = std::getenv("GQE_IO_ENGINE");
     if (io_engine_str) {
       if (strcmp_insensitive(io_engine_str, "IO_URING")) {
-        io_engine = io_engine_type::IO_URING;
+        io_engine = io_engine_type::io_uring;
       } else if (strcmp_insensitive(io_engine_str, "PSYNC")) {
-        io_engine = io_engine_type::PSYNC;
-      } else if (strcmp_insensitive(io_engine_str, "AUTO")) {
-        io_engine = io_engine_type::AUTO;
+        io_engine = io_engine_type::psync;
+      } else if (strcmp_insensitive(io_engine_str, "AUTO") ||
+                 strcmp_insensitive(io_engine_str, "AUTOMATIC")) {
+        io_engine = io_engine_type::automatic;
       } else {
         throw std::runtime_error("Invalid value for environment variable: GQE_IO_ENGINE");
       }

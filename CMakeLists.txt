@@ -16,7 +16,7 @@ endif()
 
 # Setup rapids-cmake
 if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/GQE_RAPIDS.cmake)
-  file(DOWNLOAD https://raw.githubusercontent.com/rapidsai/rapids-cmake/branch-24.08/RAPIDS.cmake
+  file(DOWNLOAD https://raw.githubusercontent.com/rapidsai/rapids-cmake/branch-24.10/RAPIDS.cmake
        ${CMAKE_CURRENT_BINARY_DIR}/GQE_RAPIDS.cmake
   )
 endif()

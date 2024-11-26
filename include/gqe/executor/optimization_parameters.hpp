@@ -13,6 +13,7 @@
 #pragma once
 
 #include <gqe/types.hpp>
+#include <nvcomp.hpp>
 
 #include <cstdint>
 #include <string>
@@ -56,6 +57,9 @@ struct optimization_parameters {
     8;  ///< Number of auxiliary threads per worker launched by the customized Parquet reader.
   compression_format in_memory_table_compression_format =
     compression_format::none;  ///< Compression format for the in-memory table.
+  nvcompType_t in_memory_table_compression_data_type =
+    NVCOMP_TYPE_CHAR;                    ///< Determines how input data is viewed as for compression
+  int compression_chunk_size = 1 << 16;  ///< Size of each chunk for nvcomp Compression
   std::size_t io_block_size =
     2048;  ///< Size in KiB of the I/O block used by the customized Parquet reader.
   io_engine_type io_engine =

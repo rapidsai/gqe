@@ -107,13 +107,29 @@ gqe::compression_format compression_format_from_str(std::string const& format_st
     return gqe::compression_format::none;
   } else if (format_str == "ans") {
     return gqe::compression_format::ans;
+  } else if (format_str == "lz4") {
+    return gqe::compression_format::lz4;
+  } else if (format_str == "snappy") {
+    return gqe::compression_format::snappy;
+  } else if (format_str == "gdeflate") {
+    return gqe::compression_format::gdeflate;
+  } else if (format_str == "deflate") {
+    return gqe::compression_format::deflate;
+  } else if (format_str == "cascaded") {
+    return gqe::compression_format::cascaded;
+  } else if (format_str == "zstd") {
+    return gqe::compression_format::zstd;
+  } else if (format_str == "gzip") {
+    return gqe::compression_format::gzip;
+  } else if (format_str == "bitcomp") {
+    return gqe::compression_format::bitcomp;
   } else {
     throw std::logic_error("Unrecognized compression format");
   }
 }
 
-gqe::compression_format parse_compression_format(std::string const& env_variable,
-                                                 gqe::compression_format const default_value)
+gqe::compression_format parse_nvcomp_compression_format(std::string const& env_variable,
+                                                        gqe::compression_format const default_value)
 {
   auto const val_str = std::getenv(env_variable.c_str());
 
@@ -124,6 +140,46 @@ gqe::compression_format parse_compression_format(std::string const& env_variable
   }
 }
 
+nvcompType_t nvcomp_data_type_from_str(std::string const& data_format)
+{
+  if (data_format == "char") {
+    return NVCOMP_TYPE_CHAR;
+  } else if (data_format == "short") {
+    return NVCOMP_TYPE_SHORT;
+  } else if (data_format == "int") {
+    return NVCOMP_TYPE_INT;
+  } else if (data_format == "longlong") {
+    return NVCOMP_TYPE_LONGLONG;
+  } else if (data_format == "bits") {
+    return NVCOMP_TYPE_BITS;
+  } else {
+    throw std::logic_error("Unrecognized data type format");
+  }
+}
+
+nvcompType_t parse_nvcomp_data_type(std::string const& env_variable,
+                                    nvcompType_t const default_value)
+{
+  auto const val_str = std::getenv(env_variable.c_str());
+
+  if (val_str) {
+    return nvcomp_data_type_from_str(val_str);
+  } else {
+    return default_value;
+  }
+}
+
+int parse_nvcomp_chunk_size(std::string const& env_variable, int const default_value)
+{
+  auto const val_str = std::getenv(env_variable.c_str());
+
+  if (val_str) {
+    int n = std::stoi(val_str);
+    return 1 << n;
+  } else {
+    return default_value;
+  }
+}
 }  // namespace
 
 namespace gqe {
@@ -146,8 +202,14 @@ optimization_parameters::optimization_parameters(bool only_defaults)
 
     io_auxiliary_threads = parse_env_variable("GQE_IO_AUXILIARY_THREADS", io_auxiliary_threads);
 
-    in_memory_table_compression_format = parse_compression_format(
+    in_memory_table_compression_format = parse_nvcomp_compression_format(
       "GQE_IN_MEMORY_TABLE_COMP_FORMAT", in_memory_table_compression_format);
+
+    in_memory_table_compression_data_type =
+      parse_nvcomp_data_type("GQE_COMPRESSION_DATA_TYPE", in_memory_table_compression_data_type);
+
+    compression_chunk_size =
+      parse_nvcomp_chunk_size("GQE_COMPRESSION_CHUNK_SIZE", compression_chunk_size);
 
     io_block_size = parse_env_variable("GQE_IO_BLOCK_SIZE", io_block_size);
 

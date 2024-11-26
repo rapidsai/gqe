@@ -148,6 +148,36 @@ namespace gqe {
 
 namespace storage {
 
+// Function to map cudf::type_id to nvcomp_data_format
+nvcompType_t get_optimal_nvcomp_data_type(cudf::type_id dtype)
+{
+  switch (dtype) {
+    case cudf::type_id::INT8: return NVCOMP_TYPE_CHAR;
+    case cudf::type_id::INT16: return NVCOMP_TYPE_SHORT;
+    case cudf::type_id::INT32: return NVCOMP_TYPE_INT;
+    case cudf::type_id::INT64: return NVCOMP_TYPE_LONGLONG;
+    case cudf::type_id::UINT8: return NVCOMP_TYPE_UCHAR;
+    case cudf::type_id::UINT16: return NVCOMP_TYPE_USHORT;
+    case cudf::type_id::UINT32: return NVCOMP_TYPE_UINT;
+    case cudf::type_id::UINT64: return NVCOMP_TYPE_ULONGLONG;
+    case cudf::type_id::BOOL8: return NVCOMP_TYPE_CHAR;
+    case cudf::type_id::TIMESTAMP_DAYS:
+    case cudf::type_id::TIMESTAMP_SECONDS:
+    case cudf::type_id::TIMESTAMP_MILLISECONDS:
+    case cudf::type_id::TIMESTAMP_MICROSECONDS:
+    case cudf::type_id::TIMESTAMP_NANOSECONDS:
+    case cudf::type_id::DURATION_DAYS:
+    case cudf::type_id::DURATION_SECONDS:
+    case cudf::type_id::DURATION_MILLISECONDS:
+    case cudf::type_id::DURATION_MICROSECONDS:
+    case cudf::type_id::DURATION_NANOSECONDS:
+    case cudf::type_id::DECIMAL32: return NVCOMP_TYPE_INT;
+    case cudf::type_id::DECIMAL64:
+    case cudf::type_id::DECIMAL128: return NVCOMP_TYPE_LONGLONG;
+    default: return NVCOMP_TYPE_CHAR;
+  }
+}
+
 contiguous_column::contiguous_column(cudf::column&& cudf_column)
   : column_base(), _data(std::move(cudf_column))
 {
@@ -222,26 +252,51 @@ std::unique_ptr<compressed_buffer> do_compress(rmm::device_buffer const* input,
   return output;
 }
 
+std::unique_ptr<rmm::device_buffer> compressed_column::compress(rmm::device_buffer const* input,
+                                                                rmm::device_async_resource_ref mr,
+                                                                bool is_null_mask)
+{
+  bool compression_viable;
+  std::unique_ptr<rmm::device_buffer> output =
+    _nvcomp_manager.do_compress(input, compression_viable, mr);
+  if (!is_null_mask) { is_compressed = compression_viable; }
+
+  return output;
+}
+
 compressed_column::compressed_column(cudf::column&& cudf_column,
                                      compression_format comp_format,
                                      rmm::cuda_stream_view stream,
-                                     rmm::device_async_resource_ref mr)
-  : column_base(), _comp_format(comp_format)
+                                     rmm::device_async_resource_ref mr,
+                                     nvcompType_t nvcomp_data_format,
+                                     int chunk_size)
+  : column_base(),
+    _comp_format(comp_format),
+    compression_ratio(0.0),
+    is_compressed(true),
+    _nvcomp_manager(stream, comp_format, nvcomp_data_format, chunk_size)
 {
   _size       = cudf_column.size();
   _dtype      = cudf_column.type();
   _null_count = cudf_column.null_count();
 
   auto column_content = cudf_column.release();
-  _compressed_data    = do_compress(column_content.data.get(), comp_format, stream, mr);
+  _compressed_data    = compress(column_content.data.get(), mr, false);
+  _compressed_size    = _compressed_data->size();
+  compression_ratio   = static_cast<float>(_size) / _compressed_size;
 
   if (_null_count > 0) {
-    _compressed_null_mask = do_compress(column_content.null_mask.get(), comp_format, stream, mr);
+    _compressed_null_mask = compress(column_content.null_mask.get(), mr, true);
   }
 
+  _compressed_children.reserve(column_content.children.size());
+
   for (auto& child : column_content.children) {
-    _compressed_children.push_back(
-      std::make_unique<compressed_column>(std::move(*child), comp_format, stream, mr));
+    auto dtype         = child->type().id();
+    nvcomp_data_format = get_optimal_nvcomp_data_type(dtype);
+
+    _compressed_children.push_back(std::make_unique<compressed_column>(
+      std::move(*child), comp_format, stream, mr, nvcomp_data_format, chunk_size));
   }
 }
 
@@ -251,15 +306,24 @@ std::unique_ptr<cudf::column> compressed_column::decompress(rmm::cuda_stream_vie
                                                             rmm::device_async_resource_ref mr) const
 {
   std::vector<std::unique_ptr<cudf::column>> decompressed_children;
+  decompressed_children.reserve(_compressed_children.size());
+
   for (auto const& compressed_child : _compressed_children) {
     decompressed_children.push_back(compressed_child->decompress(stream, mr));
   }
 
-  auto decompressed_data = _compressed_data->decompress(stream, mr);
+  // auto decompressed_data  = _nvcomp_manager.do_decompress(_compressed_data.get(), mr);
+  std::unique_ptr<rmm::device_buffer> decompressed_data;
+
+  if (is_compressed) {
+    decompressed_data = _nvcomp_manager.do_decompress(_compressed_data.get(), mr);
+  } else {
+    decompressed_data = std::make_unique<rmm::device_buffer>(*_compressed_data, stream, mr);
+  }
 
   std::unique_ptr<rmm::device_buffer> decompressed_null_mask;
   if (_null_count > 0) {
-    decompressed_null_mask = _compressed_null_mask->decompress(stream, mr);
+    decompressed_null_mask = _nvcomp_manager.do_decompress(_compressed_null_mask.get(), mr);
   } else {
     decompressed_null_mask = std::make_unique<rmm::device_buffer>();
   }
@@ -585,13 +649,26 @@ void in_memory_write_task::execute()
     auto const& input_column = input_table.column(column_idx);
     auto cudf_column         = cudf::column(input_column, stream, _non_owned_memory_resource);
 
-    auto const comp_format = get_query_context()->parameters.in_memory_table_compression_format;
+    auto comp_format = get_query_context()->parameters.in_memory_table_compression_format;
+    nvcompType_t nvcomp_data_format =
+      get_query_context()->parameters.in_memory_table_compression_data_type;
+    auto const chunk_size = get_query_context()->parameters.compression_chunk_size;
+
+    auto dtype = cudf_column.type().id();
+
+    nvcomp_data_format = get_optimal_nvcomp_data_type(dtype);
+
     if (comp_format == compression_format::none) {
       new_columns[_column_indexes[column_idx]] =
         std::make_unique<contiguous_column>(std::move(cudf_column));
     } else {
-      new_columns[_column_indexes[column_idx]] = std::make_unique<compressed_column>(
-        std::move(cudf_column), comp_format, stream, _non_owned_memory_resource);
+      new_columns[_column_indexes[column_idx]] =
+        std::make_unique<compressed_column>(std::move(cudf_column),
+                                            comp_format,
+                                            stream,
+                                            _non_owned_memory_resource,
+                                            nvcomp_data_format,
+                                            chunk_size);
     }
   }
 

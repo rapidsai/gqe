@@ -96,7 +96,8 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | GQE_USE_CUSTOMIZED_IO | false | Whether to use the customized Parquet reader if supported. |
 | GQE_IO_BOUNCE_BUFFER_SIZE | 4 | Size in GB per worker of the page-locked CPU memory bounce buffer used for the customized Parquet reader. |
 | GQE_IO_AUXILIARY_THREADS | 8 | Number of auxiliary threads per worker launched by the customized Parquet reader. |
-| GQE_IN_MEMORY_TABLE_COMP_FORMAT | none | Compression format for the in-memory table. Supported values are `none` and `ans`. |
+| GQE_IN_MEMORY_TABLE_COMP_FORMAT | none | Compression format for the in-memory table. Supported values are :`none`,`ans`,`lz4`,`snappy`,`cascaded`,`gdeflate`,`deflate`,`zstd`,`gzip`,`bitcomp`. |
+| GQE_COMPRESSION_CHUNK_SIZE | 16 | n in 2^n -- Size in Bytes used for chunking of data for compression. |
 | GQE_IO_BLOCK_SIZE | 2048 | Size in KiB of the block used by the customized Parquet reader when io_uring is enabled. |
 | GQE_IO_ENGINE | IO_URING | The I/O engine used by the customized Parquet reader. Supported values are `IO_URING`, `PSYNC` and `AUTO`. |
 | GQE_IO_PIPELINING_ENABLE | true | Enable pipelining disk read and H2D when using customized Parquet reader. |

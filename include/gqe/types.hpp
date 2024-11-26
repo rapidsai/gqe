@@ -408,9 +408,17 @@ using type = std::variant<unbounded, bounded>;
 /**
  * @brief Indicate the algorithm used for compression.
  */
-enum class compression_format : int32_t {
-  none,  ///< Uncompressed
-  ans    ///< ANS compression
+enum class compression_format : int8_t {
+  none,      ///< Uncompressed
+  ans,       ///< ANS compression
+  lz4,       ///< LZ4 compression
+  snappy,    ///< snappy compression
+  gdeflate,  ///< GDeflate compression
+  deflate,   ///< Deflate compression
+  cascaded,  ///< Cascaded compression
+  zstd,      ///< ZSTD compression
+  gzip,      ///< GZIP compression
+  bitcomp    ///< Bitcomp compression
 };
 
 }  // namespace gqe

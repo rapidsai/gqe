@@ -65,12 +65,15 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
     test_columns.push_back(col_1.release());
 
     // Setup row group
-    auto const comp_format = qctx->parameters.in_memory_table_compression_format;
+    auto const comp_format        = qctx->parameters.in_memory_table_compression_format;
+    auto const nvcomp_data_format = qctx->parameters.in_memory_table_compression_data_type;
+    auto const chunk_size         = qctx->parameters.compression_chunk_size;
     std::vector<std::unique_ptr<gqe::storage::column_base>> columns;
     std::transform(test_columns.cbegin(),
                    test_columns.cend(),
                    std::back_inserter(columns),
-                   [comp_format](auto const& col) -> std::unique_ptr<gqe::storage::column_base> {
+                   [comp_format, nvcomp_data_format, chunk_size](
+                     auto const& col) -> std::unique_ptr<gqe::storage::column_base> {
                      if (comp_format == gqe::compression_format::none) {
                        return std::make_unique<gqe::storage::contiguous_column>(cudf::column(*col));
                      } else {
@@ -78,7 +81,9 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
                          cudf::column(*col),
                          comp_format,
                          rmm::cuda_stream_default,
-                         rmm::mr::get_current_device_resource());
+                         rmm::mr::get_current_device_resource(),
+                         nvcomp_data_format,
+                         chunk_size);
                      }
                    });
     gqe::storage::row_group row_group(std::move(columns));

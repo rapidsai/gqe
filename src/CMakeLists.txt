@@ -71,6 +71,7 @@ add_library(
     optimizer/rules/join_children_swap.cpp
     optimizer/rules/not_not.cpp
     optimizer/statistics.cpp
+    storage/nvcomp_gqe.cpp
     storage/in_memory.cpp
     storage/parquet.cpp
     storage/parquet.cu
@@ -92,7 +93,7 @@ target_link_libraries(gqe PUBLIC cuco::cuco)
 target_link_libraries(gqe PUBLIC cudf::cudf)
 target_link_libraries(gqe PUBLIC numa)
 target_link_libraries(gqe PRIVATE nvtx3-cpp)
-target_link_libraries(gqe PUBLIC spdlog::spdlog)
+target_link_libraries(gqe PUBLIC spdlog::spdlog_header_only)
 target_link_libraries(gqe PUBLIC substrait)
 target_link_libraries(gqe PRIVATE Threads::Threads)
 target_link_libraries(gqe PRIVATE nvcomp::nvcomp)

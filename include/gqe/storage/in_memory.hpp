@@ -16,6 +16,7 @@
 #include <gqe/executor/write.hpp>
 #include <gqe/optimizer/statistics.hpp>
 #include <gqe/query_context.hpp>
+#include <gqe/storage/nvcomp_gqe.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/table.hpp>
 #include <gqe/storage/writeable_view.hpp>
@@ -196,7 +197,9 @@ class compressed_column : public column_base {
   explicit compressed_column(cudf::column&& cudf_column,
                              compression_format comp_format,
                              rmm::cuda_stream_view stream,
-                             rmm::device_async_resource_ref mr);
+                             rmm::device_async_resource_ref mr,
+                             nvcompType_t nvcomp_data_format,
+                             int chunk_size);
 
   ~compressed_column() override = default;
 
@@ -214,6 +217,17 @@ class compressed_column : public column_base {
   int64_t size() const override;
 
   /**
+   * @brief Compress the column.
+   *
+   * @param[in] stream CUDA stream used for the decompression.
+   * @param[in] mr Memory resource used for allocating the decompressed column.
+   */
+  std::unique_ptr<rmm::device_buffer> compress(
+    rmm::device_buffer const* input,
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource(),
+    bool is_null_mask                 = false);
+
+  /**
    * @brief Decompress and construct an uncompressed version of the column.
    *
    * @param[in] stream CUDA stream used for the decompression.
@@ -225,12 +239,16 @@ class compressed_column : public column_base {
 
  private:
   int64_t _size;
+  int64_t _compressed_size;
   cudf::data_type _dtype;
   cudf::size_type _null_count;
   compression_format _comp_format;
+  float compression_ratio;
+  bool is_compressed;
+  nvcomp_gqe _nvcomp_manager;
 
-  std::unique_ptr<compressed_buffer> _compressed_data;
-  std::unique_ptr<compressed_buffer> _compressed_null_mask;
+  std::unique_ptr<rmm::device_buffer> _compressed_data;
+  std::unique_ptr<rmm::device_buffer> _compressed_null_mask;
   std::vector<std::unique_ptr<compressed_column>> _compressed_children;
 };
 

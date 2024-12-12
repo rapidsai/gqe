@@ -101,8 +101,12 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
       // Currently GQE supports the following join types: inner, left, left_semi, left_anti, full,
       // single. There are three categories among these join types.
       // Cannot use broadcast join: full, single
-      // Can only broadcast the right table: left, left_semi, left_anti
-      // Free to broadcast either left or right table: inner
+      // Can only broadcast the right table: left
+      // Free to broadcast either left or right table: inner, left_semi, left_anti
+      //
+      // For left_semi and left_anti based on the broadcasted side the materialization
+      // differs with performance implications, hence, we need more benchmarking to decide the
+      // logic of the side to be broadcasted
       //
       // So, we default the broadcast policy to broadcast_policy::right and only consider
       // broadcast_policy::left if it's an inner join.

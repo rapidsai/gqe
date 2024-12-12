@@ -48,6 +48,7 @@ add_library(
     executor/gen_ident_col.cu
     executor/unique_key_inner_join.cu
     executor/join.cpp
+    executor/join.cu
     executor/optimization_parameters.cpp
     executor/project.cpp
     executor/read.cpp

@@ -823,4 +823,88 @@ TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsFullJoin)
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
+class MaterializeJoinFromPositionListsTest : public ::testing::Test {
+ protected:
+  void construct_materialize_task(gqe::join_type_type join_type)
+  {
+    gqe::query_context qctx(gqe::optimization_parameters(true));
+
+    constexpr int32_t stage_id = 0;
+
+    cudf::test::fixed_width_column_wrapper<int64_t> left_table_col({10, 11, 12, 13, 14, 15});
+    std::vector<std::unique_ptr<cudf::column>> left_table_columns;
+    left_table_columns.push_back(left_table_col.release());
+
+    auto left_table = std::make_unique<cudf::table>(std::move(left_table_columns));
+    constexpr int32_t left_table_task_id = 0;
+    auto left_table_task                 = std::make_shared<gqe::test::executed_task>(
+      &qctx, left_table_task_id, stage_id, std::move(left_table));
+
+    cudf::test::fixed_width_column_wrapper<cudf::size_type> position_list_1_col({2, 4, 5});
+    std::vector<std::unique_ptr<cudf::column>> position_list_1_columns;
+    position_list_1_columns.push_back(position_list_1_col.release());
+
+    auto position_list_1 = std::make_unique<cudf::table>(std::move(position_list_1_columns));
+    constexpr int32_t position_list_1_task_id = 1;
+    auto position_list_1_task                 = std::make_shared<gqe::test::executed_task>(
+      &qctx, position_list_1_task_id, stage_id, std::move(position_list_1));
+
+    cudf::test::fixed_width_column_wrapper<cudf::size_type> position_list_2_col({2, 3, 5});
+    std::vector<std::unique_ptr<cudf::column>> position_list_2_columns;
+    position_list_2_columns.push_back(position_list_2_col.release());
+
+    auto position_list_2 = std::make_unique<cudf::table>(std::move(position_list_2_columns));
+    constexpr int32_t position_list_2_task_id = 2;
+    auto position_list_2_task                 = std::make_shared<gqe::test::executed_task>(
+      &qctx, position_list_2_task_id, stage_id, std::move(position_list_2));
+
+    std::vector<std::shared_ptr<gqe::task>> inputs;
+    inputs.push_back(std::move(left_table_task));
+    inputs.push_back(std::move(position_list_1_task));
+    inputs.push_back(std::move(position_list_2_task));
+
+    constexpr int32_t materialize_task_id           = 3;
+    std::vector<cudf::size_type> projection_indices = {0};
+
+    materialize_task = std::make_unique<gqe::materialize_join_from_position_lists_task>(
+      &qctx, materialize_task_id, stage_id, std::move(inputs), join_type, projection_indices);
+  }
+
+  std::unique_ptr<gqe::materialize_join_from_position_lists_task> materialize_task;
+};
+
+TEST_F(MaterializeJoinFromPositionListsTest, LeftSemi)
+{
+  construct_materialize_task(gqe::join_type_type::left_semi);
+  materialize_task->execute();
+
+  cudf::test::fixed_width_column_wrapper<int64_t> ref_col_0({12, 13, 14, 15});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_columns;
+  ref_columns.push_back(ref_col_0.release());
+  auto ref_table = std::make_unique<cudf::table>(std::move(ref_columns));
+
+  auto materialize_task_result = materialize_task->result();
+  ASSERT_EQ(materialize_task_result.has_value(), true);
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(materialize_task_result.value(), ref_table->view());
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(materialize_task_result.value(), ref_table->view());
+}
+
+TEST_F(MaterializeJoinFromPositionListsTest, LeftAnti)
+{
+  construct_materialize_task(gqe::join_type_type::left_anti);
+  materialize_task->execute();
+
+  cudf::test::fixed_width_column_wrapper<int64_t> ref_col_0({12, 15});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_columns;
+  ref_columns.push_back(ref_col_0.release());
+  auto ref_table = std::make_unique<cudf::table>(std::move(ref_columns));
+
+  auto materialize_task_result = materialize_task->result();
+  ASSERT_EQ(materialize_task_result.has_value(), true);
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(materialize_task_result.value(), ref_table->view());
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(materialize_task_result.value(), ref_table->view());
+}
+
 // TODO: Add a test on multi column join keys

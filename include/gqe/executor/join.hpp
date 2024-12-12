@@ -104,6 +104,8 @@ class join_task : public task {
    * are discarded.
    * @param[in] hash_map_cache If supplied, the hash map used for the join can be loaded from the
    * cache instead of reconstructed.
+   * @param[in] materialize_output If `true`, emit the materialized table with the same number of
+   * columns as the size of `projection_indices`. If `false`, emit the position lists.
    */
   join_task(query_context* query_context,
             int32_t task_id,
@@ -113,7 +115,8 @@ class join_task : public task {
             join_type_type join_type,
             std::unique_ptr<expression> condition,
             std::vector<cudf::size_type> projection_indices,
-            std::shared_ptr<join_hash_map_cache> hash_map_cache = nullptr);
+            std::shared_ptr<join_hash_map_cache> hash_map_cache = nullptr,
+            bool materialize_output                             = true);
 
   /**
    * @copydoc gqe::task::execute()
@@ -125,6 +128,71 @@ class join_task : public task {
   std::unique_ptr<expression> _condition;
   std::vector<cudf::size_type> _projection_indices;
   std::shared_ptr<join_hash_map_cache> _hash_map_cache;
+  bool _materialize_output;
+};
+
+namespace detail {
+
+/**
+ * @brief Set the boolean mask at specific indices to true.
+ *
+ * Requires the indices to be unique. Otherwise, the behavior is undefined.
+ *
+ * @param[in] boolean_mask Boolean mask column to be set. The column must have type `BOOL8`.
+ * @param[in] indices Row indices at which the boolean mask is set to true.
+ */
+void set_boolean_mask(cudf::mutable_column_view boolean_mask, cudf::column_view indices);
+
+/**
+ * @brief Increment the counts column at specific indices by 1.
+ *
+ * Requires the indices to be unique. Otherwise, the behavior is undefined.
+ *
+ * @param[in] counts Counts column to be incremented. The column must have type `INT32`.
+ * @param[in] indices Row indices at which the counts are incremented by 1.
+ */
+void increment_counts(cudf::mutable_column_view counts, cudf::column_view indices);
+
+}  // namespace detail
+
+/**
+ * @brief Merge multiple position lists and materialize the semi/anti join result.
+ *
+ * For left-semi join, a row from the left table is included in the output if and only if the row
+ * index is in at least one of the position list.
+ *
+ * For left-anti join, a row from the left table is included in the output if and only if the row
+ * index is in all position lists.
+ *
+ * This task is used for materializing the join output when broadcasting the left side in a left
+ * semi/anti join. Note that this task does not check the positions are valid.
+ */
+class materialize_join_from_position_lists_task : public task {
+ public:
+  /**
+   * @brief Construct a materialize-join-from-position-lists task.
+   *
+   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] task_id Globally unique identifier of the task.
+   * @param[in] stage_id Stage of the current task.
+   * @param[in] dependencies The first dependent task is the left table of the join. The remaining
+   * depedent tasks are position lists that will be merged.
+   * @param[in] join_type Type of the join. Currently, only left semi and left anti join are
+   * supported.
+   * @param[in] projection_indices Column indices to materialize.
+   */
+  materialize_join_from_position_lists_task(query_context* query_context,
+                                            int32_t task_id,
+                                            int32_t stage_id,
+                                            std::vector<std::shared_ptr<task>> dependencies,
+                                            join_type_type join_type,
+                                            std::vector<cudf::size_type> projection_indices);
+
+  void execute() override;
+
+ private:
+  join_type_type _join_type;
+  std::vector<cudf::size_type> _projection_indices;
 };
 
 }  // namespace gqe

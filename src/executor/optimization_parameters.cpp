@@ -202,9 +202,6 @@ optimization_parameters::optimization_parameters(bool only_defaults)
 
     io_auxiliary_threads = parse_env_variable("GQE_IO_AUXILIARY_THREADS", io_auxiliary_threads);
 
-    replace_decimal_with_floating_point = parse_env_variable(
-      "GQE_REPLACE_DECIMAL_WITH_FLOATING_POINT", replace_decimal_with_floating_point);
-
     in_memory_table_compression_format = parse_nvcomp_compression_format(
       "GQE_IN_MEMORY_TABLE_COMP_FORMAT", in_memory_table_compression_format);
 

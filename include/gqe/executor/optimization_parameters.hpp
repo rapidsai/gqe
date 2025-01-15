@@ -55,7 +55,6 @@ struct optimization_parameters {
         ///< buffer used by the customized Parquet reader. Default to 4 (GB).
   std::size_t io_auxiliary_threads =
     8;  ///< Number of auxiliary threads per worker launched by the customized Parquet reader.
-  bool replace_decimal_with_floating_point = true;  ///< Replace decimal types with FLOAT64.
   compression_format in_memory_table_compression_format =
     compression_format::none;  ///< Compression format for the in-memory table.
   nvcompType_t in_memory_table_compression_data_type =

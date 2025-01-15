@@ -32,10 +32,7 @@ class substrait_parser {
    *
    * @param tables_catalog Catalog containing input table metadata.
    */
-  substrait_parser(catalog* tables_catalog, gqe::optimization_parameters const* opt_params)
-    : _catalog(tables_catalog), _optimization_parameters(opt_params)
-  {
-  }
+  substrait_parser(catalog* tables_catalog) : _catalog(tables_catalog) {}
 
   /**
    * @brief Parse substrait binary file into logical plan
@@ -286,8 +283,7 @@ class substrait_parser {
   std::unique_ptr<gqe::logical::relation> parse_set_relation(
     substrait::SetRel const& set_relation) const;
 
-  catalog* _catalog                                            = nullptr;
-  gqe::optimization_parameters const* _optimization_parameters = nullptr;
+  catalog* _catalog;
   std::unordered_map<uint32_t, std::string> function_reference_to_name;
 };
 }  // namespace gqe

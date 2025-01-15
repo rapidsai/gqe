@@ -16,7 +16,6 @@
 #include <gqe/utility/logger.hpp>
 
 #include <cudf/types.hpp>
-#include <cudf/utilities/traits.hpp>
 
 #include <regex>
 #include <stdexcept>
@@ -40,9 +39,7 @@ inline std::string list_to_string(std::vector<cudf::data_type> const& types)
   bool first                   = true;
   for (auto dt : types) {
     if (!first) data_type_string += ", ";
-    data_type_string += "\"" + cudf::type_to_name(dt);
-    if (cudf::is_fixed_point(dt)) { data_type_string += ":" + std::to_string(dt.scale()); }
-    data_type_string += "\"";
+    data_type_string += "\"" + cudf::type_to_name(dt) + "\"";
     first = false;
   }
   return data_type_string + "]";

@@ -12,7 +12,6 @@
 
 #pragma once
 
-#include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/types.hpp>
 
 #include <cudf/types.hpp>
@@ -24,6 +23,15 @@
 
 namespace gqe::utility {
 namespace tpch {
+
+/**
+ * @brief Type mappings between TPC-H and GQE
+ */
+constexpr auto identifier_type = cudf::data_type(cudf::type_id::INT32);
+constexpr auto integer_type    = cudf::data_type(cudf::type_id::INT32);
+constexpr auto decimal_type    = cudf::data_type(cudf::type_id::FLOAT64);
+constexpr auto string_type     = cudf::data_type(cudf::type_id::STRING);
+constexpr auto date_type       = cudf::data_type(cudf::type_id::TIMESTAMP_DAYS);
 
 /**
  * @brief Helper type to map column names to data types
@@ -38,8 +46,8 @@ using column_definition_type = std::pair<std::string, cudf::data_type>;
  *
  * @return A map, which associates table names to column definition vectors
  */
-std::unordered_map<std::string, std::vector<column_definition_type>> const& table_definitions(
-  bool enable_fixed_point = false) noexcept;
+std::unordered_map<std::string, std::vector<column_definition_type>> const&
+table_definitions() noexcept;
 
 }  // namespace tpch
 }  // namespace gqe::utility

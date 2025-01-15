@@ -10,25 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-#include <cudf/fixed_point/fixed_point.hpp>
 #include <gqe/utility/tpcds.hpp>
 
 namespace gqe::utility {
 
 namespace tpcds {
 
-std::unordered_map<std::string, std::vector<column_definition_type>> const& table_definitions(
-  bool enable_fixed_point) noexcept
+std::unordered_map<std::string, std::vector<column_definition_type>> const&
+table_definitions() noexcept
 {
-  constexpr auto identifier_type = cudf::data_type(cudf::type_id::INT32);
-  constexpr auto integer_type    = cudf::data_type(cudf::type_id::INT32);
-  constexpr auto string_type     = cudf::data_type(cudf::type_id::STRING);
-  constexpr auto date_type       = cudf::data_type(cudf::type_id::TIMESTAMP_DAYS);
-
-  const auto decimal_type = enable_fixed_point
-                              ? cudf::data_type(cudf::type_id::DECIMAL128, numeric::scale_type(-2))
-                              : cudf::data_type(cudf::type_id::FLOAT64);
-
   static const std::unordered_map<std::string, std::vector<column_definition_type>> definitions = {
     {"store_sales",
      {{"ss_sold_date_sk", identifier_type},

@@ -295,13 +295,9 @@ int main(int argc, char* argv[])
   gqe::catalog catalog;
 
   // register all tables
-  auto const& table_definitions =
-    (tpc_type == "ds")
-      ? gqe::utility::tpcds::table_definitions(read_opms.replace_decimal_with_floating_point)
-      : gqe::utility::tpch::table_definitions(read_opms.replace_decimal_with_floating_point);
-
+  auto const& table_definitions = (tpc_type == "ds") ? gqe::utility::tpcds::table_definitions()
+                                                     : gqe::utility::tpch::table_definitions();
   copy_plan_builder copy_plan(ctx_ref, &catalog);
-
   for (auto const& [name, definition] : table_definitions) {
     const auto file_paths   = gqe::utility::get_parquet_files(dataset_location + "/" + name);
     const auto storage_kind = parse_storage_kind(storage_kind_name, file_paths);
@@ -349,7 +345,7 @@ int main(int argc, char* argv[])
     auto const query_identifier = substrait_plan_file.stem().string();
 
     GQE_LOG_INFO("Building query plan for " + query_identifier);
-    gqe::substrait_parser parser(&catalog, &read_opms);
+    gqe::substrait_parser parser(&catalog);
     auto logical_plan = parser.from_file(substrait_plan_file.string());
     assert(logical_plan.size() == 1);
 

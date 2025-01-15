@@ -22,28 +22,6 @@
 namespace gqe {
 
 /**
- * @brief Determine the promoted decimal type between to types for a decimal binary operation.
- *
- * @param[in] required_scale The required scale for binary operation.
- * @param[in] left_type The type of the left-hand side of the expression.
- * @param[in] right_type The type of the right-hand side of the expression.
- */
-[[nodiscard]] cudf::type_id binary_op_decimal_promotion_type(int required_scale,
-                                                             cudf::data_type left_type,
-                                                             cudf::data_type right_type);
-
-/**
- * @brief Determine the gqe output type of a binary operation
- *
- * @param[in] binary_operator Binary operator of the expression.
- * @param[in] left_type The type of the left-hand side of the expression.
- * @param[in] right_type The type of the right-hand side of the expression.
- */
-[[nodiscard]] cudf::data_type arithmetic_output_type(cudf::binary_operator op,
-                                                     cudf::data_type left_type,
-                                                     cudf::data_type right_type);
-
-/**
  * @brief A binary-operator expression supported by cuDF.
  */
 class binary_op_expression : public expression {
@@ -189,15 +167,17 @@ class multiply_expression : public binary_op_expression {
 class divide_expression : public binary_op_expression {
  public:
   divide_expression(std::shared_ptr<expression> lhs, std::shared_ptr<expression> rhs)
-    : binary_op_expression(cudf::binary_operator::DIV, std::move(lhs), std::move(rhs))
+    : binary_op_expression(cudf::binary_operator::TRUE_DIV, std::move(lhs), std::move(rhs))
   {
   }
 
   /**
    * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
    */
-  [[nodiscard]] cudf::data_type data_type(
-    std::vector<cudf::data_type> const& column_types) const final;
+  [[nodiscard]] cudf::data_type data_type(std::vector<cudf::data_type> const&) const final
+  {
+    return cudf::data_type(cudf::type_id::FLOAT64);
+  }
 
   /**
    * @copydoc gqe::expression::to_string()

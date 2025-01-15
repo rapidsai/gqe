@@ -108,21 +108,6 @@ class expression_evaluator : public expression_visitor {
   /**
    * @copydoc gqe::expression_visitor::visit(literal_expression<T> const*)
    */
-  void visit(literal_expression<numeric::decimal32> const* expression) override;
-
-  /**
-   * @copydoc gqe::expression_visitor::visit(literal_expression<T> const*)
-   */
-  void visit(literal_expression<numeric::decimal64> const* expression) override;
-
-  /**
-   * @copydoc gqe::expression_visitor::visit(literal_expression<T> const*)
-   */
-  void visit(literal_expression<numeric::decimal128> const* expression) override;
-
-  /**
-   * @copydoc gqe::expression_visitor::visit(literal_expression<T> const*)
-   */
   void visit(literal_expression<std::string> const* expression) override;
 
   /**
@@ -242,11 +227,6 @@ class expression_evaluator : public expression_visitor {
    */
   template <typename T>
   void create_literal_context(literal_expression<T> const* expression) noexcept;
-
-  // @TODO remove once we have ast support for fixed_point.
-  template <typename Rep, numeric::Radix Rad>
-  void create_decimal_literal_context(
-    literal_expression<numeric::fixed_point<Rep, Rad>> const* expression) noexcept;
 
   cudf::table_view const&
     _table;  ///< Non-owning reference to the table on which to evaluate the expression.

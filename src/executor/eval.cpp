@@ -17,7 +17,6 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/datetime.hpp>
-#include <cudf/fixed_point/fixed_point.hpp>
 #include <cudf/strings/contains.hpp>
 #include <cudf/strings/slice.hpp>
 #include <cudf/transform.hpp>
@@ -26,227 +25,6 @@
 #include <algorithm>
 #include <stdexcept>
 #include <type_traits>
-
-namespace {
-
-// FIXME (breta): On a high-level, shouldn't we be passing the executor an "executable" plan? The
-// scaling logic could already take place on the logical query plan. That would also mean that
-// conditioning takes place once, instead of each time evaluate_expressions is called (i.e., for
-// each partition).
-class binary_op_data_conditioner {
- public:
-  binary_op_data_conditioner(cudf::binary_operator op,
-                             cudf::table_view const& table,
-                             gqe::column_reference_expression const* lhs_ref,
-                             gqe::expression_evaluator::evaluation_context const* lhs_context,
-                             gqe::column_reference_expression const* rhs_ref,
-                             gqe::expression_evaluator::evaluation_context const* rhs_context,
-                             cudf::data_type const& result_data_type)
-  {
-    cudf::data_type const lhs_type = set_input_and_get_type(LHS, table, lhs_ref, lhs_context);
-    cudf::data_type const rhs_type = set_input_and_get_type(RHS, table, rhs_ref, rhs_context);
-
-    _conditioned_binary_op = op;
-
-    if (cudf::is_fixed_point(result_data_type)) {
-      // FIXED POINT NOTES:
-      // 1) cudf requires lhs and rhs types to be the same.
-      // 2) cudf division
-      //    a) TRUE_DIV is not allowed
-      //    b) Dividend and divisor scales are subtracted for the result scale. This requires
-      //       us to cast the dividend to a larger scale to account for the subtraction.
-      // 3) cudf does not round. This must be done manually. (not implemented)
-
-      // FIXME (breta): Should TRUE_DIV always be floating point?
-
-      // Only DIV is supported for fixed-point.
-      if (op == cudf::binary_operator::TRUE_DIV) {
-        throw std::logic_error("TRUE_DIV is not supported for fixed-point (decimal) types.");
-      }
-
-      int needed_lhs_scale = 0;
-      // If dividing, calculate the scale for the dividend so that we promote to a large enough
-      // decimal type.
-      if (_conditioned_binary_op == cudf::binary_operator::DIV) {
-        needed_lhs_scale = result_data_type.scale() + lhs_type.scale();
-      }
-
-      // LHS and RSH can be different sizes or non-decimal, so we need to find a common decimal
-      // type to promote to when conditioning.
-      cudf::type_id const promotion_type =
-        gqe::binary_op_decimal_promotion_type(needed_lhs_scale, lhs_type, rhs_type);
-
-      condition_fixed_point_inputs(promotion_type, result_data_type);
-    }
-  }
-
-  [[nodiscard]] cudf::binary_operator binary_op() const noexcept { return _conditioned_binary_op; }
-
-  [[nodiscard]] cudf::column_view const& lhs_col_view() const noexcept
-  {
-    return _conditioned_input[LHS].col_view;
-  }
-
-  [[nodiscard]] cudf::scalar const* lhs_scalar() const noexcept
-  {
-    return _conditioned_input[LHS].scalar;
-  }
-
-  [[nodiscard]] cudf::column_view const& rhs_col_view() const noexcept
-  {
-    return _conditioned_input[RHS].col_view;
-  }
-
-  [[nodiscard]] cudf::scalar const* rhs_scalar() const noexcept
-  {
-    return _conditioned_input[RHS].scalar;
-  }
-
- private:
-  cudf::data_type set_input_and_get_type(
-    int input_idx,
-    cudf::table_view const& table,
-    gqe::column_reference_expression const* col_ref,
-    gqe::expression_evaluator::evaluation_context const* eval_context) noexcept
-  {
-    if (col_ref) {
-      _conditioned_input[input_idx].col_view = table.column(col_ref->column_idx());
-      return _conditioned_input[input_idx].col_view.type();
-    } else {
-      _conditioned_input[input_idx].scalar = eval_context->cudf_scalar.value().get();
-      return _conditioned_input[input_idx].scalar->type();
-    }
-  }
-
-  void condition_fixed_point_inputs(cudf::type_id promotion_type,
-                                    cudf::data_type const& result_data_type)
-  {
-    for (int input_idx = 0; input_idx < INPUT_COUNT; ++input_idx) {
-      // The fixed-point scale of the conditioned input.
-      int64_t scale = 0;
-      // When applying the scale to original input value, cudf::fixed_point_scalar will shift the
-      // decimal point. For example, {2, -3} will become 0.002. Since, we want it to be 2.000, we
-      // have to multiply the value such that we pass in {2000, -3}.
-      int64_t multiplier = 1;
-
-      // If dividing, condition the dividend to produce the correct scale type.
-      if (input_idx == LHS && _conditioned_binary_op == cudf::binary_operator::DIV) {
-        scale      = result_data_type.scale();
-        multiplier = static_cast<int64_t>(pow(10, -scale));
-      }
-
-      condition_fixed_point_input(input_idx, scale, multiplier, promotion_type);
-    }
-  }
-
-  void condition_fixed_point_input(int input_idx,
-                                   int64_t scale,
-                                   int64_t multiplier,
-                                   cudf::type_id promotion_type)
-  {
-    // TODO: Consider checks to avoid unneeded conditioning.
-    auto& cond_input = _conditioned_input[input_idx];
-    if (!cond_input.col_view.is_empty()) {
-      scale += cond_input.col_view.type().scale();
-      cond_input.conditioned_col =
-        cudf::cast(cond_input.col_view, cudf::data_type(promotion_type, scale));
-      cond_input.col_view = cond_input.conditioned_col->view();
-    } else {
-      scale += cond_input.scalar->type().scale();
-      cond_input.conditioned_scalar =
-        condition_scalar(cond_input.scalar, promotion_type, multiplier, scale);
-      cond_input.scalar = cond_input.conditioned_scalar.get();
-    }
-  }
-
-  std::unique_ptr<cudf::scalar> condition_scalar(cudf::scalar* src,
-                                                 cudf::type_id dst_type_id,
-                                                 int64_t value_multiplier,
-                                                 int64_t scale)
-  {
-    if (cudf::is_numeric(src->type())) {
-      switch (src->type().id()) {
-        case cudf::type_id::INT8: {
-          auto val = static_cast<cudf::numeric_scalar<int8_t>*>(src)->value();
-          return created_conditioned_scalar(val, dst_type_id, value_multiplier, scale);
-        }
-        case cudf::type_id::INT16: {
-          auto val = static_cast<cudf::numeric_scalar<int16_t>*>(src)->value();
-          return created_conditioned_scalar(val, dst_type_id, value_multiplier, scale);
-        }
-        case cudf::type_id::INT32: {
-          auto val = static_cast<cudf::numeric_scalar<int32_t>*>(src)->value();
-          return created_conditioned_scalar(val, dst_type_id, value_multiplier, scale);
-        }
-        case cudf::type_id::INT64: {
-          auto val = static_cast<cudf::numeric_scalar<int64_t>*>(src)->value();
-          return created_conditioned_scalar(val, dst_type_id, value_multiplier, scale);
-        }
-        case cudf::type_id::FLOAT32: {
-          auto val = static_cast<cudf::numeric_scalar<float>*>(src)->value();
-          return created_conditioned_scalar(val, dst_type_id, value_multiplier, scale);
-        }
-        case cudf::type_id::FLOAT64: {
-          auto val = static_cast<cudf::numeric_scalar<double>*>(src)->value();
-          return created_conditioned_scalar(val, dst_type_id, value_multiplier, scale);
-        }
-        default: throw std::runtime_error("src is not a numeric scalar type.");
-      }
-    } else if (cudf::is_fixed_point(src->type())) {
-      switch (src->type().id()) {
-        case cudf::type_id::DECIMAL32: {
-          auto val = static_cast<cudf::fixed_point_scalar<numeric::decimal32>*>(src)->value();
-          return created_conditioned_scalar(val, dst_type_id, value_multiplier, scale);
-        }
-        case cudf::type_id::DECIMAL64: {
-          auto val = static_cast<cudf::fixed_point_scalar<numeric::decimal64>*>(src)->value();
-          return created_conditioned_scalar(val, dst_type_id, value_multiplier, scale);
-        }
-        case cudf::type_id::DECIMAL128: {
-          auto val = static_cast<cudf::fixed_point_scalar<numeric::decimal128>*>(src)->value();
-          return created_conditioned_scalar(val, dst_type_id, value_multiplier, scale);
-        }
-        default: throw std::runtime_error("src is not a fixed point scalar type.");
-      }
-    } else {
-      throw std::runtime_error("src is an unsupported scalar type.");
-    }
-  }
-
-  template <typename T>
-  std::unique_ptr<cudf::scalar> created_conditioned_scalar(T const& val,
-                                                           cudf::type_id dst_type_id,
-                                                           int64_t multiplier,
-                                                           int64_t scale)
-  {
-    if (dst_type_id == cudf::type_id::DECIMAL32) {
-      return std::make_unique<cudf::fixed_point_scalar<numeric::decimal32>>(
-        val * multiplier, numeric::scale_type(scale));
-    } else if (dst_type_id == cudf::type_id::DECIMAL64) {
-      return std::make_unique<cudf::fixed_point_scalar<numeric::decimal64>>(
-        val * multiplier, numeric::scale_type(scale));
-    } else if (dst_type_id == cudf::type_id::DECIMAL128) {
-      return std::make_unique<cudf::fixed_point_scalar<numeric::decimal128>>(
-        val * multiplier, numeric::scale_type(scale));
-    } else {
-      throw std::runtime_error("dst_type_id must be a decimal type.");
-    }
-  }
-
-  enum { LHS, RHS, INPUT_COUNT };
-
-  struct _conditioned_input {
-    // Placeholders for potential conditioned vales
-    std::unique_ptr<cudf::column> conditioned_col;
-    std::unique_ptr<cudf::scalar> conditioned_scalar;
-    cudf::column_view col_view;
-    cudf::scalar* scalar;
-  } _conditioned_input[INPUT_COUNT];
-
-  cudf::binary_operator _conditioned_binary_op;
-};
-
-}  // namespace
 
 namespace gqe {
 
@@ -260,7 +38,6 @@ namespace gqe {
       {cudf::binary_operator::SUB, cudf::ast::ast_operator::SUB},
       {cudf::binary_operator::MUL, cudf::ast::ast_operator::MUL},
       {cudf::binary_operator::TRUE_DIV, cudf::ast::ast_operator::TRUE_DIV},
-      {cudf::binary_operator::DIV, cudf::ast::ast_operator::DIV},
       {cudf::binary_operator::NULL_LOGICAL_AND, cudf::ast::ast_operator::NULL_LOGICAL_AND},
       {cudf::binary_operator::NULL_LOGICAL_OR, cudf::ast::ast_operator::NULL_LOGICAL_OR},
       {cudf::binary_operator::EQUAL, cudf::ast::ast_operator::EQUAL},
@@ -386,30 +163,30 @@ expression_evaluator::evaluate() const
                                    children[1]->to_string() + ".");
           }
 
-          auto const binary_op        = binop->binary_operator();
-          auto const result_data_type = binop->data_type(column_types);
-
-          binary_op_data_conditioner data_conditioner(
-            binary_op, table, lhs_ref, lhs_context, rhs_ref, rhs_context, result_data_type);
-
-          // If the expression is a binary op we can evaluate it using `cudf::binary_operation`.
+          // if the expression is a binary op we can evaluate it using `cudf::binary_operation`.
           // Children can only be of type column_reference or literal -> 4 combinations.
           if (lhs_ref && rhs_ref) {
-            append_result(cudf::binary_operation(data_conditioner.lhs_col_view(),
-                                                 data_conditioner.rhs_col_view(),
-                                                 data_conditioner.binary_op(),
-                                                 result_data_type));
-          } else if (lhs_ref && !rhs_ref) {
-            append_result(cudf::binary_operation(data_conditioner.lhs_col_view(),
-                                                 *data_conditioner.rhs_scalar(),
-                                                 data_conditioner.binary_op(),
-                                                 result_data_type));
-          } else if (!lhs_ref && rhs_ref) {
-            append_result(cudf::binary_operation(*data_conditioner.lhs_scalar(),
-                                                 data_conditioner.rhs_col_view(),
-                                                 data_conditioner.binary_op(),
-                                                 result_data_type));
-          } else if (!lhs_ref && !rhs_ref) {
+            append_result(cudf::binary_operation(table.column(lhs_ref->column_idx()),
+                                                 table.column(rhs_ref->column_idx()),
+                                                 binop->binary_operator(),
+                                                 binop->data_type(column_types)));
+          }
+
+          if (lhs_ref && !rhs_ref) {
+            append_result(cudf::binary_operation(table.column(lhs_ref->column_idx()),
+                                                 *(rhs_context->cudf_scalar.value().get()),
+                                                 binop->binary_operator(),
+                                                 binop->data_type(column_types)));
+          }
+
+          if (!lhs_ref && rhs_ref) {
+            append_result(cudf::binary_operation(*(lhs_context->cudf_scalar.value().get()),
+                                                 table.column(rhs_ref->column_idx()),
+                                                 binop->binary_operator(),
+                                                 binop->data_type(column_types)));
+          }
+
+          if (!lhs_ref && !rhs_ref) {
             throw std::logic_error("Evaluating " + binop->to_string() +
                                    " on two scalar inputs in the fallback path is not supported");
           }
@@ -624,24 +401,6 @@ void expression_evaluator::visit(literal_expression<double> const* expression)
   this->create_literal_context(expression);
 }
 
-void expression_evaluator::visit(literal_expression<numeric::decimal32> const* expression)
-{
-  // @TODO once we have ast support for fixed_point, use create_literal_context.
-  this->create_decimal_literal_context(expression);
-}
-
-void expression_evaluator::visit(literal_expression<numeric::decimal64> const* expression)
-{
-  // @TODO once we have ast support for fixed_point, use create_literal_context.
-  this->create_decimal_literal_context(expression);
-}
-
-void expression_evaluator::visit(literal_expression<numeric::decimal128> const* expression)
-{
-  // @TODO once we have ast support for fixed_point, use create_literal_context.
-  this->create_decimal_literal_context(expression);
-}
-
 void expression_evaluator::visit(literal_expression<std::string> const* expression)
 {
   this->create_literal_context(expression);
@@ -745,11 +504,9 @@ void expression_evaluator::visit(binary_op_expression const* expression)
     context.child_contexts.emplace_back(&rhs_context);
 
     bool const can_use_cudf_ast =
-      // @TODO - Remove fixed-point check once we have AST support.
-      !cudf::is_fixed_point(expression->data_type(this->_column_types)) &&
       cudf::is_fixed_width(expression->data_type(this->_column_types)) &&
-      lhs_context.cudf_ast_expression.has_value() && rhs_context.cudf_ast_expression.has_value() &&
-      (lhs->data_type(this->_column_types) == rhs->data_type(this->_column_types));
+      (expression->_children[0]->data_type(this->_column_types) ==
+       expression->_children[1]->data_type(this->_column_types));
 
     if (can_use_cudf_ast) {
       auto const op = cudf_to_ast_operator(expression->binary_operator());
@@ -949,26 +706,12 @@ void expression_evaluator::create_literal_context(literal_expression<T> const* e
                        cudf::string_scalar,
                        std::conditional_t<std::is_same_v<T, cudf::timestamp_D>,
                                           cudf::timestamp_scalar<cudf::timestamp_D>,
-                                          std::conditional_t<cudf::is_fixed_point<T>(),
-                                                             cudf::fixed_point_scalar<T>,
-                                                             cudf::numeric_scalar<T>>>>;
+                                          cudf::numeric_scalar<T>>>;
   auto [context, is_new] = this->emplace_context(expression, expression->clone());
   if (is_new) {
     auto scalar = std::make_unique<cudf_scalar_type>(expression->value(), !expression->is_null());
     context.cudf_ast_expression = std::make_unique<cudf::ast::literal>(*scalar);
     context.cudf_scalar         = std::move(scalar);
-  }
-}
-
-template <typename Rep, numeric::Radix Rad>
-void expression_evaluator::create_decimal_literal_context(
-  literal_expression<numeric::fixed_point<Rep, Rad>> const* expression) noexcept
-{
-  using decimal_type     = cudf::fixed_point_scalar<numeric::fixed_point<Rep, Rad>>;
-  auto [context, is_new] = this->emplace_context(expression, expression->clone());
-  if (is_new) {
-    auto scalar = std::make_unique<decimal_type>(expression->value(), !expression->is_null());
-    context.cudf_scalar = std::move(scalar);
   }
 }
 

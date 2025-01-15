@@ -13,10 +13,10 @@
 #pragma once
 
 #include <gqe/catalog.hpp>
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/physical/relation.hpp>
-#include <gqe/query_context.hpp>
 
 #include <memory>
 #include <unordered_map>
@@ -48,12 +48,11 @@ struct task_graph {
  * After this function call, the result tables of the root tasks in `task_graph_to_execute` are
  * available to the local GPU.
  *
- * @param[in] query_context Context object with resources and optimization
- * parameters for the query. This should usually be the same object as passed to
- * the task graph builder.
+ * @param[in] context Context object containing execution environment info. This should usually be
+ * the same object as passed to the task graph builder.
  * @param[in] task_graph The task graph to execute.
  */
-void execute_task_graph_single_gpu(query_context* query_context, task_graph const* task_graph);
+void execute_task_graph_single_gpu(context_reference ctx_ref, task_graph const* task_graph);
 
 /**
  * @brief A builder for generating a task graph from a physical plan.
@@ -63,11 +62,11 @@ class task_graph_builder {
   /**
    * @brief Construct a task graph builder object.
    *
-   * @param[in] query_context Context object containing optimization parameters
-   * and used for establishing resources to be used by the query executor.
+   * @param[in] ctx_ref Context object containing pointers to objects with execution environment
+   * info.
    * @param[in] catalog Catalog containing file locations and data types of the input tables.
    */
-  task_graph_builder(query_context* query_context, catalog const* catalog);
+  task_graph_builder(context_reference ctx_ref, catalog const* catalog);
 
   /**
    * @brief Generate a new task graph.
@@ -132,7 +131,7 @@ class task_graph_builder {
     _current_stage_id++;
   }
 
-  query_context* _query_context;
+  context_reference _ctx_ref;
   catalog const* _catalog;
   std::vector<std::vector<task*>> _stage_root_tasks = {};
   int32_t _current_stage_id                         = 0;

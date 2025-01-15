@@ -12,9 +12,9 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
-#include <gqe/query_context.hpp>
 
 #include <memory>
 #include <vector>
@@ -30,13 +30,13 @@ class project_task : public task {
    * `output_expressions`. The column `i` in the projection result is constructed by evaluating
    * `output_expressions[i]` on the `input`.
    *
-   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] ctx_ref The context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] input Input table on which `output_expressions` are evaluated.
    * @param[in] output_expressions Expressions for the result columns.
    */
-  project_task(query_context* query_context,
+  project_task(context_reference ctx_ref,
                int32_t task_id,
                int32_t stage_id,
                std::shared_ptr<task> input,

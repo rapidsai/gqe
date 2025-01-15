@@ -12,8 +12,8 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
-#include <gqe/query_context.hpp>
 
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
@@ -54,7 +54,7 @@ class task {
   /**
    * @brief Construct a new task.
    *
-   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] ctx_ref The context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] dependencies Dependent tasks of the new task. These tasks are the children nodes in
@@ -62,7 +62,7 @@ class task {
    * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
    * relation index `i` in a subquery expression refers to `subquery_tasks[i]`.
    */
-  task(query_context* query_context,
+  task(context_reference ctx_ref,
        int32_t task_id,
        int32_t stage_id,
        std::vector<std::shared_ptr<task>> dependencies,
@@ -147,7 +147,15 @@ class task {
   /**
    * @brief Return the query context.
    */
-  [[nodiscard]] query_context* get_query_context() const noexcept { return _query_context; }
+  [[nodiscard]] query_context* get_query_context() const noexcept
+  {
+    return _ctx_ref._query_context;
+  }
+
+  /**
+   * @brief Return the context reference.
+   */
+  [[nodiscard]] context_reference get_context_reference() const noexcept { return _ctx_ref; }
 
   /**
    * @brief Make the results of all dependencies (including subqueries) available to the local GPU.
@@ -169,7 +177,7 @@ class task {
  private:
   void prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent_tasks);
 
-  query_context* _query_context;
+  context_reference _ctx_ref;
   int32_t _task_id;
   int32_t _stage_id;
   std::vector<std::shared_ptr<task>> _dependencies;

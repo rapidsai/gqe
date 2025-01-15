@@ -12,10 +12,12 @@
 
 #include "utilities.hpp"
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/fetch.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/table/table.hpp>
@@ -46,13 +48,15 @@ class FetchTest : public ::testing::Test {
     input_columns.push_back(input_col_0.release());
     input_columns.push_back(input_col_1.release());
 
+    gqe::task_manager_context dbctx{};
     gqe::query_context qctx(gqe::optimization_parameters(true));
+    gqe::context_reference ctx_ref{&dbctx, &qctx};
 
     auto input_task = std::make_shared<gqe::test::executed_task>(
-      &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+      ctx_ref, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
 
     fetch_task = std::make_unique<gqe::fetch_task>(
-      &qctx, fetch_task_id, stage_id, std::move(input_task), offset, count);
+      ctx_ref, fetch_task_id, stage_id, std::move(input_task), offset, count);
   }
 
   std::unique_ptr<gqe::fetch_task> fetch_task;

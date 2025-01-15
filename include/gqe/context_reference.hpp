@@ -12,19 +12,22 @@
 
 #pragma once
 
-/*
- * This is the FFI header imported by the Rust cxxbridge. It must include all
- * APIs for which bindings are generated.
- *
- * The design of the `cxx_gqe` bindings is described in the Rust documentation
- * of this `gqe-sys` crate.
- */
+#include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
+#include <type_traits>
 
-#include <cxx_gqe/api.hpp>
-#include <cxx_gqe/executor.hpp>
-#include <cxx_gqe/logical.hpp>
-#include <cxx_gqe/physical.hpp>
-#include <cxx_gqe/query_context.hpp>
-#include <cxx_gqe/storage.hpp>
-#include <cxx_gqe/task_manager_context.hpp>
-#include <cxx_gqe/types.hpp>
+namespace gqe {
+
+/**
+ * @brief context_reference is as a trivially-copyable non-owning reference to various contexts
+ * that might be used during execution.
+ *
+ */
+struct context_reference {
+  task_manager_context* _task_manager_context;
+  query_context* _query_context;
+};
+
+static_assert(std::is_trivially_copyable_v<context_reference>,
+              "context_reference has to be trivially copyable");
+}  // namespace gqe

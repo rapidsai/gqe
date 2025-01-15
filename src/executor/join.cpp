@@ -48,7 +48,7 @@ cudf::hash_join const* join_hash_map_cache::hash_map(cudf::table_view build_keys
   return _hash_map.get();
 }
 
-join_task::join_task(query_context* query_context,
+join_task::join_task(context_reference ctx_ref,
                      int32_t task_id,
                      int32_t stage_id,
                      std::shared_ptr<task> left,
@@ -58,7 +58,7 @@ join_task::join_task(query_context* query_context,
                      std::vector<cudf::size_type> projection_indices,
                      std::shared_ptr<join_hash_map_cache> hash_map_cache,
                      bool materialize_output)
-  : task(query_context, task_id, stage_id, {std::move(left), std::move(right)}, {}),
+  : task(ctx_ref, task_id, stage_id, {std::move(left), std::move(right)}, {}),
     _join_type(join_type),
     _condition(std::move(condition)),
     _projection_indices(std::move(projection_indices)),
@@ -655,13 +655,13 @@ void join_task::execute()
 }
 
 materialize_join_from_position_lists_task::materialize_join_from_position_lists_task(
-  query_context* query_context,
+  context_reference ctx_ref,
   int32_t task_id,
   int32_t stage_id,
   std::vector<std::shared_ptr<task>> dependencies,
   join_type_type join_type,
   std::vector<cudf::size_type> projection_indices)
-  : task(query_context, task_id, stage_id, std::move(dependencies), {}),
+  : task(ctx_ref, task_id, stage_id, std::move(dependencies), {}),
     _join_type(join_type),
     _projection_indices(projection_indices)
 {

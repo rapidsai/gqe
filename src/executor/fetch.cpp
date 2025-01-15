@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/fetch.hpp>
 #include <gqe/utility/cuda.hpp>
@@ -21,13 +22,13 @@
 
 namespace gqe {
 
-fetch_task::fetch_task(query_context* query_context,
+fetch_task::fetch_task(context_reference ctx_ref,
                        int32_t task_id,
                        int32_t stage_id,
                        std::shared_ptr<task> input,
                        cudf::size_type offset,
                        cudf::size_type count)
-  : task(query_context, task_id, stage_id, {std::move(input)}, {}), _offset(offset), _count(count)
+  : task(ctx_ref, task_id, stage_id, {std::move(input)}, {}), _offset(offset), _count(count)
 {
 }
 

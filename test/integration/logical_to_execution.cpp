@@ -11,6 +11,7 @@
  */
 
 #include <gqe/catalog.hpp>
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/expression/binary_op.hpp>
@@ -23,6 +24,7 @@
 #include <gqe/logical/window.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
 
 #include <cudf/column/column.hpp>
@@ -126,13 +128,15 @@ TEST(LogicalToExecution, HardcodePlanAndData)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(join_relation.get());
 
+  gqe::task_manager_context dbctx{};
   gqe::query_context qctx(gqe::optimization_parameters(true));
+  gqe::context_reference ctx_ref{&dbctx, &qctx};
 
   // Generate the task graph and execute on a single GPU
-  gqe::task_graph_builder graph_builder(&qctx, &catalog);
+  gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::execute_task_graph_single_gpu(&qctx, task_graph.get());
+  gqe::execute_task_graph_single_gpu(ctx_ref, task_graph.get());
 
   // Verify the execution result
   cudf::test::strings_column_wrapper ref_col_0({"apple", "apple", "duck", "orange", "orange"});
@@ -216,12 +220,14 @@ TEST(LogicalToExecution, ApplyConcatApply)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(aggregate_relation.get());
 
+  gqe::task_manager_context dbctx{};
   gqe::query_context qctx(gqe::optimization_parameters(true));
+  gqe::context_reference ctx_ref{&dbctx, &qctx};
 
-  gqe::task_graph_builder graph_builder(&qctx, &catalog);
+  gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::execute_task_graph_single_gpu(&qctx, task_graph.get());
+  gqe::execute_task_graph_single_gpu(ctx_ref, task_graph.get());
 
   // Compare against reference result
   auto ref_table = std::make_unique<cudf::table>(std::move(ref_columns));
@@ -311,12 +317,14 @@ TEST(LogicalToExecution, Window)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(window_relation.get());
 
+  gqe::task_manager_context dbctx{};
   gqe::query_context qctx(gqe::optimization_parameters(true));
+  gqe::context_reference ctx_ref{&dbctx, &qctx};
 
-  gqe::task_graph_builder graph_builder(&qctx, &catalog);
+  gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::execute_task_graph_single_gpu(&qctx, task_graph.get());
+  gqe::execute_task_graph_single_gpu(ctx_ref, task_graph.get());
 
   // Compare against reference result
   cudf::test::fixed_width_column_wrapper<int32_t> ref_c0({1, 1, 2});
@@ -417,12 +425,14 @@ TEST(LogicalToExecution, WindowWithOrderBy)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(window_relation.get());
 
+  gqe::task_manager_context dbctx{};
   gqe::query_context qctx(gqe::optimization_parameters(true));
+  gqe::context_reference ctx_ref{&dbctx, &qctx};
 
-  gqe::task_graph_builder graph_builder(&qctx, &catalog);
+  gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::execute_task_graph_single_gpu(&qctx, task_graph.get());
+  gqe::execute_task_graph_single_gpu(ctx_ref, task_graph.get());
 
   // Compare against reference result
   cudf::test::fixed_width_column_wrapper<int32_t> ref_c0({1, 2, 1, 1, 2, 3});

@@ -12,9 +12,9 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/read.hpp>
 #include <gqe/expression/expression.hpp>
-#include <gqe/query_context.hpp>
 
 #include <memory>
 
@@ -54,7 +54,7 @@ class readable_view {
    * @brief Return multiple read tasks for the table kind.
    *
    * @param[in] task_parameters The parameters per read task.
-   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] ctx_ref The context in which the current task is running in.
    * @param[in] stage_id Stage of the current task.
    * @param[in] column_names Columns to be loaded.
    * @param[in] data_types Expected data types of each column. If the actual data type of a loaded
@@ -68,7 +68,7 @@ class readable_view {
    */
   virtual std::vector<std::unique_ptr<read_task_base>> get_read_tasks(
     std::vector<task_parameters>&& task_parameters,
-    query_context* query_context,
+    context_reference ctx_ref,
     int32_t stage_id,
     std::vector<std::string> column_names,
     std::vector<cudf::data_type> data_types) = 0;

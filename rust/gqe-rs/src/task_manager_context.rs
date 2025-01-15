@@ -10,21 +10,29 @@
  * its affiliates is strictly prohibited.
  */
 
-#pragma once
+//! Task manager context.
 
-/*
- * This is the FFI header imported by the Rust cxxbridge. It must include all
- * APIs for which bindings are generated.
- *
- * The design of the `cxx_gqe` bindings is described in the Rust documentation
- * of this `gqe-sys` crate.
- */
+use crate::error::Result;
+use cxx::UniquePtr;
 
-#include <cxx_gqe/api.hpp>
-#include <cxx_gqe/executor.hpp>
-#include <cxx_gqe/logical.hpp>
-#include <cxx_gqe/physical.hpp>
-#include <cxx_gqe/query_context.hpp>
-#include <cxx_gqe/storage.hpp>
-#include <cxx_gqe/task_manager_context.hpp>
-#include <cxx_gqe/types.hpp>
+/// Task manager context for execution on the node.
+pub struct TaskManagerContext(pub(crate) UniquePtr<gqe_sys::TaskManagerContext>);
+
+impl TaskManagerContext {
+    /// Returns a new db context instance.
+    pub fn new() -> Result<Self> {
+        Ok(Self(gqe_sys::new_task_manager_context()?))
+    }
+}
+
+unsafe impl Send for TaskManagerContext {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_task_manager_context() {
+        let _ = TaskManagerContext::new();
+    }
+}

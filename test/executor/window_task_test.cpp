@@ -12,10 +12,12 @@
 
 #include "utilities.hpp"
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/window.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/table/table.hpp>
@@ -40,7 +42,9 @@ class WindowOrderByPartitionBy : public ::testing::Test {
     constexpr int32_t input_task_id  = 0;
     constexpr int32_t filter_task_id = 1;
 
+    gqe::task_manager_context dbctx{};
     gqe::query_context qctx(gqe::optimization_parameters(true));
+    gqe::context_reference ctx_ref{&dbctx, &qctx};
 
     int64_column_wrapper input_col_0({1, 1, 2, 1, 2, 2, 1});
     int64_column_wrapper input_col_1({1, 2, 4, 3, 5, 6, 2});
@@ -54,7 +58,7 @@ class WindowOrderByPartitionBy : public ::testing::Test {
     input_columns.push_back(input_col_3.release());
 
     auto input_task = std::make_shared<gqe::test::executed_task>(
-      &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+      ctx_ref, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
 
     std::unique_ptr<gqe::expression> arguments{
       std::make_unique<gqe::column_reference_expression>(1)};
@@ -82,7 +86,7 @@ class WindowOrderByPartitionBy : public ::testing::Test {
     gqe::window_frame_bound::unbounded window_lower_bound;
     gqe::window_frame_bound::bounded window_upper_bound(0);
 
-    window_task = std::make_unique<gqe::window_task>(&qctx,
+    window_task = std::make_unique<gqe::window_task>(ctx_ref,
                                                      filter_task_id,
                                                      stage_id,
                                                      std::move(input_task),
@@ -107,7 +111,9 @@ class WindowOrderBy : public ::testing::Test {
     constexpr int32_t input_task_id  = 0;
     constexpr int32_t filter_task_id = 1;
 
+    gqe::task_manager_context dbctx{};
     gqe::query_context qctx(gqe::optimization_parameters(true));
+    gqe::context_reference ctx_ref{&dbctx, &qctx};
 
     int64_column_wrapper input_col_0({1, 2, 3, 4, 5, 6, 2});
     int32_column_wrapper input_col_1({6, 5, 4, 3, 2, 1, 7});
@@ -119,7 +125,7 @@ class WindowOrderBy : public ::testing::Test {
     input_columns.push_back(input_col_2.release());
 
     auto input_task = std::make_shared<gqe::test::executed_task>(
-      &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+      ctx_ref, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
 
     std::unique_ptr<gqe::expression> arguments{
       std::make_unique<gqe::column_reference_expression>(0)};
@@ -144,7 +150,7 @@ class WindowOrderBy : public ::testing::Test {
     gqe::window_frame_bound::unbounded window_lower_bound;
     gqe::window_frame_bound::bounded window_upper_bound(0);
 
-    window_task = std::make_unique<gqe::window_task>(&qctx,
+    window_task = std::make_unique<gqe::window_task>(ctx_ref,
                                                      filter_task_id,
                                                      stage_id,
                                                      std::move(input_task),
@@ -169,7 +175,9 @@ class WindowOrderByPartitionByRank : public ::testing::Test {
     constexpr int32_t input_task_id  = 0;
     constexpr int32_t filter_task_id = 1;
 
+    gqe::task_manager_context dbctx{};
     gqe::query_context qctx(gqe::optimization_parameters(true));
+    gqe::context_reference ctx_ref{&dbctx, &qctx};
 
     int64_column_wrapper input_col_0({1, 1, 2, 3, 2, 2, 1, 1});
     int32_column_wrapper input_col_1({5, 5, 4, 3, 2, 1, 0, 6});
@@ -181,7 +189,7 @@ class WindowOrderByPartitionByRank : public ::testing::Test {
     input_columns.push_back(input_col_2.release());
 
     auto input_task = std::make_shared<gqe::test::executed_task>(
-      &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+      ctx_ref, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
 
     std::vector<std::unique_ptr<gqe::expression>> arguments_vec;
 
@@ -206,7 +214,7 @@ class WindowOrderByPartitionByRank : public ::testing::Test {
     gqe::window_frame_bound::unbounded window_lower_bound;
     gqe::window_frame_bound::bounded window_upper_bound(0);
 
-    window_task = std::make_unique<gqe::window_task>(&qctx,
+    window_task = std::make_unique<gqe::window_task>(ctx_ref,
                                                      filter_task_id,
                                                      stage_id,
                                                      std::move(input_task),
@@ -231,7 +239,9 @@ class WindowOrderByRank : public ::testing::Test {
     constexpr int32_t input_task_id  = 0;
     constexpr int32_t filter_task_id = 1;
 
+    gqe::task_manager_context dbctx{};
     gqe::query_context qctx(gqe::optimization_parameters(true));
+    gqe::context_reference ctx_ref{&dbctx, &qctx};
 
     int32_column_wrapper input_col_0({5, 5, 4, 3, 2, 1, 0, 6});
     int64_column_wrapper input_col_1({0, 1, 2, 3, 4, 5, 6, 7});
@@ -241,7 +251,7 @@ class WindowOrderByRank : public ::testing::Test {
     input_columns.push_back(input_col_1.release());
 
     auto input_task = std::make_shared<gqe::test::executed_task>(
-      &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+      ctx_ref, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
 
     std::vector<std::unique_ptr<gqe::expression>> arguments_vec;
 
@@ -263,7 +273,7 @@ class WindowOrderByRank : public ::testing::Test {
     gqe::window_frame_bound::unbounded window_lower_bound;
     gqe::window_frame_bound::bounded window_upper_bound(0);
 
-    window_task = std::make_unique<gqe::window_task>(&qctx,
+    window_task = std::make_unique<gqe::window_task>(ctx_ref,
                                                      filter_task_id,
                                                      stage_id,
                                                      std::move(input_task),

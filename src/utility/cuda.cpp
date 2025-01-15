@@ -30,13 +30,6 @@ rmm::cuda_device_id current_cuda_device_id()
   return rmm::cuda_device_id{id};
 }
 
-std::unique_ptr<cudaDeviceProp> get_cuda_device_property(rmm::cuda_device_id id)
-{
-  auto properties = std::make_unique<cudaDeviceProp>();
-  GQE_CUDA_TRY(cudaGetDeviceProperties(properties.get(), id.value()));
-  return properties;
-}
-
 }  // namespace utility
 
 }  // namespace gqe

@@ -456,7 +456,7 @@ void in_memory_table::row_group_appender::operator()(std::vector<row_group>&& ne
   }
 }
 
-in_memory_read_task::in_memory_read_task(query_context* query_context,
+in_memory_read_task::in_memory_read_task(context_reference ctx_ref,
                                          int32_t task_id,
                                          int32_t stage_id,
                                          std::vector<const row_group*> row_groups,
@@ -466,7 +466,7 @@ in_memory_read_task::in_memory_read_task(query_context* query_context,
                                          std::unique_ptr<gqe::expression> partial_filter,
                                          std::vector<std::shared_ptr<task>> subquery_tasks,
                                          bool force_zero_copy_disable)
-  : read_task_base(query_context, task_id, stage_id, std::move(subquery_tasks)),
+  : read_task_base(ctx_ref, task_id, stage_id, std::move(subquery_tasks)),
     _row_groups(std::move(row_groups)),
     _column_indexes(std::move(column_indexes)),
     _data_types(std::move(data_types)),
@@ -558,7 +558,9 @@ void in_memory_read_task::execute()
   utility::nvtx_scoped_range in_memory_read_task_range("in_memory_read_task");
 
   // Check if zero-copy is legal.
-  bool is_gpu_accessible   = memory_kind::is_gpu_accessible(_memory_kind);
+  auto ctx_ref             = get_context_reference();
+  auto& device_prop        = ctx_ref._task_manager_context->_device_properties;
+  bool is_gpu_accessible   = memory_kind::is_gpu_accessible(device_prop, _memory_kind);
   bool is_single_row_group = _row_groups.size() <= 1;
   bool is_compressed =
     get_query_context()->parameters.in_memory_table_compression_format != compression_format::none;
@@ -591,7 +593,7 @@ void in_memory_read_task::execute()
 }
 
 in_memory_write_task::in_memory_write_task(
-  query_context* query_context,
+  context_reference ctx_ref,
   int32_t task_id,
   int32_t stage_id,
   std::shared_ptr<task> input,
@@ -600,7 +602,7 @@ in_memory_write_task::in_memory_write_task(
   std::vector<cudf::size_type> column_indexes,
   std::vector<cudf::data_type> data_types,
   table_statistics_manager* statistics)
-  : write_task_base(query_context, task_id, stage_id, input),
+  : write_task_base(ctx_ref, task_id, stage_id, input),
     _non_owned_memory_resource(non_owned_memory_resource),
     _appender(std::move(appender)),
     _column_indexes(std::move(column_indexes)),
@@ -693,7 +695,7 @@ in_memory_readable_view::in_memory_readable_view(in_memory_table* non_owning_tab
 
 std::vector<std::unique_ptr<read_task_base>> in_memory_readable_view::get_read_tasks(
   std::vector<readable_view::task_parameters>&& task_parameters,
-  query_context* query_context,
+  context_reference ctx_ref,
   int32_t stage_id,
   std::vector<std::string> column_names,
   std::vector<cudf::data_type> data_types)
@@ -749,7 +751,7 @@ std::vector<std::unique_ptr<read_task_base>> in_memory_readable_view::get_read_t
                      [](const row_group& rg) { return &rg; });
 
       // Create a new read task
-      auto read_task = std::make_unique<in_memory_read_task>(query_context,
+      auto read_task = std::make_unique<in_memory_read_task>(ctx_ref,
                                                              task->task_id,
                                                              stage_id,
                                                              std::move(row_groups_chunk),
@@ -775,7 +777,7 @@ in_memory_writeable_view::in_memory_writeable_view(in_memory_table* non_owning_t
 
 std::vector<std::unique_ptr<write_task_base>> in_memory_writeable_view::get_write_tasks(
   std::vector<writeable_view::task_parameters>&& task_parameters,
-  query_context* query_context,
+  context_reference ctx_ref,
   int32_t stage_id,
   std::vector<std::string> column_names,
   std::vector<cudf::data_type> data_types,
@@ -807,7 +809,7 @@ std::vector<std::unique_ptr<write_task_base>> in_memory_writeable_view::get_writ
 
     // Create a new write task
     auto write_task =
-      std::make_unique<in_memory_write_task>(query_context,
+      std::make_unique<in_memory_write_task>(ctx_ref,
                                              task_parameter.task_id,
                                              stage_id,
                                              std::move(task_parameter.input),

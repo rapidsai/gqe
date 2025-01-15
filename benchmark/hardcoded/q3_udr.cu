@@ -13,6 +13,7 @@
 #include "../utility.hpp"
 
 #include <gqe/catalog.hpp>
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/concatenate.hpp>
 #include <gqe/executor/join.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
@@ -29,6 +30,7 @@
 #include <gqe/logical/user_defined.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/utility/helpers.hpp>
 
 #include <cuco/static_map.cuh>
@@ -89,7 +91,7 @@ constexpr cuco::empty_value<int64_t> empty_value_sentinel(-1);
 // "store_sales" tables.
 class custom_task : public gqe::task {
  public:
-  custom_task(gqe::query_context* query_context,
+  custom_task(gqe::context_reference ctx_ref,
               int32_t task_id,
               int32_t stage_id,
               std::shared_ptr<gqe::task> date_dim_table,
@@ -99,13 +101,13 @@ class custom_task : public gqe::task {
   void execute() override;
 };
 
-custom_task::custom_task(gqe::query_context* query_context,
+custom_task::custom_task(gqe::context_reference ctx_ref,
                          int32_t task_id,
                          int32_t stage_id,
                          std::shared_ptr<gqe::task> date_dim_table,
                          std::shared_ptr<gqe::task> item_table,
                          std::shared_ptr<gqe::task> store_sales_table)
-  : gqe::task(query_context,
+  : gqe::task(ctx_ref,
               task_id,
               stage_id,
               {std::move(date_dim_table), std::move(item_table), std::move(store_sales_table)},
@@ -375,22 +377,22 @@ void custom_task::execute()
 // Functor for generating the output tasks from input tasks
 std::vector<std::shared_ptr<gqe::task>> custom_relation_generate_tasks(
   std::vector<std::vector<std::shared_ptr<gqe::task>>> children_tasks,
-  gqe::query_context* query_context,
+  gqe::context_reference ctx_ref,
   int32_t& task_id,
   int32_t stage_id)
 {
   auto date_dim_table =
-    std::make_shared<gqe::concatenate_task>(query_context, task_id, stage_id, children_tasks[0]);
+    std::make_shared<gqe::concatenate_task>(ctx_ref, task_id, stage_id, children_tasks[0]);
   task_id++;
 
   auto item_table =
-    std::make_shared<gqe::concatenate_task>(query_context, task_id, stage_id, children_tasks[1]);
+    std::make_shared<gqe::concatenate_task>(ctx_ref, task_id, stage_id, children_tasks[1]);
   task_id++;
 
   std::vector<std::shared_ptr<gqe::task>> pipeline_results;
   for (auto const& sales_table : children_tasks[2]) {
     pipeline_results.push_back(std::make_shared<custom_task>(
-      query_context, task_id, stage_id, date_dim_table, item_table, sales_table));
+      ctx_ref, task_id, stage_id, date_dim_table, item_table, sales_table));
     task_id++;
   }
 
@@ -538,12 +540,14 @@ int main(int argc, char* argv[])
   gqe::physical_plan_builder plan_builder(&tpcds_catalog);
   auto physical_plan = plan_builder.build(logical_plan.get());
 
+  gqe::task_manager_context dbctx{};
   gqe::query_context qctx(gqe::optimization_parameters{});
+  gqe::context_reference ctx_ref{&dbctx, &qctx};
 
-  gqe::task_graph_builder graph_builder(&qctx, &tpcds_catalog);
+  gqe::task_graph_builder graph_builder(ctx_ref, &tpcds_catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
-  gqe::utility::time_function(gqe::execute_task_graph_single_gpu, &qctx, task_graph.get());
+  gqe::utility::time_function(gqe::execute_task_graph_single_gpu, ctx_ref, task_graph.get());
 
   // Output the result to disk
   assert(task_graph->root_tasks.size() == 1);

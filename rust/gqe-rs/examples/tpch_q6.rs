@@ -16,6 +16,7 @@ use gqe_rs::executor::{self, OptimizationParameters, TaskGraphBuilder};
 use gqe_rs::logical::SubstraitParser;
 use gqe_rs::physical::PhysicalPlanBuilder;
 use gqe_rs::query_context::QueryContext;
+use gqe_rs::task_manager_context::TaskManagerContext;
 use std::env;
 
 fn main() {
@@ -57,7 +58,9 @@ fn main() {
 
     let parameters =
         OptimizationParameters::new().expect("Failed to construct optimization parameters");
-    let mut ctx = QueryContext::new(&parameters).expect("Failed to construct a query context.");
+    
+    let mut dbctx = TaskManagerContext::new().expect("Failed to construct a db context.");;
+    let mut qctx = QueryContext::new(&parameters).expect("Failed to construct a query context.");
 
     println!("{:?}", parameters);
 
@@ -83,7 +86,7 @@ fn main() {
     };
 
     let task_graph = {
-        let mut task_graph_builder = TaskGraphBuilder::new(&mut ctx, &mut catalog)
+        let mut task_graph_builder = TaskGraphBuilder::new(&mut dbctx, &mut qctx, &mut catalog)
             .expect("Failed to construct a task graph builder.");
         let task_graph = task_graph_builder
             .build(&mut physical_plan)
@@ -91,7 +94,7 @@ fn main() {
         task_graph
     };
 
-    executor::execute_task_graph_single_gpu(&mut ctx, &task_graph)
+    executor::execute_task_graph_single_gpu(&mut dbctx, &mut qctx, &task_graph)
         .expect("Failed to execute the task graph.");
 
     println!("Executed");

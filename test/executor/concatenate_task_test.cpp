@@ -12,9 +12,11 @@
 
 #include "utilities.hpp"
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/concatenate.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/table/table.hpp>
@@ -33,8 +35,9 @@ TEST(ConcatenateTaskTest, MixTypes)
   // string. All columns have hand-coded values. Then, a concatenate task with these input tables is
   // created and executed. The correctness is verified by comparing against the hand-coded reference
   // result.
-
+  gqe::task_manager_context dbctx{};
   gqe::query_context qctx(gqe::optimization_parameters(true));
+  gqe::context_reference ctx_ref{&dbctx, &qctx};
   constexpr int32_t stage_id = 0;
 
   cudf::test::fixed_width_column_wrapper<int64_t> table_0_col_0({1, 2});
@@ -48,7 +51,7 @@ TEST(ConcatenateTaskTest, MixTypes)
   auto table_0                      = std::make_unique<cudf::table>(std::move(table_0_columns));
   constexpr int32_t table_0_task_id = 0;
   auto table_0_task                 = std::make_shared<gqe::test::executed_task>(
-    &qctx, table_0_task_id, stage_id, std::move(table_0));
+    ctx_ref, table_0_task_id, stage_id, std::move(table_0));
 
   cudf::test::fixed_width_column_wrapper<int64_t> table_1_col_0({3, 4});
   cudf::test::fixed_width_column_wrapper<int32_t> table_1_col_1({5, 6});
@@ -61,7 +64,7 @@ TEST(ConcatenateTaskTest, MixTypes)
   auto table_1                      = std::make_unique<cudf::table>(std::move(table_1_columns));
   constexpr int32_t table_1_task_id = 1;
   auto table_1_task                 = std::make_shared<gqe::test::executed_task>(
-    &qctx, table_1_task_id, stage_id, std::move(table_1));
+    ctx_ref, table_1_task_id, stage_id, std::move(table_1));
 
   std::vector<std::shared_ptr<gqe::task>> inputs;
   inputs.push_back(std::move(table_0_task));
@@ -69,7 +72,7 @@ TEST(ConcatenateTaskTest, MixTypes)
 
   constexpr int32_t concatenate_task_id = 2;
   auto concatenate_task                 = std::make_unique<gqe::concatenate_task>(
-    &qctx, concatenate_task_id, stage_id, std::move(inputs));
+    ctx_ref, concatenate_task_id, stage_id, std::move(inputs));
   concatenate_task->execute();
 
   cudf::test::fixed_width_column_wrapper<int64_t> ref_col_0({1, 2, 3, 4});

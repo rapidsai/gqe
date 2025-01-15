@@ -12,6 +12,7 @@
 
 #include <cxx_gqe/executor.hpp>
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/task_graph.hpp>
 
@@ -73,22 +74,31 @@ std::unique_ptr<query_context> new_query_context(cxx_gqe::optimization_parameter
   return std::make_unique<query_context>(std::move(qc));
 }
 
+std::unique_ptr<task_manager_context> new_task_manager_context()
+{
+  auto dbc = gqe::task_manager_context();
+  return std::make_unique<task_manager_context>(std::move(dbc));
+}
+
 std::unique_ptr<task_graph> task_graph_builder::build(
   std::shared_ptr<physical_relation> root_relation)
 {
   return _builder.build(root_relation.get());
 }
 
-std::unique_ptr<task_graph_builder> new_task_graph_builder(query_context& query_context,
-                                                           catalog& catalog)
+std::unique_ptr<task_graph_builder> new_task_graph_builder(
+  task_manager_context& task_manager_context, query_context& query_context, catalog& catalog)
 {
-  return std::make_unique<task_graph_builder>(
-    std::move(gqe::task_graph_builder(&query_context.get(), &catalog.get())));
+  return std::make_unique<task_graph_builder>(std::move(gqe::task_graph_builder(
+    gqe::context_reference{&task_manager_context.get(), &query_context.get()}, &catalog.get())));
 }
 
-void execute_task_graph_single_gpu(query_context& query_context, task_graph const& task_graph)
+void execute_task_graph_single_gpu(task_manager_context& task_manager_context,
+                                   query_context& query_context,
+                                   task_graph const& task_graph)
 {
-  gqe::execute_task_graph_single_gpu(&query_context.get(), &task_graph);
+  gqe::execute_task_graph_single_gpu(
+    gqe::context_reference{&task_manager_context.get(), &query_context.get()}, &task_graph);
 }
 
 }  // namespace cxx_gqe

@@ -12,8 +12,8 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
-#include <gqe/query_context.hpp>
 
 #include <memory>
 #include <vector>
@@ -32,16 +32,16 @@ class concatenate_task : public task {
   /**
    * @brief Construct a concatenate task.
    *
-   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] ctx_ref The context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] inputs Input tables to be concatenated.
    */
-  concatenate_task(query_context* query_context,
+  concatenate_task(context_reference ctx_ref,
                    int32_t task_id,
                    int32_t stage_id,
                    std::vector<std::shared_ptr<task>> inputs)
-    : task(query_context, task_id, stage_id, std::move(inputs), {})
+    : task(ctx_ref, task_id, stage_id, std::move(inputs), {})
   {
   }
 

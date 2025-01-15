@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/gen_ident_col.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/logger.hpp>
@@ -24,11 +25,11 @@
 
 namespace gqe {
 
-gen_ident_col_task::gen_ident_col_task(query_context* query_context,
+gen_ident_col_task::gen_ident_col_task(context_reference ctx_ref,
                                        int32_t task_id,
                                        int32_t stage_id,
                                        std::shared_ptr<task> input)
-  : task(query_context, task_id, stage_id, {std::move(input)}, {})
+  : task(ctx_ref, task_id, stage_id, {std::move(input)}, {})
 {
 }
 

@@ -17,6 +17,7 @@ use gqe_rs::api::{Catalog, ColumnSchema as GqeColumnSchema, PartitioningSchemaKi
 use gqe_rs::executor::{self as gqe_executor, TaskGraphBuilder};
 use gqe_rs::logical::SubstraitParser;
 use gqe_rs::physical::PhysicalPlanBuilder;
+use gqe_rs::task_manager_context::TaskManagerContext;
 use gqe_rs::query_context::QueryContext;
 use log::trace;
 use std::ops::DerefMut;
@@ -133,7 +134,15 @@ pub(super) async fn execute_prepared_statement(
         // up a bit.
         let session = session.deref_mut();
 
-        let mut ctx = QueryContext::new(&session.parameters).map_err(|e| {
+        let mut dbctx = TaskManagerContext::new().map_err(|e| {
+            pg_wire_usererror(
+                PgErrorSeverity::Error,
+                PgErrorCode::InternalError,
+                format!("Failed to construct a db context: {}", e).as_str(),
+            )
+        })?;
+
+        let mut qctx = QueryContext::new(&session.parameters).map_err(|e| {
             pg_wire_usererror(
                 PgErrorSeverity::Error,
                 PgErrorCode::InternalError,
@@ -189,7 +198,7 @@ pub(super) async fn execute_prepared_statement(
         };
 
         let task_graph = {
-            let mut task_graph_builder = TaskGraphBuilder::new(&mut ctx, &mut session.catalog)
+            let mut task_graph_builder = TaskGraphBuilder::new(&mut dbctx, &mut qctx, &mut session.catalog)
                 .map_err(|e| {
                     pg_wire_usererror(
                         PgErrorSeverity::Error,
@@ -208,7 +217,7 @@ pub(super) async fn execute_prepared_statement(
         };
 
         let timer = Instant::now();
-        gqe_executor::execute_task_graph_single_gpu(&mut ctx, &task_graph).map_err(|e| {
+        gqe_executor::execute_task_graph_single_gpu(&mut dbctx, &mut qctx, &task_graph).map_err(|e| {
             pg_wire_usererror(
                 PgErrorSeverity::Error,
                 PgErrorCode::InternalError,
@@ -254,8 +263,16 @@ pub(super) async fn insert_from_table(
             src_table_name.as_str(),
             dst_table_name.as_str(),
         )?;
+        
+        let mut dbctx = TaskManagerContext::new().map_err(|e| {
+            pg_wire_usererror(
+                PgErrorSeverity::Error,
+                PgErrorCode::InternalError,
+                format!("Failed to construct a db context: {}", e).as_str(),
+            )
+        })?;
 
-        let mut ctx = QueryContext::new(&session.parameters).map_err(|e| {
+        let mut qctx = QueryContext::new(&session.parameters).map_err(|e| {
             pg_wire_usererror(
                 PgErrorSeverity::Error,
                 PgErrorCode::InternalError,
@@ -283,7 +300,7 @@ pub(super) async fn insert_from_table(
         };
 
         let task_graph = {
-            let mut task_graph_builder = TaskGraphBuilder::new(&mut ctx, &mut session.catalog)
+            let mut task_graph_builder = TaskGraphBuilder::new(&mut dbctx, &mut qctx, &mut session.catalog)
                 .map_err(|e| {
                     pg_wire_usererror(
                         PgErrorSeverity::Error,
@@ -302,7 +319,7 @@ pub(super) async fn insert_from_table(
         };
 
         let timer = Instant::now();
-        gqe_executor::execute_task_graph_single_gpu(&mut ctx, &task_graph).map_err(|e| {
+        gqe_executor::execute_task_graph_single_gpu(&mut dbctx, &mut qctx, &task_graph).map_err(|e| {
             pg_wire_usererror(
                 PgErrorSeverity::Error,
                 PgErrorCode::InternalError,

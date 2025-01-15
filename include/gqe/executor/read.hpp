@@ -12,10 +12,10 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/subquery.hpp>
-#include <gqe/query_context.hpp>
 
 #include <memory>
 #include <vector>
@@ -32,7 +32,7 @@ class read_task_base : public task {
   /**
    * @copydoc gqe::task::task()
    */
-  read_task_base(query_context* query_context,
+  read_task_base(context_reference ctx_ref,
                  int32_t task_id,
                  int32_t stage_id,
                  std::vector<std::shared_ptr<task>> subquery_tasks);

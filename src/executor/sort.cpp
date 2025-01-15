@@ -23,14 +23,14 @@
 
 namespace gqe {
 
-sort_task::sort_task(query_context* query_context,
+sort_task::sort_task(context_reference ctx_ref,
                      int32_t task_id,
                      int32_t stage_id,
                      std::shared_ptr<task> input,
                      std::vector<std::unique_ptr<expression>> keys,
                      std::vector<cudf::order> column_orders,
                      std::vector<cudf::null_order> null_precedences)
-  : task(query_context, task_id, stage_id, {std::move(input)}, {}),
+  : task(ctx_ref, task_id, stage_id, {std::move(input)}, {}),
     _keys(std::move(keys)),
     _column_orders(std::move(column_orders)),
     _null_precedences(std::move(null_precedences))

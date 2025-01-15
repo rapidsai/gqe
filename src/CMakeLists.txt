@@ -86,6 +86,7 @@ add_library(
     utility/tpch.cpp
     catalog.cpp
     query_context.cpp
+    device_properties.cpp
     types.cpp
 )
 

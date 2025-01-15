@@ -12,9 +12,9 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
-#include <gqe/query_context.hpp>
 
 #include <cudf/types.hpp>
 
@@ -31,7 +31,7 @@ class sort_task : public task {
    * The sort task reorders the rows of `input` according to the lexicographic ordering of the key
    * table, which is produced by evaluating `keys` on `input`.
    *
-   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] ctx_ref The context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] input Input table to reorder.
@@ -41,7 +41,7 @@ class sort_task : public task {
    * @param[in] null_precedences Whether a null element is smaller or larger than other elements.
    * The size of this argument must be the same as the size of `keys`.
    */
-  sort_task(query_context* query_context,
+  sort_task(context_reference ctx_ref,
             int32_t task_id,
             int32_t stage_id,
             std::shared_ptr<task> input,

@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/query_context.hpp>
 #include <gqe/types.hpp>
 
 #include <gqe/utility/cuda.hpp>
@@ -135,25 +136,20 @@ std::size_t page_kind::size() const noexcept
   return 0;
 }
 
-bool memory_kind::is_gpu_accessible(memory_kind::type type)
+bool memory_kind::is_gpu_accessible(const device_properties& device_prop, memory_kind::type type)
 {
-  auto check_pageable_access = []() -> bool {
-    // Check if zero copy is legal
-    auto device_properties = utility::get_cuda_device_property();
-    return device_properties->pageableMemoryAccess;
-  };
+  // Check if zero copy is legal
+  auto check_pageable_access = device_prop.get<device_properties::property::pageableMemoryAccess>();
 
   return std::visit(
-    utility::overloaded{[&](memory_kind::system) { return check_pageable_access(); },
-                        [&](memory_kind::numa) { return check_pageable_access(); },
+    utility::overloaded{[&](memory_kind::system) { return check_pageable_access; },
+                        [&](memory_kind::numa) { return check_pageable_access; },
                         [&](memory_kind::pinned) -> bool {
-                          auto device_properties = utility::get_cuda_device_property();
-                          return device_properties->unifiedAddressing;
+                          return device_prop.get<device_properties::property::unifiedAddressing>();
                         },
                         [](memory_kind::device) { return true; },
-                        [](memory_kind::managed) -> bool {
-                          auto device_properties = utility::get_cuda_device_property();
-                          return device_properties->managedMemory;
+                        [&](memory_kind::managed) -> bool {
+                          return device_prop.get<device_properties::property::managedMemory>();
                         }},
     type);
 }

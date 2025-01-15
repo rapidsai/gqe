@@ -67,7 +67,7 @@ std::unique_ptr<writeable_view> parquet_table::writeable_view()
   return std::unique_ptr<parquet_writeable_view>(new parquet_writeable_view(_file_paths.get()));
 }
 
-parquet_read_task::parquet_read_task(query_context* query_context,
+parquet_read_task::parquet_read_task(context_reference ctx_ref,
                                      int32_t task_id,
                                      int32_t stage_id,
                                      std::vector<std::string> file_paths,
@@ -75,7 +75,7 @@ parquet_read_task::parquet_read_task(query_context* query_context,
                                      std::vector<cudf::data_type> data_types,
                                      std::unique_ptr<expression> partial_filter,
                                      std::vector<std::shared_ptr<task>> subquery_tasks)
-  : read_task_base(query_context, task_id, stage_id, std::move(subquery_tasks)),
+  : read_task_base(ctx_ref, task_id, stage_id, std::move(subquery_tasks)),
     _file_paths(std::move(file_paths)),
     _column_names(std::move(column_names)),
     _data_types(std::move(data_types)),
@@ -130,7 +130,7 @@ namespace {
 // Load a cuDF table from Parquet files listed at `file_paths`, and columns indicated by
 // `column_names`.
 // Note: the `file_paths` argument must not be empty.
-table_with_metadata table_from_parquet(query_context* qctx,
+table_with_metadata table_from_parquet(context_reference ctx_ref,
                                        std::vector<std::string> const& file_paths,
                                        std::vector<std::string> const& column_names)
 {
@@ -139,27 +139,29 @@ table_with_metadata table_from_parquet(query_context* qctx,
   table_with_metadata result;
 
 #ifdef ENABLE_CUSTOMIZED_PARQUET
-  if (qctx->parameters.use_customized_io) {
+  if (ctx_ref._query_context->parameters.use_customized_io) {
     try {
-      auto const bounce_buffer_size = qctx->io_bounce_buffer_mr->get_block_size();
+      auto const bounce_buffer_size = ctx_ref._query_context->io_bounce_buffer_mr->get_block_size();
       // Note that we use `device_buffer` only as a RAII wrapper. `bounce_buffer` is located in the
       // pinned host memory, not device memory.
-      rmm::device_buffer bounce_buffer(
-        bounce_buffer_size, rmm::cuda_stream_default, qctx->io_bounce_buffer_mr.get());
+      rmm::device_buffer bounce_buffer(bounce_buffer_size,
+                                       rmm::cuda_stream_default,
+                                       ctx_ref._query_context->io_bounce_buffer_mr.get());
 
-      result = gqe::storage::read_parquet_custom(file_paths,
-                                                 column_names,
-                                                 bounce_buffer.data(),
-                                                 bounce_buffer_size,
-                                                 qctx->parameters.io_auxiliary_threads,
-                                                 qctx->parameters.io_block_size,
-                                                 qctx->parameters.io_engine,
-                                                 qctx->parameters.io_pipelining,
-                                                 qctx->parameters.io_alignment,
-                                                 qctx->disk_timer,
-                                                 qctx->h2d_timer,
-                                                 qctx->decomp_timer,
-                                                 qctx->decode_timer);
+      result =
+        gqe::storage::read_parquet_custom(file_paths,
+                                          column_names,
+                                          bounce_buffer.data(),
+                                          bounce_buffer_size,
+                                          ctx_ref._query_context->parameters.io_auxiliary_threads,
+                                          ctx_ref._query_context->parameters.io_block_size,
+                                          ctx_ref._query_context->parameters.io_engine,
+                                          ctx_ref._query_context->parameters.io_pipelining,
+                                          ctx_ref._query_context->parameters.io_alignment,
+                                          ctx_ref._query_context->disk_timer,
+                                          ctx_ref._query_context->h2d_timer,
+                                          ctx_ref._query_context->decomp_timer,
+                                          ctx_ref._query_context->decode_timer);
     } catch (gqe::storage::unsupported_error const& error) {
       GQE_LOG_TRACE(error.what());
       GQE_LOG_TRACE("Fallback to cuDF's Parquet reader when loading: " + file_paths[0]);
@@ -325,7 +327,7 @@ void parquet_read_task::execute()
     assert(!file_paths_to_load.empty());
 
     non_partitioned_table =
-      table_from_parquet(get_query_context(), file_paths_to_load, _column_names).table;
+      table_from_parquet(get_context_reference(), file_paths_to_load, _column_names).table;
     non_partitioned_table = enforce_data_types(std::move(non_partitioned_table), _data_types);
   }
 
@@ -345,7 +347,7 @@ void parquet_read_task::execute()
     columns_to_load.erase(columns_to_load.begin() + partition_column_idx);
 
     auto loaded_table =
-      table_from_parquet(get_query_context(), file_paths_to_load, std::move(columns_to_load));
+      table_from_parquet(get_context_reference(), file_paths_to_load, std::move(columns_to_load));
 
     auto loaded_columns = loaded_table.table->release();
     loaded_columns.insert(
@@ -394,14 +396,14 @@ void parquet_read_task::execute()
   remove_dependencies();
 }
 
-parquet_write_task::parquet_write_task(query_context* query_context,
+parquet_write_task::parquet_write_task(context_reference ctx_ref,
                                        int32_t task_id,
                                        int32_t stage_id,
                                        std::shared_ptr<task> input,
                                        std::vector<std::string> file_paths,
                                        std::vector<std::string> column_names,
                                        std::vector<cudf::data_type> data_types)
-  : write_task_base(query_context, task_id, stage_id, input),
+  : write_task_base(ctx_ref, task_id, stage_id, input),
     _file_paths(std::move(file_paths)),
     _column_names(std::move(column_names)),
     _data_types(std::move(data_types))
@@ -459,7 +461,7 @@ parquet_readable_view::parquet_readable_view(std::vector<std::string>* non_ownin
 
 std::vector<std::unique_ptr<read_task_base>> parquet_readable_view::get_read_tasks(
   std::vector<readable_view::task_parameters>&& task_parameters,
-  query_context* query_context,
+  context_reference ctx_ref,
   int32_t stage_id,
   std::vector<std::string> column_names,
   std::vector<cudf::data_type> data_types)
@@ -497,7 +499,7 @@ std::vector<std::unique_ptr<read_task_base>> parquet_readable_view::get_read_tas
       std::vector<std::string> file_paths_task{_non_owning_file_paths->begin() + begin_offset,
                                                _non_owning_file_paths->begin() + end_offset};
 
-      auto read_task = std::make_unique<parquet_read_task>(query_context,
+      auto read_task = std::make_unique<parquet_read_task>(ctx_ref,
                                                            task->task_id,
                                                            stage_id,
                                                            std::move(file_paths_task),
@@ -521,7 +523,7 @@ parquet_writeable_view::parquet_writeable_view(std::vector<std::string>* non_own
 
 std::vector<std::unique_ptr<write_task_base>> parquet_writeable_view::get_write_tasks(
   std::vector<writeable_view::task_parameters>&& task_parameters,
-  query_context* query_context,
+  context_reference ctx_ref,
   int32_t stage_id,
   std::vector<std::string> column_names,
   std::vector<cudf::data_type> data_types,
@@ -559,7 +561,7 @@ std::vector<std::unique_ptr<write_task_base>> parquet_writeable_view::get_write_
       assert(end_offset >= begin_offset);
       std::vector<std::string> file_paths_task{_non_owning_file_paths->begin() + begin_offset,
                                                _non_owning_file_paths->begin() + end_offset};
-      auto write_task = std::make_unique<parquet_write_task>(query_context,
+      auto write_task = std::make_unique<parquet_write_task>(ctx_ref,
                                                              task->task_id,
                                                              stage_id,
                                                              std::move(task->input),

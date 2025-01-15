@@ -15,6 +15,7 @@
 #include <cxx_gqe/api.hpp>
 #include <cxx_gqe/physical.hpp>
 #include <cxx_gqe/query_context.hpp>
+#include <cxx_gqe/task_manager_context.hpp>
 #include <cxx_gqe/types.hpp>
 
 #include <gqe/executor/optimization_parameters.hpp>
@@ -49,8 +50,8 @@ class task_graph_builder {
  public:
   explicit task_graph_builder(gqe::task_graph_builder&& builder) : _builder(std::move(builder)) {}
 
-  task_graph_builder()                          = delete;
-  task_graph_builder(task_graph_builder const&) = delete;
+  task_graph_builder()                                     = delete;
+  task_graph_builder(task_graph_builder const&)            = delete;
   task_graph_builder& operator=(task_graph_builder const&) = delete;
 
   std::unique_ptr<task_graph> build(std::shared_ptr<physical_relation> root_relation);
@@ -62,12 +63,14 @@ class task_graph_builder {
 /*
  * @brief Returns a new task graph builder wrapper.
  */
-std::unique_ptr<task_graph_builder> new_task_graph_builder(query_context& query_context,
-                                                           catalog& catalog);
+std::unique_ptr<task_graph_builder> new_task_graph_builder(
+  task_manager_context& task_manager_context, query_context& query_context, catalog& catalog);
 
 /*
  * @brief Execute task graph wrapper function.
  */
-void execute_task_graph_single_gpu(query_context& query_context, task_graph const& task_graph);
+void execute_task_graph_single_gpu(task_manager_context& task_manager_context,
+                                   query_context& query_context,
+                                   task_graph const& task_graph);
 
 }  // namespace cxx_gqe

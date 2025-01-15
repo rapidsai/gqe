@@ -226,7 +226,7 @@ mod ffi {
     /// Compression format kind
     #[derive(Copy, Clone, Debug)]
     #[cxx_name = "compression_format"]
-    #[repr(i32)]
+    #[repr(i8)]
     pub enum CompressionFormat {
         #[cxx_name = "none"]
         None = 0,
@@ -406,6 +406,11 @@ mod ffi {
         #[cxx_name = "shared_logical_relation"]
         type SharedLogicalRelation = crate::SharedLogicalRelation;
 
+        #[cxx_name = "task_manager_context"]
+        pub type TaskManagerContext;
+
+        pub fn new_task_manager_context() -> Result<UniquePtr<TaskManagerContext>>;
+        
         #[cxx_name = "query_context"]
         pub type QueryContext;
 
@@ -444,9 +449,10 @@ mod ffi {
         #[cxx_name = "task_graph_builder"]
         pub type TaskGraphBuilder<'a>;
 
-        pub fn new_task_graph_builder<'a, 'b>(
-            query_context: Pin<&'a mut QueryContext>,
-            catalog: Pin<&'b mut Catalog>,
+        pub fn new_task_graph_builder<'a>(
+            task_manager_context: Pin<&mut TaskManagerContext>,
+            query_context: Pin<&mut QueryContext>,
+            catalog: Pin<&mut Catalog>,
         ) -> Result<UniquePtr<TaskGraphBuilder<'a>>>;
 
         #[cxx_name = "build"]
@@ -456,6 +462,7 @@ mod ffi {
         ) -> Result<UniquePtr<TaskGraph>>;
 
         pub fn execute_task_graph_single_gpu(
+            task_manager_context: Pin<&mut TaskManagerContext>,
             query_context: Pin<&mut QueryContext>,
             task_graph: &TaskGraph,
         ) -> Result<()>;

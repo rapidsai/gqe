@@ -14,6 +14,7 @@ use crate::api::Catalog;
 use crate::error::Result;
 use crate::physical::PhysicalPlan;
 use crate::query_context::QueryContext;
+use crate::task_manager_context::TaskManagerContext;
 use cxx::UniquePtr;
 
 /// A task graph consisting of GQE tasks.
@@ -27,11 +28,13 @@ pub struct TaskGraphBuilder<'a>(UniquePtr<gqe_sys::TaskGraphBuilder<'a>>);
 
 impl<'a> TaskGraphBuilder<'a> {
     /// Returns a new task graph builder.
-    pub fn new<'b: 'a, 'c: 'a>(
-        query_context: &'b mut QueryContext,
-        catalog: &'c mut Catalog,
+    pub fn new<'b: 'a, 'c: 'a, 'd: 'a>(
+        task_manager_context: &'b mut TaskManagerContext,
+        query_context: &'c mut QueryContext,
+        catalog: &'d mut Catalog,
     ) -> Result<Self> {
         Ok(Self(gqe_sys::new_task_graph_builder(
+            task_manager_context.0.pin_mut(),
             query_context.0.pin_mut(),
             catalog.0.pin_mut(),
         )?))
@@ -50,10 +53,12 @@ impl<'a> TaskGraphBuilder<'a> {
 /// After this function call, the result tables of the task graph in
 /// `task_graph_to_execute` are available to the local GPU.
 pub fn execute_task_graph_single_gpu(
+    task_manager_context: &mut TaskManagerContext,
     query_context: &mut QueryContext,
     task_graph: &TaskGraph,
 ) -> Result<()> {
     Ok(gqe_sys::execute_task_graph_single_gpu(
+        task_manager_context.0.pin_mut(),
         query_context.0.pin_mut(),
         &task_graph.0,
     )?)

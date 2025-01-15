@@ -10,15 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/read.hpp>
 
 namespace gqe {
 
-read_task_base::read_task_base(query_context* query_context,
+read_task_base::read_task_base(context_reference ctx_ref,
                                int32_t task_id,
                                int32_t stage_id,
                                std::vector<std::shared_ptr<task>> subquery_tasks)
-  : task(query_context, task_id, stage_id, {}, std::move(subquery_tasks))
+  : task(ctx_ref, task_id, stage_id, {}, std::move(subquery_tasks))
 {
 }
 

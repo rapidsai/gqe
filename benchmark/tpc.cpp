@@ -15,6 +15,7 @@
 #include <gqe/optimizer/logical_optimization.hpp>
 
 #include <gqe/catalog.hpp>
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/logical/from_substrait.hpp>
@@ -23,6 +24,7 @@
 #include <gqe/logical/write.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/tpcds.hpp>
@@ -94,8 +96,8 @@ using nvtx_scoped_range = nvtx3::scoped_range_in<tpc_nvtx_domain>;
 
 class copy_plan_builder {
  public:
-  copy_plan_builder(gqe::query_context* query_context, const gqe::catalog* catalog)
-    : _query_context(query_context), _catalog(catalog)
+  copy_plan_builder(gqe::context_reference ctx_ref, const gqe::catalog* catalog)
+    : _ctx_ref(ctx_ref), _catalog(catalog)
   {
   }
 
@@ -152,7 +154,7 @@ class copy_plan_builder {
     nvtx_scoped_range load_data_range("load_data");
 
     gqe::physical_plan_builder plan_builder(_catalog);
-    gqe::task_graph_builder graph_builder(_query_context, _catalog);
+    gqe::task_graph_builder graph_builder(_ctx_ref, _catalog);
 
     std::vector<std::shared_ptr<gqe::physical::relation>> physical_plans;
     physical_plans.reserve(_logical_plans.size());
@@ -172,7 +174,7 @@ class copy_plan_builder {
 
     // Execute the copies
     std::for_each(task_graphs.begin(), task_graphs.end(), [=](auto const& task_graph) {
-      gqe::execute_task_graph_single_gpu(_query_context, task_graph.get());
+      gqe::execute_task_graph_single_gpu(_ctx_ref, task_graph.get());
     });
 
     // Clear the state
@@ -180,15 +182,15 @@ class copy_plan_builder {
   }
 
  private:
-  gqe::query_context* _query_context;
+  gqe::context_reference _ctx_ref;
   const gqe::catalog* _catalog;
   std::vector<std::shared_ptr<gqe::logical::relation>> _logical_plans;
 };
 
 class query_result_writer {
  public:
-  query_result_writer(gqe::query_context* query_context, gqe::catalog* catalog)
-    : _query_context(query_context), _catalog(catalog)
+  query_result_writer(gqe::context_reference ctx_ref, gqe::catalog* catalog)
+    : _ctx_ref(ctx_ref), _catalog(catalog)
   {
   }
 
@@ -227,7 +229,7 @@ class query_result_writer {
                              gqe::storage_kind::parquet_file{{result_path}},
                              gqe::partitioning_schema_kind::none{});
 
-    copy_plan_builder copy_plan(_query_context, _catalog);
+    copy_plan_builder copy_plan(_ctx_ref, _catalog);
     copy_plan.add_table(_result_table_name, parquet_table_name);
     copy_plan.execute_copy();
 
@@ -236,7 +238,7 @@ class query_result_writer {
   }
 
  private:
-  gqe::query_context* _query_context;
+  gqe::context_reference _ctx_ref;
   gqe::catalog* _catalog;
   std::string _result_table_name;
   std::vector<std::pair<std::string, cudf::data_type>> _column_definitions;
@@ -287,14 +289,15 @@ int main(int argc, char* argv[])
 
   gqe::optimization_parameters read_opms{};
   read_opms.max_num_partitions = parse_num_row_groups();
-
+  gqe::task_manager_context dbctx{};
   gqe::query_context qctx(read_opms);
+  gqe::context_reference ctx_ref{&dbctx, &qctx};
   gqe::catalog catalog;
 
   // register all tables
   auto const& table_definitions = (tpc_type == "ds") ? gqe::utility::tpcds::table_definitions()
                                                      : gqe::utility::tpch::table_definitions();
-  copy_plan_builder copy_plan(&qctx, &catalog);
+  copy_plan_builder copy_plan(ctx_ref, &catalog);
   for (auto const& [name, definition] : table_definitions) {
     const auto file_paths   = gqe::utility::get_parquet_files(dataset_location + "/" + name);
     const auto storage_kind = parse_storage_kind(storage_kind_name, file_paths);
@@ -354,7 +357,7 @@ int main(int argc, char* argv[])
     gqe::optimization_parameters execute_opms{};
     qctx.parameters = execute_opms;
 
-    query_result_writer result_writer(&qctx, &catalog);
+    query_result_writer result_writer(ctx_ref, &catalog);
     auto const cached_result_name = "query_result_" + query_identifier;
 
     auto logical_plan_with_result =
@@ -366,13 +369,13 @@ int main(int argc, char* argv[])
     gqe::physical_plan_builder plan_builder(&catalog);
     auto physical_plan = plan_builder.build(logical_plan_with_result.get());
 
-    gqe::task_graph_builder graph_builder(&qctx, &catalog);
+    gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
     auto task_graph = graph_builder.build(physical_plan.get());
 
     GQE_LOG_INFO("Starting query execution " + query_identifier);
     {
       nvtx_scoped_range query_range("query_execution_" + query_identifier);
-      gqe::utility::time_function(gqe::execute_task_graph_single_gpu, &qctx, task_graph.get());
+      gqe::utility::time_function(gqe::execute_task_graph_single_gpu, ctx_ref, task_graph.get());
     }
 
     auto const result_path = "output_" + query_identifier + ".parquet";

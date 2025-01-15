@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/utility/helpers.hpp>
 
@@ -20,19 +21,20 @@
 
 namespace gqe {
 
-task::task(query_context* query_context,
+task::task(context_reference ctx_ref,
            int32_t task_id,
            int32_t stage_id,
            std::vector<std::shared_ptr<task>> dependencies,
            std::vector<std::shared_ptr<task>> subqueries)
-  : _query_context(query_context),
+  : _ctx_ref(ctx_ref),
     _task_id(task_id),
     _stage_id(stage_id),
     _dependencies(std::move(dependencies)),
     _subqueries(std::move(subqueries)),
     _status(status_type::not_started)
 {
-  assert(query_context != nullptr);
+  assert(ctx_ref._task_manager_context != nullptr);
+  assert(ctx_ref._query_context != nullptr);
 }
 
 void task::migrate() { throw std::logic_error("task::migrate() has not been implemented"); }

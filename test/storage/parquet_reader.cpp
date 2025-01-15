@@ -12,9 +12,11 @@
 
 #include "../utility.hpp"
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/storage/parquet_reader.hpp>
+#include <gqe/task_manager_context.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/fixed_point/fixed_point.hpp>

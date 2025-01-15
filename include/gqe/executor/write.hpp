@@ -12,8 +12,8 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
-#include <gqe/query_context.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -22,7 +22,7 @@ namespace gqe {
 
 class write_task_base : public task {
  public:
-  write_task_base(query_context* query_context,
+  write_task_base(context_reference ctx_ref,
                   int32_t task_id,
                   int32_t stage_id,
                   std::shared_ptr<task> input);

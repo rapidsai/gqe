@@ -13,6 +13,7 @@
 #include "utility.hpp"
 
 #include <gqe/catalog.hpp>
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/logical/read.hpp>
@@ -20,6 +21,7 @@
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/physical/relation.hpp>
 #include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/helpers.hpp>
 
@@ -267,9 +269,11 @@ int main(int argc, char* argv[])
 
   gqe::physical_plan_builder plan_builder(&tpcds_catalog);
 
-  gqe::query_context qctx(gqe::optimization_parameters{});
+  gqe::task_manager_context dbctx{};
+  gqe::query_context qctx(gqe::optimization_parameters(true));
+  gqe::context_reference ctx_ref{&dbctx, &qctx};
 
-  gqe::task_graph_builder graph_builder(&qctx, &tpcds_catalog);
+  gqe::task_graph_builder graph_builder(ctx_ref, &tpcds_catalog);
 
   std::vector<std::shared_ptr<gqe::physical::relation>> physical_plans;
   physical_plans.reserve(logical_plans.size());
@@ -289,7 +293,7 @@ int main(int argc, char* argv[])
   // Execute
   gqe::utility::time_function([&]() {
     std::for_each(task_graphs.begin(), task_graphs.end(), [&](auto const& task_graph) {
-      gqe::execute_task_graph_single_gpu(&qctx, task_graph.get());
+      gqe::execute_task_graph_single_gpu(ctx_ref, task_graph.get());
     });
   });
 }

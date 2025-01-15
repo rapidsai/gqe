@@ -12,10 +12,10 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/read.hpp>
 #include <gqe/executor/write.hpp>
 #include <gqe/optimizer/statistics.hpp>
-#include <gqe/query_context.hpp>
 #include <gqe/storage/nvcomp_gqe.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/table.hpp>
@@ -430,7 +430,7 @@ class in_memory_read_task : public read_task_base {
   /**
    * @brief Construct an in-memory read task.
    *
-   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] ctx_ref The context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] row_groups The row groups assigned to this task.
@@ -449,7 +449,7 @@ class in_memory_read_task : public read_task_base {
    * command. Used, e.g., for unit testing or when zero-copy is unsafe due to the system
    * configuration.
    */
-  in_memory_read_task(query_context* query_context,
+  in_memory_read_task(context_reference ctx_ref,
                       int32_t task_id,
                       int32_t stage_id,
                       std::vector<const row_group*> row_groups,
@@ -486,7 +486,7 @@ class in_memory_write_task : public write_task_base {
   /**
    * @brief Construct an in-memory write task.
    *
-   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] ctx_ref The context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] input The input task emitting new data.
@@ -498,7 +498,7 @@ class in_memory_write_task : public write_task_base {
    * have the same length as `column_names`.
    * @param[in] statistics Statistics manager of the in-memory table
    */
-  in_memory_write_task(query_context* query_context,
+  in_memory_write_task(context_reference ctx_ref,
                        int32_t task_id,
                        int32_t stage_id,
                        std::shared_ptr<task> input,
@@ -539,7 +539,7 @@ class in_memory_readable_view : public readable_view {
    */
   std::vector<std::unique_ptr<read_task_base>> get_read_tasks(
     std::vector<readable_view::task_parameters>&& task_parameters,
-    query_context* query_context,
+    context_reference ctx_ref,
     int32_t stage_id,
     std::vector<std::string> column_names,
     std::vector<cudf::data_type> data_types) override;
@@ -562,7 +562,7 @@ class in_memory_writeable_view : public writeable_view {
    */
   std::vector<std::unique_ptr<write_task_base>> get_write_tasks(
     std::vector<writeable_view::task_parameters>&& task_parameters,
-    query_context* query_context,
+    context_reference ctx_ref,
     int32_t stage_id,
     std::vector<std::string> column_names,
     std::vector<cudf::data_type> data_types,

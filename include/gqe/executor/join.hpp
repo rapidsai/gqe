@@ -12,9 +12,9 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
-#include <gqe/query_context.hpp>
 #include <gqe/types.hpp>
 
 #include <cudf/join.hpp>
@@ -92,7 +92,7 @@ class join_task : public task {
    * the example above, `ColumnReference 1` and `ColumnReference 0` would be evaluated on the left
    * table, whereas `ColumnReference 3` and `ColumnReference 5` are evaluated on the right table.
    *
-   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] ctx_ref The context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] left Left table to be joined.
@@ -107,7 +107,7 @@ class join_task : public task {
    * @param[in] materialize_output If `true`, emit the materialized table with the same number of
    * columns as the size of `projection_indices`. If `false`, emit the position lists.
    */
-  join_task(query_context* query_context,
+  join_task(context_reference ctx_ref,
             int32_t task_id,
             int32_t stage_id,
             std::shared_ptr<task> left,
@@ -172,7 +172,7 @@ class materialize_join_from_position_lists_task : public task {
   /**
    * @brief Construct a materialize-join-from-position-lists task.
    *
-   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] ctx_ref The context in which the current task is running.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] dependencies The first dependent task is the left table of the join. The remaining
@@ -181,7 +181,7 @@ class materialize_join_from_position_lists_task : public task {
    * supported.
    * @param[in] projection_indices Column indices to materialize.
    */
-  materialize_join_from_position_lists_task(query_context* query_context,
+  materialize_join_from_position_lists_task(context_reference ctx_ref,
                                             int32_t task_id,
                                             int32_t stage_id,
                                             std::vector<std::shared_ptr<task>> dependencies,

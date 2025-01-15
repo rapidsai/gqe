@@ -12,9 +12,9 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
-#include <gqe/query_context.hpp>
 
 #include <cudf/aggregation.hpp>
 
@@ -35,7 +35,7 @@ class aggregate_task : public task {
    * An aggregate task can either represent a reduction (when `keys` are empty) or a groupby (when
    * `keys` are not empty).
    *
-   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] ctx_ref The context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] input Input table to be aggregated.
@@ -46,7 +46,7 @@ class aggregate_task : public task {
    * and then rows of the evaluated result in the same group will be combined together using `op`.
    */
   aggregate_task(
-    query_context* query_context,
+    context_reference ctx_ref,
     int32_t task_id,
     int32_t stage_id,
     std::shared_ptr<task> input,

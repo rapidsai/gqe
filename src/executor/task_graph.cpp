@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/aggregate.hpp>
 #include <gqe/executor/concatenate.hpp>
 #include <gqe/executor/fetch.hpp>
@@ -37,7 +38,6 @@
 #include <gqe/physical/user_defined.hpp>
 #include <gqe/physical/window.hpp>
 #include <gqe/physical/write.hpp>
-#include <gqe/query_context.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/writeable_view.hpp>
 #include <gqe/utility/helpers.hpp>
@@ -52,8 +52,8 @@
 
 namespace gqe {
 
-task_graph_builder::task_graph_builder(query_context* query_context, catalog const* catalog)
-  : _query_context(query_context), _catalog(catalog)
+task_graph_builder::task_graph_builder(context_reference ctx_ref, catalog const* catalog)
+  : _ctx_ref(ctx_ref), _catalog(catalog)
 {
 }
 
@@ -84,23 +84,24 @@ std::shared_ptr<task> task_graph_builder::concatenate(
     if (is_pipeline_breaker) insert_pipeline_breaker(utility::to_raw_ptrs(input_tasks));
 
     auto concatenated_input = std::make_shared<concatenate_task>(
-      _query_context, _current_task_id, _current_stage_id, std::move(input_tasks));
+      _ctx_ref, _current_task_id, _current_stage_id, std::move(input_tasks));
     _current_task_id++;
     return concatenated_input;
   }
 }
 
-void execute_task_graph_single_gpu(query_context* query_context,
+void execute_task_graph_single_gpu(context_reference ctx_ref,
                                    task_graph const* task_graph_to_execute)
 {
-  assert(query_context != nullptr);
+  assert(ctx_ref._task_manager_context != nullptr);
+  assert(ctx_ref._query_context != nullptr);
   assert(task_graph_to_execute != nullptr);
 
   for (auto const& tasks_current_stage : task_graph_to_execute->stage_root_tasks) {
     auto const num_tasks_current_stage = tasks_current_stage.size();
 
     std::size_t num_workers =
-      std::min(query_context->parameters.max_num_workers, num_tasks_current_stage);
+      std::min(ctx_ref._query_context->parameters.max_num_workers, num_tasks_current_stage);
     if (num_tasks_current_stage) {
       GQE_LOG_TRACE(
         "Execute stage {} with {} workers.", tasks_current_stage.front()->stage_id(), num_workers);
@@ -187,8 +188,9 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::read_relat
     _builder->_catalog->readable_view(table_name);
   if (!readable_view) { throw std::logic_error("table \"" + table_name + "\" is not readable"); }
 
-  const auto npartitions = std::min(_builder->_catalog->max_concurrent_readers(table_name),
-                                    _builder->_query_context->parameters.max_num_partitions);
+  const auto npartitions =
+    std::min(_builder->_catalog->max_concurrent_readers(table_name),
+             _builder->_ctx_ref._query_context->parameters.max_num_partitions);
 
   std::vector<storage::readable_view::task_parameters> task_parameters(npartitions);
   std::generate(task_parameters.begin(),
@@ -201,7 +203,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::read_relat
                 });
 
   auto tasks = readable_view->get_read_tasks(std::move(task_parameters),
-                                             _builder->_query_context,
+                                             _builder->_ctx_ref,
                                              _builder->_current_stage_id,
                                              std::move(column_names),
                                              std::move(data_types));
@@ -252,7 +254,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::write_rela
   auto statistics = _builder->_catalog->statistics(table_name);
 
   auto tasks = writeable_view->get_write_tasks(std::move(task_parameters),
-                                               _builder->_query_context,
+                                               _builder->_ctx_ref,
                                                _builder->_current_stage_id,
                                                std::move(column_names),
                                                std::move(data_types),
@@ -277,8 +279,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
 
   // If MAX_NUM_WORKERS is set to more than 1, we disable the use of join cache because `pair_count`
   // in cuCollection is not thread safe.
-  bool cache_enabled = _builder->_query_context->parameters.join_use_hash_map_cache &&
-                       _builder->_query_context->parameters.max_num_workers == 1;
+  bool cache_enabled = _builder->_ctx_ref._query_context->parameters.join_use_hash_map_cache &&
+                       _builder->_ctx_ref._query_context->parameters.max_num_workers == 1;
 
   std::shared_ptr<gqe::join_hash_map_cache> hash_map_cache = nullptr;
 
@@ -305,7 +307,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
 
     // Generate the join tasks
     for (auto& left_task : left_tasks) {
-      _generated_tasks.push_back(std::make_shared<join_task>(_builder->_query_context,
+      _generated_tasks.push_back(std::make_shared<join_task>(_builder->_ctx_ref,
                                                              _builder->_current_task_id,
                                                              _builder->_current_stage_id,
                                                              std::move(left_task),
@@ -354,16 +356,16 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     // Generate the join tasks
     std::vector<std::shared_ptr<task>> join_tasks;
     for (auto& right_task : right_tasks) {
-      join_tasks.push_back(std::make_shared<join_task>(_builder->_query_context,
-                                                       _builder->_current_task_id,
-                                                       _builder->_current_stage_id,
-                                                       concatenated_left_task,
-                                                       std::move(right_task),
-                                                       relation_join_type,
-                                                       relation->condition()->clone(),
-                                                       relation->projection_indices(),
-                                                       hash_map_cache,
-                                                       !separate_materialization));
+      _generated_tasks.push_back(std::make_shared<join_task>(_builder->_ctx_ref,
+                                                             _builder->_current_task_id,
+                                                             _builder->_current_stage_id,
+                                                             concatenated_left_task,
+                                                             std::move(right_task),
+                                                             relation_join_type,
+                                                             relation->condition()->clone(),
+                                                             relation->projection_indices(),
+                                                             hash_map_cache,
+                                                             !separate_materialization));
       _builder->_current_task_id++;
     }
 
@@ -374,7 +376,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
       join_tasks.insert(join_tasks.begin(), concatenated_left_task);
 
       _generated_tasks.push_back(std::make_shared<materialize_join_from_position_lists_task>(
-        _builder->_query_context,
+        _builder->_ctx_ref,
         _builder->_current_task_id,
         _builder->_current_stage_id,
         std::move(join_tasks),
@@ -406,7 +408,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::project_re
     for (auto const& expr : relation->output_expressions_unsafe())
       exprs.push_back(expr->clone());
 
-    _generated_tasks.push_back(std::make_shared<project_task>(_builder->_query_context,
+    _generated_tasks.push_back(std::make_shared<project_task>(_builder->_ctx_ref,
                                                               _builder->_current_task_id,
                                                               _builder->_current_stage_id,
                                                               std::move(task),
@@ -433,7 +435,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   for (auto const& key : relation->keys_unsafe())
     keys.push_back(key->clone());
 
-  _generated_tasks.push_back(std::make_shared<sort_task>(_builder->_query_context,
+  _generated_tasks.push_back(std::make_shared<sort_task>(_builder->_ctx_ref,
                                                          _builder->_current_task_id,
                                                          _builder->_current_stage_id,
                                                          std::move(concatenated_input),
@@ -456,7 +458,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::filter_rel
 
   // Generate the filter tasks
   for (auto& input_task : input_tasks) {
-    _generated_tasks.push_back(std::make_shared<filter_task>(_builder->_query_context,
+    _generated_tasks.push_back(std::make_shared<filter_task>(_builder->_ctx_ref,
                                                              _builder->_current_task_id,
                                                              _builder->_current_stage_id,
                                                              std::move(input_task),
@@ -499,7 +501,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::window_rel
   auto window_lower_bound = relation->window_lower_bound();
   auto window_upper_bound = relation->window_upper_bound();
 
-  _generated_tasks.push_back(std::make_shared<window_task>(_builder->_query_context,
+  _generated_tasks.push_back(std::make_shared<window_task>(_builder->_ctx_ref,
                                                            _builder->_current_task_id,
                                                            _builder->_current_stage_id,
                                                            std::move(concatenated_input),
@@ -627,7 +629,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
 
   for (auto& input_task : input_tasks) {
     first_aggregation_tasks.push_back(
-      std::make_shared<aggregate_task>(_builder->_query_context,
+      std::make_shared<aggregate_task>(_builder->_ctx_ref,
                                        _builder->_current_task_id,
                                        _builder->_current_stage_id,
                                        std::move(input_task),
@@ -656,7 +658,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   }
 
   auto second_aggregation_task =
-    std::make_shared<aggregate_task>(_builder->_query_context,
+    std::make_shared<aggregate_task>(_builder->_ctx_ref,
                                      _builder->_current_task_id,
                                      _builder->_current_stage_id,
                                      std::move(concatenated_task),
@@ -697,7 +699,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   }
   assert(in_idx == keys.size() + first_aggregation_values.size());
 
-  _generated_tasks.push_back(std::make_shared<project_task>(_builder->_query_context,
+  _generated_tasks.push_back(std::make_shared<project_task>(_builder->_ctx_ref,
                                                             _builder->_current_task_id,
                                                             _builder->_current_stage_id,
                                                             std::move(second_aggregation_task),
@@ -721,7 +723,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::fetch_rela
     throw std::overflow_error(
       "Offset or limit overflows when building a task graph for a fetch relation");
 
-  _generated_tasks.push_back(std::make_shared<fetch_task>(_builder->_query_context,
+  _generated_tasks.push_back(std::make_shared<fetch_task>(_builder->_ctx_ref,
                                                           _builder->_current_task_id,
                                                           _builder->_current_stage_id,
                                                           std::move(concatenated_input),
@@ -743,7 +745,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   auto input_tasks = _builder->generate_tasks(children[0]);
 
   for (auto& task : input_tasks) {
-    _generated_tasks.push_back(std::make_shared<gen_ident_col_task>(_builder->_query_context,
+    _generated_tasks.push_back(std::make_shared<gen_ident_col_task>(_builder->_ctx_ref,
                                                                     _builder->_current_task_id,
                                                                     _builder->_current_stage_id,
                                                                     std::move(task)));
@@ -794,7 +796,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   // Generate tasks for the user-defined relation through the user specified functor
   int32_t task_id  = _builder->_current_task_id;
   _generated_tasks = relation->task_functor()(
-    std::move(children_tasks), _builder->_query_context, task_id, _builder->_current_stage_id);
+    std::move(children_tasks), _builder->_ctx_ref, task_id, _builder->_current_stage_id);
   _builder->_current_task_id = task_id;
 
   update_cache(relation);

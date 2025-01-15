@@ -12,9 +12,9 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
-#include <gqe/query_context.hpp>
 
 #include <cudf/types.hpp>
 
@@ -33,14 +33,14 @@ class fetch_task : public task {
    * the resulting table is empty. If the number of rows after `offset` is less than `count`,
    * all rows from `offset` to the end of the table are retrieved.
    *
-   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] ctx_ref The context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task
    * @param[in] stage_id Stage of the current task
    * @param[in] input Input table to fetch from
    * @param[in] offset The row index from which the fetch starts
    * @param[in] count The number of rows to retrieve starting from offset
    */
-  fetch_task(query_context* query_context,
+  fetch_task(context_reference ctx_ref,
              int32_t task_id,
              int32_t stage_id,
              std::shared_ptr<task> input,

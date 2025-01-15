@@ -33,7 +33,7 @@ using bool_column_wrapper  = cudf::test::fixed_width_column_wrapper<bool>;
 
 class FilterTest : public ::testing::Test {
  protected:
-  void construct_input_task(int32_t const stage_id, gqe::query_context& qctx)
+  void construct_input_task(int32_t const stage_id, gqe::context_reference& ctx_ref)
   {
     constexpr int32_t input_task_id = 0;
 
@@ -48,7 +48,7 @@ class FilterTest : public ::testing::Test {
     input_columns.push_back(input_col_2.release());
 
     input_task = std::make_shared<gqe::test::executed_task>(
-      &qctx, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
+      ctx_ref, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
   }
 
   void construct_filter_task(std::vector<cudf::size_type> projection_indices)
@@ -56,14 +56,16 @@ class FilterTest : public ::testing::Test {
     constexpr int32_t stage_id       = 0;
     constexpr int32_t filter_task_id = 1;
 
+    gqe::task_manager_context dbctx{};
     gqe::query_context qctx(gqe::optimization_parameters(true));
+    gqe::context_reference ctx_ref{&dbctx, &qctx};
 
-    construct_input_task(stage_id, qctx);
+    construct_input_task(stage_id, ctx_ref);
 
     std::unique_ptr<gqe::expression> condition{
       std::make_unique<gqe::column_reference_expression>(2)};
 
-    filter_task = std::make_unique<gqe::filter_task>(&qctx,
+    filter_task = std::make_unique<gqe::filter_task>(ctx_ref,
                                                      filter_task_id,
                                                      stage_id,
                                                      std::move(input_task),

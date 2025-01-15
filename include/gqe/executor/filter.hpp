@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/expression/expression.hpp>
 
@@ -30,7 +31,7 @@ class filter_task : public task {
    * A filter task eliminates rows from the result of `input` based on a boolean filter expression
    * `condition`.
    *
-   * @param[in] query_context The query context in which the current task is running in.
+   * @param[in] ctx_ref The context in which the current task is running in.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
    * @param[in] input Input table to be filtered.
@@ -40,7 +41,7 @@ class filter_task : public task {
    * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
    * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
    */
-  filter_task(query_context* query_context,
+  filter_task(context_reference ctx_ref,
               int32_t task_id,
               int32_t stage_id,
               std::shared_ptr<task> input,

@@ -12,8 +12,8 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
-#include <gqe/query_context.hpp>
 
 #include <cudf/table/table.hpp>
 
@@ -29,11 +29,11 @@ namespace test {
  */
 class executed_task : public task {
  public:
-  executed_task(gqe::query_context* query_context,
+  executed_task(gqe::context_reference ctx_ref,
                 int32_t task_id,
                 int32_t stage_id,
                 std::unique_ptr<cudf::table> result)
-    : task(query_context, task_id, stage_id, {}, {})
+    : task(ctx_ref, task_id, stage_id, {}, {})
   {
     emit_result(std::move(result));
   }

@@ -26,12 +26,6 @@ namespace gqe::utility {
 rmm::cuda_device_id current_cuda_device_id();
 
 /**
- * @brief Return the CUDA device properties.
- */
-std::unique_ptr<cudaDeviceProp> get_cuda_device_property(
-  rmm::cuda_device_id id = current_cuda_device_id());
-
-/**
  * @brief NVTX domain which should be used across the GQE project
  */
 struct gqe_nvtx_domain {

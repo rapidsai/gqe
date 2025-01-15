@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/device_properties.hpp>
 #include <rmm/cuda_device.hpp>
 
 #include <cstdint>
@@ -248,7 +249,7 @@ using type = std::variant<memory_kind::system,
 /**
  * @brief Return whether the GPU can directly access the memory kind
  */
-bool is_gpu_accessible(memory_kind::type type);
+bool is_gpu_accessible(const device_properties& device_prop, memory_kind::type type);
 
 }  // namespace memory_kind
 
@@ -349,6 +350,8 @@ struct table_statistics {
 };
 
 class query_context;
+class task_manager_context;
+class context_reference;
 class task;
 
 /**
@@ -358,7 +361,7 @@ class task;
  * relations, where the `i`th element is a vector of tasks holding the output of the `i`th child
  * relation. These tasks serve as the input to the functor.
  *
- * The second argument is the query context.
+ * The second argument is the context reference.
  *
  * The third argument is the task ID both as the input and as the output. When the functor
  * constructs a new task, it should use this argument as the task ID, and also increment this
@@ -368,11 +371,8 @@ class task;
  *
  * The return value of the functor is a vector of the output tasks.
  */
-using user_defined_task_functor =
-  std::function<std::vector<std::shared_ptr<task>>(std::vector<std::vector<std::shared_ptr<task>>>,
-                                                   query_context* query_context,
-                                                   int32_t&,
-                                                   int32_t)>;
+using user_defined_task_functor = std::function<std::vector<std::shared_ptr<task>>(
+  std::vector<std::vector<std::shared_ptr<task>>>, context_reference ctx_ref, int32_t&, int32_t)>;
 
 namespace window_frame_bound {
 

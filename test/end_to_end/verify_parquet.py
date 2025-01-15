@@ -10,15 +10,71 @@
 
 import os
 import pandas as pd
+import decimal
 import sys
 from argparse import ArgumentParser
 from pandas.api.types import is_float_dtype, is_integer_dtype, is_numeric_dtype
-from pandas.testing import assert_frame_equal
+from pandas.testing import assert_frame_equal, assert_series_equal
+
+ABS_TOLERANCE = 1e-6
+
+# FIXME Find a tighter bounds.
+ABS_DECIMAL_TOLERANCE = 1e-2
+
+
+def gqe_assert_decimal_series_equal(lcol: pd.DataFrame, rcol: pd.DataFrame, atol: float):
+    left_values = lcol._values
+    right_values = rcol._values
+
+    first_different = -1
+    num_different = 0
+    for i, row in enumerate(left_values):
+        if abs(left_values[i] - right_values[i]) > decimal.Decimal(atol):
+            num_different += 1
+            if first_different == -1:
+                first_different = i
+
+    if num_different > 0:
+        # emulate assert_series_equal failure output
+        percent_diff = float(num_different) / float(left_values.size) * 100.0
+        diff_str = "\nSeries values are different (" + str(percent_diff) + " %)\n"
+        indices_str = "[index]: ["
+        left_str = "[left]:  ["
+        right_str = "[right]: ["
+        for i, row in enumerate(left_values):
+            indices_str += str(i)
+            indices_str += ", "
+            left_str += str(left_values[i])
+            left_str += ", "
+            right_str += str(right_values[i])
+            right_str += ", "
+        indices_str += ']\n'
+        left_str += ']\n'
+        right_str += ']\n'
+        vals_str = "At positional index " + str(first_different) + ", first diff: " + str(
+            left_values[first_different]) + " != " + str(right_values[first_different])
+        output_str = diff_str + indices_str + left_str + right_str + vals_str
+        raise Exception(output_str)
+
+
+def gqe_assert_frame_equal(lhs: pd.DataFrame, rhs: pd.DataFrame, atol: float):
+    for i, col in enumerate(lhs.columns):
+        lcol = lhs._ixs(i, axis=1)
+        rcol = rhs._ixs(i, axis=1)
+
+        if type(lcol._values[0]) is decimal.Decimal:
+            # use our path since pandas doesn't support approximate decimal comparison
+            gqe_assert_decimal_series_equal(lcol, rcol, atol=ABS_DECIMAL_TOLERANCE)
+        else:
+            # use pandas for everything else
+            assert_series_equal(lcol, rcol, atol=atol)
+
 
 def normalize_type(df1: pd.DataFrame, df2: pd.DataFrame, col: str):
     old_type = df2[col].dtypes.name
     new_type = df1[col].dtypes.name
     df2[col] = df2[col].astype(new_type)
+
 
 def verify(test_file: str, ref_file: str):
     df_gqe = pd.read_parquet(test_file)
@@ -46,8 +102,10 @@ def verify(test_file: str, ref_file: str):
                 normalize_type(df_gqe, df_ref, col)
             elif gqe_col_item_size < ref_col_item_size:
                 normalize_type(df_ref, df_gqe, col)
+
     # Verify that GQE result is the same as the reference result
-    assert_frame_equal(df_gqe, df_ref, atol=1e-06)
+    gqe_assert_frame_equal(lhs=df_gqe, rhs=df_ref, atol=ABS_TOLERANCE)
+
 
 def main():
     arg_parser = ArgumentParser()
@@ -56,6 +114,7 @@ def main():
     args = arg_parser.parse_args()
 
     verify(args.test, args.reference)
+
 
 if __name__ == "__main__":
     main()

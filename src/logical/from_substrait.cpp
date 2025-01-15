@@ -229,11 +229,15 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression
       return std::make_unique<gqe::literal_expression<cudf::timestamp_D>>(date);
     }
     case substrait::Expression_Literal::LiteralTypeCase::kDecimal: {
-      // For now, always parse a decimal into a floating point number
       auto fixed_point_value = from_substrait_decimal(literal_expression.decimal());
-      GQE_LOG_WARN("Use FLOAT64 to represent a decimal literal");
-      return std::make_unique<gqe::literal_expression<double>>(
-        cudf::convert_fixed_to_floating<double>(fixed_point_value));
+      if (!_optimization_parameters->replace_decimal_with_floating_point) {
+        return std::make_unique<gqe::literal_expression<decltype(fixed_point_value)>>(
+          fixed_point_value);
+      } else {
+        GQE_LOG_WARN("Use FLOAT64 to represent a decimal literal");
+        return std::make_unique<gqe::literal_expression<double>>(
+          cudf::convert_fixed_to_floating<double>(fixed_point_value));
+      }
     }
     case substrait::Expression_Literal::LiteralTypeCase::kNull: {
       std::unique_ptr<gqe::expression> null_literal;
@@ -246,9 +250,15 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression
       else if (literal_expression.null().has_i32())
         null_literal = std::make_unique<gqe::literal_expression<int64_t>>(0, true);
       // We currently treat all floating point and decimals as double
-      else if (literal_expression.null().has_decimal())
-        null_literal = std::make_unique<gqe::literal_expression<double>>(0, true);
-      else if (literal_expression.null().has_fp32())
+      else if (literal_expression.null().has_decimal()) {
+        if (!_optimization_parameters->replace_decimal_with_floating_point) {
+          auto fixed_point_value = from_substrait_decimal(literal_expression.decimal());
+          null_literal =
+            std::make_unique<gqe::literal_expression<decltype(fixed_point_value)>>(0, true);
+        } else {
+          null_literal = std::make_unique<gqe::literal_expression<double>>(0, true);
+        }
+      } else if (literal_expression.null().has_fp32())
         null_literal = std::make_unique<gqe::literal_expression<double>>(0, true);
       else if (literal_expression.null().has_fp64())
         null_literal = std::make_unique<gqe::literal_expression<double>>(0, true);
@@ -268,7 +278,8 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_literal_expression
 
 namespace {
 // Helper function for translating Substrait data type to cudf data type
-cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
+cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type,
+                                       gqe::optimization_parameters const* opt_params)
 {
   switch (substrait_type.kind_case()) {
     case substrait::Type::kBool: return cudf::data_type(cudf::type_id::BOOL8);
@@ -282,34 +293,33 @@ cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
     case substrait::Type::kVarchar: return cudf::data_type(cudf::type_id::STRING);
     case substrait::Type::kDate: return cudf::data_type(cudf::type_id::DURATION_DAYS);
     case substrait::Type::kDecimal: {
-      // Currently GQE uses floating point types to represent decimal types.
-      // TODO: Properly support decimal types.
-      /*
-      auto const precision = substrait_type.decimal().precision();
-      auto const scale     = substrait_type.decimal().scale();
+      if (!opt_params->replace_decimal_with_floating_point) {
+        auto const precision = substrait_type.decimal().precision();
+        auto const scale     = substrait_type.decimal().scale();
 
-      // Precision in radix-10 that can be represented by b bits = floor((b-1)*log_10(2))
-      constexpr decltype(precision) decimal32_precision_threshold  = 9;
-      constexpr decltype(precision) decimal64_precision_threshold  = 18;
-      constexpr decltype(precision) decimal128_precision_threshold = 38;
+        // Precision in radix-10 that can be represented by b bits = floor((b-1)*log_10(2))
+        constexpr decltype(precision) decimal32_precision_threshold  = 9;
+        constexpr decltype(precision) decimal64_precision_threshold  = 18;
+        constexpr decltype(precision) decimal128_precision_threshold = 38;
 
-      if (precision < 1 || precision > decimal128_precision_threshold) {
-        throw std::logic_error("Invalid decimal precision in the substrait plan");
-      }
+        if (precision < 1 || precision > decimal128_precision_threshold) {
+          throw std::logic_error("Invalid decimal precision in the substrait plan");
+        }
 
-      // Let's call the integer stored in the decimal `rep`, and the value it represented `value`.
-      // In cuDF, `rep = value / 10^scale` but in Substrait `value = rep / 10^scale`. So, we flip
-      // the sign bit of `scale` here to make them compatible.
-      if (precision <= decimal32_precision_threshold) {
-        return cudf::data_type(cudf::type_id::DECIMAL32, -scale);
-      } else if (precision <= decimal64_precision_threshold) {
-        return cudf::data_type(cudf::type_id::DECIMAL64, -scale);
+        // Let's call the integer stored in the decimal `rep`, and the value it represented `value`.
+        // In cuDF, `rep = value / 10^scale` but in Substrait `value = rep / 10^scale`. So, we flip
+        // the sign bit of `scale` here to make them compatible.
+        if (precision <= decimal32_precision_threshold) {
+          return cudf::data_type(cudf::type_id::DECIMAL32, -scale);
+        } else if (precision <= decimal64_precision_threshold) {
+          return cudf::data_type(cudf::type_id::DECIMAL64, -scale);
+        } else {
+          return cudf::data_type(cudf::type_id::DECIMAL128, -scale);
+        }
       } else {
-        return cudf::data_type(cudf::type_id::DECIMAL128, -scale);
+        GQE_LOG_WARN("Use FLOAT64 to represent decimal type");
+        return cudf::data_type(cudf::type_id::FLOAT64);
       }
-      */
-      GQE_LOG_WARN("Use FLOAT64 to represent decimal type");
-      return cudf::data_type(cudf::type_id::FLOAT64);
     }
     default:
       throw std::runtime_error("SubstraitParser cannot convert substrait type " +
@@ -397,7 +407,7 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_cast_expression(
   std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
 {
   auto input_expr       = parse_expression(cast_expression.input(), subquery_relations);
-  auto output_data_type = substrait_to_cudf_type(cast_expression.type());
+  auto output_data_type = substrait_to_cudf_type(cast_expression.type(), _optimization_parameters);
   return std::make_unique<gqe::cast_expression>(std::move(input_expr), output_data_type);
 }
 

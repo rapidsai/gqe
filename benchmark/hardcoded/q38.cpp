@@ -150,8 +150,7 @@ std::shared_ptr<gqe::logical::relation> process_sales_table(
     std::vector<std::shared_ptr<gqe::logical::relation>>(),
     std::move(agg_keys),
     std::vector<std::pair<cudf::aggregation::Kind,
-                          std::unique_ptr<gqe::expression>>>()  // values are empty
-  );
+                          std::unique_ptr<gqe::expression>>>());  // values are empty
 
   return sales_table;
 }

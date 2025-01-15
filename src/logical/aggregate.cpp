@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/expression/binary_op.hpp>
 #include <gqe/logical/aggregate.hpp>
 #include <gqe/logical/utility.hpp>
 #include <gqe/utility/helpers.hpp>
@@ -68,16 +69,28 @@ std::vector<aggregate_relation::measure_type> aggregate_relation::measures_unsaf
   for (auto const& key : _keys)
     data_types.push_back(key->data_type(input_relation->data_types()));
 
-  for (auto [aggregation_kind, value] : measures_unsafe()) {
+  for (auto const& [aggregation_kind, value] : _measures) {
+    cudf::data_type output_type =
+      cudf::detail::target_type(value->data_type(input_relation->data_types()), aggregation_kind);
     if (aggregation_kind == cudf::aggregation::MEAN) {
       // The `mean` aggregation needs to divide the sum by the count during post-processing, so we
       // treat it as a special case.
-      data_types.emplace_back(cudf::type_id::FLOAT64);
+      cudf::data_type sum_type = cudf::detail::target_type(
+        value->data_type(input_relation->data_types()), cudf::aggregation::Kind::SUM);
+      sum_type = cudf::detail::target_type(
+        sum_type, get_second_aggregation_kind(cudf::aggregation::Kind::SUM));
+
+      cudf::data_type count_type = cudf::detail::target_type(
+        value->data_type(input_relation->data_types()), cudf::aggregation::Kind::COUNT_ALL);
+      count_type = cudf::detail::target_type(
+        count_type, get_second_aggregation_kind(cudf::aggregation::Kind::COUNT_ALL));
+
+      data_types.emplace_back(
+        arithmetic_output_type(cudf::binary_operator::DIV, sum_type, count_type));
+
     } else {
-      // All other aggregations do not need post-processing, so the output type is the data type of
-      // the second aggregation in apply-concat-apply.
-      cudf::data_type output_type =
-        cudf::detail::target_type(value->data_type(input_relation->data_types()), aggregation_kind);
+      // All other aggregations do not need post-processing, so the output type is the data type
+      // of the second aggregation in apply-concat-apply.
       output_type =
         cudf::detail::target_type(output_type, get_second_aggregation_kind(aggregation_kind));
       data_types.push_back(output_type);

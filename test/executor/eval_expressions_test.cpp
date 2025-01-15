@@ -12,22 +12,72 @@
 
 #include <gqe/executor/eval.hpp>
 
-#include <cudf/column/column.hpp>
+#include <cudf/fixed_point/fixed_point.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf/wrappers/timestamps.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
-#include <cudf_test/table_utilities.hpp>
+#include <cudf_test/debug_utilities.hpp>
 
 #include <gtest/gtest.h>
 
-#include <cuda/std/chrono>
 #include <memory>
 #include <string>
 #include <vector>
 
+// TODO - consider typed tests.
+
 template <typename T>
 using column_wrapper = cudf::test::fixed_width_column_wrapper<T>;
+
+// Used for decimal tests, where columns can be fixed or decimal type.
+template <template <typename> typename TWrapper, typename TData>
+auto make_numeric_column_wrapper(std::initializer_list<TData> values, numeric::scale_type scale)
+{
+  using wrapper_type = TWrapper<TData>;
+  if constexpr (std::is_same_v<wrapper_type, cudf::test::fixed_width_column_wrapper<TData>>) {
+    std::vector<TData> scaled_values(values);
+    for (auto& val : scaled_values) {
+      val = static_cast<int>(val * pow(10.0, double(scale)));
+    }
+    return cudf::test::fixed_width_column_wrapper<TData>(scaled_values.begin(),
+                                                         scaled_values.end());
+  } else if constexpr (std::is_same_v<wrapper_type,
+                                      cudf::test::fixed_point_column_wrapper<TData>>) {
+    return cudf::test::fixed_point_column_wrapper<TData>(values, scale);
+  } else {
+    throw std::runtime_error("Unsupported column wrapper.");
+  }
+}
+
+template <template <typename> typename ResultColType, typename ResultDataType>
+void expect_columns_equal(cudf::column_view const& expected,
+                          cudf::column_view const& evaluated,
+                          float abs_error)
+{
+  cudf::data_type result_type = expected.type();
+
+  auto diff_col =
+    cudf::binary_operation(evaluated, expected, cudf::binary_operator::SUB, result_type);
+
+  auto abs_diff_col = cudf::unary_operation(diff_col->view(), cudf::unary_operator::ABS);
+
+  auto abs_err_col = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+    {ResultDataType(abs_error * pow(10, -result_type.scale())),
+     ResultDataType(abs_error * pow(10, -result_type.scale())),
+     ResultDataType(abs_error * pow(10, -result_type.scale())),
+     ResultDataType(abs_error * pow(10, -result_type.scale()))},
+    numeric::scale_type{result_type.scale()});
+
+  auto comp_col = cudf::binary_operation(abs_diff_col->view(),
+                                         abs_err_col,
+                                         cudf::binary_operator::LESS_EQUAL,
+                                         cudf::data_type(cudf::type_id::BOOL8));
+
+  auto truth_col = column_wrapper<bool>{true, true, true, true};
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(comp_col->view(), truth_col);
+}
 
 TEST(EvalExpressionsTest, ColumnReference)
 {
@@ -96,6 +146,90 @@ TEST(EvalExpressionsTest, StringColumnStringColumnEquality)
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+template <typename FixedPointSizeType>
+void DecimalColumnDecimalColumnEqualityTest()
+{
+  auto c_0   = cudf::test::fixed_point_column_wrapper<FixedPointSizeType>{{FixedPointSizeType(11),
+                                                                           FixedPointSizeType(20),
+                                                                           FixedPointSizeType(33),
+                                                                           FixedPointSizeType(40)},
+                                                                          numeric::scale_type{-1}};
+  auto c_1   = cudf::test::fixed_point_column_wrapper<FixedPointSizeType>{{FixedPointSizeType(11),
+                                                                           FixedPointSizeType(22),
+                                                                           FixedPointSizeType(33),
+                                                                           FixedPointSizeType(44)},
+                                                                          numeric::scale_type{-1}};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto col_ref_0 = std::make_shared<gqe::column_reference_expression>(0);
+  auto col_ref_1 = std::make_shared<gqe::column_reference_expression>(1);
+
+  auto eq_0_1                                     = gqe::equal_expression(col_ref_0, col_ref_1);
+  std::vector<gqe::expression const*> expressions = {&eq_0_1};
+
+  auto expected                          = column_wrapper<bool>{true, false, true, false};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+TEST(EvalExpressionsTest, Decimal32ColumnDecimal32ColumnEquality)
+{
+  DecimalColumnDecimalColumnEqualityTest<int32_t>();
+}
+
+TEST(EvalExpressionsTest, Decimal64lumnDecimal64ColumnEquality)
+{
+  DecimalColumnDecimalColumnEqualityTest<int64_t>();
+}
+
+TEST(EvalExpressionsTest, Decimal128ColumnDecimal128ColumnEquality)
+{
+  DecimalColumnDecimalColumnEqualityTest<__int128_t>();
+}
+
+template <typename FloatType, typename FixedPointSizeType>
+void FloatingPointColumnDecimalColumnEqualityTest()
+{
+  // 1.0 and 3.0 are representable in floating-point and fixed-point, but 2.2 and 4.4 are not
+  // representable as doubles.
+  auto c_0   = column_wrapper<FloatType>{1.0, 2.2, 3.0, 4.4};
+  auto c_1   = cudf::test::fixed_point_column_wrapper<FixedPointSizeType>{{FixedPointSizeType(10),
+                                                                           FixedPointSizeType(22),
+                                                                           FixedPointSizeType(30),
+                                                                           FixedPointSizeType(44)},
+                                                                          numeric::scale_type{-1}};
+  auto table = cudf::table_view{{c_0, c_1}};
+
+  auto col_ref_0 = std::make_shared<gqe::column_reference_expression>(0);
+  auto col_ref_1 = std::make_shared<gqe::column_reference_expression>(1);
+
+  auto eq_0_1                                     = gqe::equal_expression(col_ref_0, col_ref_1);
+  std::vector<gqe::expression const*> expressions = {&eq_0_1};
+
+  auto expected                          = column_wrapper<bool>{true, false, true, false};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+// @TODO Enable once we are on the latest version of cudf.
+
+TEST(EvalExpressionsTest, DISABLED_FloatColumnDecimal32ColumnEquality)
+{
+  FloatingPointColumnDecimalColumnEqualityTest<float, int32_t>();
+}
+
+TEST(EvalExpressionsTest, DISABLED_DoubleColumnDecimal64ColumnEquality)
+{
+  FloatingPointColumnDecimalColumnEqualityTest<double, int64_t>();
+}
+
+TEST(EvalExpressionsTest, DISABLED_DoublePointColumnDecimal128ColumnEquality)
+{
+  FloatingPointColumnDecimalColumnEqualityTest<double, __int128_t>();
 }
 
 TEST(EvalExpressionsTest, IntegerColumnIntegerLiteralEquality)
@@ -250,7 +384,7 @@ TEST(EvalExpressionsTest, IntegerDivision)
                                             std::make_shared<gqe::column_reference_expression>(1));
   std::vector<gqe::expression const*> expressions = {&divide_expr};
 
-  auto expected                          = column_wrapper<double>{0.4, 1.25, 1.0, 2.0};
+  auto expected                          = column_wrapper<int64_t>{0, 1, 1, 2};
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
@@ -270,6 +404,832 @@ TEST(EvalExpressionsTest, FloatDivision)
   auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+template <template <typename> typename LhsType,
+          typename LhsDataType,
+          template <typename>
+          typename RhsType,
+          typename RhsDataType,
+          template <typename>
+          typename ResultColType,
+          typename ResultDataType>
+void DecimalAdditionTest()
+{
+  std::vector<cudf::test::detail::column_wrapper> table_columns;
+  std::vector<cudf::column_view> table_column_views;
+  std::shared_ptr<gqe::expression> lhs;
+  std::shared_ptr<gqe::expression> rhs;
+  cudf::data_type lhs_type;
+  cudf::data_type rhs_type;
+
+  bool is_lhs_scalar = true;
+  bool is_rhs_scalar = true;
+
+  if constexpr (std::is_same_v<cudf::fixed_point_scalar<LhsDataType>, LhsType<LhsDataType>>) {
+    lhs = std::make_shared<gqe::literal_expression<LhsDataType>>(
+      LhsDataType(2, numeric::scale_type(-3)));
+    lhs_type = static_cast<gqe::literal_expression<LhsDataType>*>(lhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::numeric_scalar<LhsDataType>, LhsType<LhsDataType>>) {
+    lhs      = std::make_shared<gqe::literal_expression<LhsDataType>>(LhsDataType(2));
+    lhs_type = static_cast<gqe::literal_expression<LhsDataType>*>(lhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::test::fixed_point_column_wrapper<LhsDataType>,
+                                      LhsType<LhsDataType>> ||
+                       std::is_same_v<cudf::test::fixed_width_column_wrapper<LhsDataType>,
+                                      LhsType<LhsDataType>>) {
+    auto col = make_numeric_column_wrapper<LhsType, LhsDataType>(
+      {LhsDataType(-2000), LhsDataType(5000), LhsDataType(3000), LhsDataType(6000)},
+      numeric::scale_type{-3});
+
+    lhs_type = static_cast<cudf::column_view>(col).type();
+    table_columns.push_back(std::move(col));
+    table_column_views.push_back(table_columns.back());
+    lhs           = std::make_shared<gqe::column_reference_expression>(table_columns.size() - 1);
+    is_lhs_scalar = false;
+  }
+
+  if constexpr (std::is_same_v<cudf::fixed_point_scalar<RhsDataType>, RhsType<RhsDataType>>) {
+    rhs = std::make_shared<gqe::literal_expression<RhsDataType>>(
+      RhsDataType(5, numeric::scale_type(-2)));
+    rhs_type = static_cast<gqe::literal_expression<RhsDataType>*>(rhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::numeric_scalar<RhsDataType>, RhsType<RhsDataType>>) {
+    rhs      = std::make_shared<gqe::literal_expression<RhsDataType>>(RhsDataType(5));
+    rhs_type = static_cast<gqe::literal_expression<RhsDataType>*>(rhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::test::fixed_point_column_wrapper<RhsDataType>,
+                                      RhsType<RhsDataType>> ||
+                       std::is_same_v<cudf::test::fixed_width_column_wrapper<RhsDataType>,
+                                      RhsType<RhsDataType>>) {
+    auto col = make_numeric_column_wrapper<RhsType, RhsDataType>(
+      {RhsDataType(-500), RhsDataType(400), RhsDataType(300), RhsDataType(300)},
+      numeric::scale_type{-2});
+
+    rhs_type = static_cast<cudf::column_view>(col).type();
+    table_columns.push_back(std::move(col));
+    table_column_views.push_back(table_columns.back());
+    rhs           = std::make_shared<gqe::column_reference_expression>(table_columns.size() - 1);
+    is_rhs_scalar = false;
+  }
+
+  auto table                                      = cudf::table_view{table_column_views};
+  auto expr                                       = gqe::add_expression(lhs, rhs);
+  std::vector<gqe::expression const*> expressions = {&expr};
+  auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
+
+  auto result_type = gqe::arithmetic_output_type(cudf::binary_operator::ADD, lhs_type, rhs_type);
+
+  if (is_lhs_scalar && is_rhs_scalar) {
+    assert(0 && "Not Supported");
+  } else if (!is_lhs_scalar && is_rhs_scalar) {
+    auto expected = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+      {ResultDataType(3 * pow(10, -result_type.scale())),
+       ResultDataType(10 * pow(10, -result_type.scale())),
+       ResultDataType(8 * pow(10, -result_type.scale())),
+       ResultDataType(11 * pow(10, -result_type.scale()))},
+      numeric::scale_type{result_type.scale()});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+  } else if (is_lhs_scalar && !is_rhs_scalar) {
+    auto expected = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+      {ResultDataType(-3 * pow(10, -result_type.scale())),
+       ResultDataType(6 * pow(10, -result_type.scale())),
+       ResultDataType(5 * pow(10, -result_type.scale())),
+       ResultDataType(5 * pow(10, -result_type.scale()))},
+      numeric::scale_type{result_type.scale()});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+  } else {
+    auto expected = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+      {ResultDataType(-7 * pow(10, -result_type.scale())),
+       ResultDataType(9 * pow(10, -result_type.scale())),
+       ResultDataType(6 * pow(10, -result_type.scale())),
+       ResultDataType(9 * pow(10, -result_type.scale()))},
+      numeric::scale_type{result_type.scale()});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+  }
+}
+
+TEST(EvalExpressionsTest, Decimal32ColDecimal32ColAddition)
+{
+  DecimalAdditionTest<cudf::test::fixed_point_column_wrapper,
+                      int32_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      int32_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      int32_t>();
+}
+TEST(EvalExpressionsTest, Decimal64ColDecimal64ColAddition)
+{
+  DecimalAdditionTest<cudf::test::fixed_point_column_wrapper,
+                      int64_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      int64_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      int64_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColDecimal128ColAddition)
+{
+  DecimalAdditionTest<cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal32ColDecimal128ColAddition)
+{
+  DecimalAdditionTest<cudf::test::fixed_point_column_wrapper,
+                      int32_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColInt32ColAddition)
+{
+  DecimalAdditionTest<cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_width_column_wrapper,
+                      int32_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>();
+}
+TEST(EvalExpressionsTest, FloatColDecimal128ColAddition)
+{
+  DecimalAdditionTest<cudf::test::fixed_width_column_wrapper,
+                      float,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColDoubleColAddition)
+{
+  DecimalAdditionTest<cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_width_column_wrapper,
+                      double,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>();
+}
+
+TEST(EvalExpressionsTest, Decimal128LitDecimal128ColAddition)
+{
+  DecimalAdditionTest<cudf::fixed_point_scalar,
+                      numeric::decimal128,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColDecimal32LitAddition)
+{
+  DecimalAdditionTest<cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::fixed_point_scalar,
+                      numeric::decimal32,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColFloatLitAddition)
+{
+  DecimalAdditionTest<cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::numeric_scalar,
+                      float,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>();
+}
+TEST(EvalExpressionsTest, DoubleLitDecimal128ColAddition)
+{
+  DecimalAdditionTest<cudf::numeric_scalar,
+                      double,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>();
+}
+
+template <template <typename> typename LhsType,
+          typename LhsDataType,
+          template <typename>
+          typename RhsType,
+          typename RhsDataType,
+          template <typename>
+          typename ResultColType,
+          typename ResultDataType>
+void DecimalSubtractionTest()
+{
+  std::vector<cudf::test::detail::column_wrapper> table_columns;
+  std::vector<cudf::column_view> table_column_views;
+  std::shared_ptr<gqe::expression> lhs;
+  std::shared_ptr<gqe::expression> rhs;
+  cudf::data_type lhs_type;
+  cudf::data_type rhs_type;
+
+  bool is_lhs_scalar = true;
+  bool is_rhs_scalar = true;
+
+  if constexpr (std::is_same_v<cudf::fixed_point_scalar<LhsDataType>, LhsType<LhsDataType>>) {
+    lhs = std::make_shared<gqe::literal_expression<LhsDataType>>(
+      LhsDataType(2, numeric::scale_type(-3)));
+    lhs_type = static_cast<gqe::literal_expression<LhsDataType>*>(lhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::numeric_scalar<LhsDataType>, LhsType<LhsDataType>>) {
+    lhs      = std::make_shared<gqe::literal_expression<LhsDataType>>(LhsDataType(2));
+    lhs_type = static_cast<gqe::literal_expression<LhsDataType>*>(lhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::test::fixed_point_column_wrapper<LhsDataType>,
+                                      LhsType<LhsDataType>> ||
+                       std::is_same_v<cudf::test::fixed_width_column_wrapper<LhsDataType>,
+                                      LhsType<LhsDataType>>) {
+    auto col = make_numeric_column_wrapper<LhsType, LhsDataType>(
+      {LhsDataType(-2000), LhsDataType(5000), LhsDataType(3000), LhsDataType(3000)},
+      numeric::scale_type{-3});
+
+    lhs_type = static_cast<cudf::column_view>(col).type();
+    table_columns.push_back(std::move(col));
+    table_column_views.push_back(table_columns.back());
+    lhs           = std::make_shared<gqe::column_reference_expression>(table_columns.size() - 1);
+    is_lhs_scalar = false;
+  }
+
+  if constexpr (std::is_same_v<cudf::fixed_point_scalar<RhsDataType>, RhsType<RhsDataType>>) {
+    rhs = std::make_shared<gqe::literal_expression<RhsDataType>>(
+      RhsDataType(5, numeric::scale_type(-2)));
+    rhs_type = static_cast<gqe::literal_expression<RhsDataType>*>(rhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::numeric_scalar<RhsDataType>, RhsType<RhsDataType>>) {
+    rhs      = std::make_shared<gqe::literal_expression<RhsDataType>>(RhsDataType(5));
+    rhs_type = static_cast<gqe::literal_expression<RhsDataType>*>(rhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::test::fixed_point_column_wrapper<RhsDataType>,
+                                      RhsType<RhsDataType>> ||
+                       std::is_same_v<cudf::test::fixed_width_column_wrapper<RhsDataType>,
+                                      RhsType<RhsDataType>>) {
+    auto col = make_numeric_column_wrapper<RhsType, RhsDataType>(
+      {RhsDataType(-500), RhsDataType(400), RhsDataType(300), RhsDataType(600)},
+      numeric::scale_type{-2});
+
+    rhs_type = static_cast<cudf::column_view>(col).type();
+    table_columns.push_back(std::move(col));
+    table_column_views.push_back(table_columns.back());
+    rhs           = std::make_shared<gqe::column_reference_expression>(table_columns.size() - 1);
+    is_rhs_scalar = false;
+  }
+
+  auto table                                      = cudf::table_view{table_column_views};
+  auto expr                                       = gqe::subtract_expression(lhs, rhs);
+  std::vector<gqe::expression const*> expressions = {&expr};
+  auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
+
+  auto result_type = gqe::arithmetic_output_type(cudf::binary_operator::SUB, lhs_type, rhs_type);
+
+  if (is_lhs_scalar && is_rhs_scalar) {
+    assert(0 && "Not Supported");
+  } else if (!is_lhs_scalar && is_rhs_scalar) {
+    auto expected = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+      {ResultDataType(-7 * pow(10, -result_type.scale())),
+       ResultDataType(0 * pow(10, -result_type.scale())),
+       ResultDataType(-2 * pow(10, -result_type.scale())),
+       ResultDataType(-2 * pow(10, -result_type.scale()))},
+      numeric::scale_type{result_type.scale()});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+  } else if (is_lhs_scalar && !is_rhs_scalar) {
+    auto expected = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+      {ResultDataType(7 * pow(10, -result_type.scale())),
+       ResultDataType(-2 * pow(10, -result_type.scale())),
+       ResultDataType(-1 * pow(10, -result_type.scale())),
+       ResultDataType(-4 * pow(10, -result_type.scale()))},
+      numeric::scale_type{result_type.scale()});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+  } else {
+    auto expected = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+      {ResultDataType(3 * pow(10, -result_type.scale())),
+       ResultDataType(1 * pow(10, -result_type.scale())),
+       ResultDataType(0 * pow(10, -result_type.scale())),
+       ResultDataType(-3 * pow(10, -result_type.scale()))},
+      numeric::scale_type{result_type.scale()});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+  }
+}
+
+TEST(EvalExpressionsTest, Decimal32ColDecimal32ColSubtraction)
+{
+  DecimalSubtractionTest<cudf::test::fixed_point_column_wrapper,
+                         int32_t,
+                         cudf::test::fixed_point_column_wrapper,
+                         int32_t,
+                         cudf::test::fixed_point_column_wrapper,
+                         int32_t>();
+}
+TEST(EvalExpressionsTest, Decimal64ColDecimal64ColSubtraction)
+{
+  DecimalSubtractionTest<cudf::test::fixed_point_column_wrapper,
+                         int64_t,
+                         cudf::test::fixed_point_column_wrapper,
+                         int64_t,
+                         cudf::test::fixed_point_column_wrapper,
+                         int64_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColDecimal128ColSubtraction)
+{
+  DecimalSubtractionTest<cudf::test::fixed_point_column_wrapper,
+                         __int128_t,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal32ColDecimal128ColSubtraction)
+{
+  DecimalSubtractionTest<cudf::test::fixed_point_column_wrapper,
+                         int32_t,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColInt32ColSubtraction)
+{
+  DecimalSubtractionTest<cudf::test::fixed_point_column_wrapper,
+                         __int128_t,
+                         cudf::test::fixed_width_column_wrapper,
+                         int32_t,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t>();
+}
+TEST(EvalExpressionsTest, FloatColDecimal128ColSubtraction)
+{
+  DecimalSubtractionTest<cudf::test::fixed_width_column_wrapper,
+                         float,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColDoubleColSubtraction)
+{
+  DecimalSubtractionTest<cudf::test::fixed_point_column_wrapper,
+                         __int128_t,
+                         cudf::test::fixed_width_column_wrapper,
+                         double,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t>();
+}
+
+TEST(EvalExpressionsTest, Decimal128LitDecimal128ColSubtraction)
+{
+  DecimalSubtractionTest<cudf::fixed_point_scalar,
+                         numeric::decimal128,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColDecimal32LitSubtraction)
+{
+  DecimalSubtractionTest<cudf::test::fixed_point_column_wrapper,
+                         __int128_t,
+                         cudf::fixed_point_scalar,
+                         numeric::decimal32,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColFloatLitSubtraction)
+{
+  DecimalSubtractionTest<cudf::test::fixed_point_column_wrapper,
+                         __int128_t,
+                         cudf::numeric_scalar,
+                         float,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t>();
+}
+TEST(EvalExpressionsTest, DoubleLitDecimal128ColSubtraction)
+{
+  DecimalSubtractionTest<cudf::numeric_scalar,
+                         double,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t,
+                         cudf::test::fixed_point_column_wrapper,
+                         __int128_t>();
+}
+
+template <template <typename> typename LhsType,
+          typename LhsDataType,
+          template <typename>
+          typename RhsType,
+          typename RhsDataType,
+          template <typename>
+          typename ResultColType,
+          typename ResultDataType>
+void DecimalMultiplicationTest()
+{
+  std::vector<cudf::test::detail::column_wrapper> table_columns;
+  std::vector<cudf::column_view> table_column_views;
+  std::shared_ptr<gqe::expression> lhs;
+  std::shared_ptr<gqe::expression> rhs;
+  cudf::data_type lhs_type;
+  cudf::data_type rhs_type;
+
+  bool is_lhs_scalar = true;
+  bool is_rhs_scalar = true;
+
+  if constexpr (std::is_same_v<cudf::fixed_point_scalar<LhsDataType>, LhsType<LhsDataType>>) {
+    lhs = std::make_shared<gqe::literal_expression<LhsDataType>>(
+      LhsDataType(2, numeric::scale_type(-3)));
+    lhs_type = static_cast<gqe::literal_expression<LhsDataType>*>(lhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::numeric_scalar<LhsDataType>, LhsType<LhsDataType>>) {
+    lhs      = std::make_shared<gqe::literal_expression<LhsDataType>>(LhsDataType(2));
+    lhs_type = static_cast<gqe::literal_expression<LhsDataType>*>(lhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::test::fixed_point_column_wrapper<LhsDataType>,
+                                      LhsType<LhsDataType>> ||
+                       std::is_same_v<cudf::test::fixed_width_column_wrapper<LhsDataType>,
+                                      LhsType<LhsDataType>>) {
+    auto col = make_numeric_column_wrapper<LhsType, LhsDataType>(
+      {LhsDataType(-2000), LhsDataType(5000), LhsDataType(3000), LhsDataType(4000)},
+      numeric::scale_type{-3});
+
+    lhs_type = static_cast<cudf::column_view>(col).type();
+    table_columns.push_back(std::move(col));
+    table_column_views.push_back(table_columns.back());
+    lhs           = std::make_shared<gqe::column_reference_expression>(table_columns.size() - 1);
+    is_lhs_scalar = false;
+  }
+
+  if constexpr (std::is_same_v<cudf::fixed_point_scalar<RhsDataType>, RhsType<RhsDataType>>) {
+    rhs = std::make_shared<gqe::literal_expression<RhsDataType>>(
+      RhsDataType(5, numeric::scale_type(-2)));
+    rhs_type = static_cast<gqe::literal_expression<RhsDataType>*>(rhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::numeric_scalar<RhsDataType>, RhsType<RhsDataType>>) {
+    rhs      = std::make_shared<gqe::literal_expression<RhsDataType>>(RhsDataType(5));
+    rhs_type = static_cast<gqe::literal_expression<RhsDataType>*>(rhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::test::fixed_point_column_wrapper<RhsDataType>,
+                                      RhsType<RhsDataType>> ||
+                       std::is_same_v<cudf::test::fixed_width_column_wrapper<RhsDataType>,
+                                      RhsType<RhsDataType>>) {
+    auto col = make_numeric_column_wrapper<RhsType, RhsDataType>(
+      {RhsDataType(500), RhsDataType(400), RhsDataType(300), RhsDataType(600)},
+      numeric::scale_type{-2});
+
+    rhs_type = static_cast<cudf::column_view>(col).type();
+    table_columns.push_back(std::move(col));
+    table_column_views.push_back(table_columns.back());
+    rhs           = std::make_shared<gqe::column_reference_expression>(table_columns.size() - 1);
+    is_rhs_scalar = false;
+  }
+
+  auto table                                      = cudf::table_view{table_column_views};
+  auto expr                                       = gqe::multiply_expression(lhs, rhs);
+  std::vector<gqe::expression const*> expressions = {&expr};
+  auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
+
+  auto result_type = gqe::arithmetic_output_type(cudf::binary_operator::MUL, lhs_type, rhs_type);
+
+  if (is_lhs_scalar && is_rhs_scalar) {
+    assert(0 && "Not Supported");
+  } else if (!is_lhs_scalar && is_rhs_scalar) {
+    auto expected = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+      {ResultDataType(-10 * pow(10, -result_type.scale())),
+       ResultDataType(25 * pow(10, -result_type.scale())),
+       ResultDataType(15 * pow(10, -result_type.scale())),
+       ResultDataType(20 * pow(10, -result_type.scale()))},
+      numeric::scale_type{result_type.scale()});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+  } else if (is_lhs_scalar && !is_rhs_scalar) {
+    auto expected = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+      {ResultDataType(10 * pow(10, -result_type.scale())),
+       ResultDataType(8 * pow(10, -result_type.scale())),
+       ResultDataType(6 * pow(10, -result_type.scale())),
+       ResultDataType(12 * pow(10, -result_type.scale()))},
+      numeric::scale_type{result_type.scale()});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+  } else {
+    auto expected = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+      {ResultDataType(-10 * pow(10, -result_type.scale())),
+       ResultDataType(20 * pow(10, -result_type.scale())),
+       ResultDataType(9 * pow(10, -result_type.scale())),
+       ResultDataType(24 * pow(10, -result_type.scale()))},
+      numeric::scale_type{result_type.scale()});
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+  }
+}
+
+TEST(EvalExpressionsTest, Decimal32ColDecimal32ColMultiplication)
+{
+  DecimalMultiplicationTest<cudf::test::fixed_point_column_wrapper,
+                            int32_t,
+                            cudf::test::fixed_point_column_wrapper,
+                            int32_t,
+                            cudf::test::fixed_point_column_wrapper,
+                            int32_t>();
+}
+TEST(EvalExpressionsTest, Decimal64ColDecimal64ColMultiplication)
+{
+  DecimalMultiplicationTest<cudf::test::fixed_point_column_wrapper,
+                            int64_t,
+                            cudf::test::fixed_point_column_wrapper,
+                            int64_t,
+                            cudf::test::fixed_point_column_wrapper,
+                            int64_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColDecimal128ColMultiplication)
+{
+  DecimalMultiplicationTest<cudf::test::fixed_point_column_wrapper,
+                            __int128_t,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal32ColDecimal128ColMultiplication)
+{
+  DecimalMultiplicationTest<cudf::test::fixed_point_column_wrapper,
+                            int32_t,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColInt32ColMultiplication)
+{
+  DecimalMultiplicationTest<cudf::test::fixed_point_column_wrapper,
+                            __int128_t,
+                            cudf::test::fixed_width_column_wrapper,
+                            int32_t,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t>();
+}
+TEST(EvalExpressionsTest, FloatColDecimal128ColMultiplication)
+{
+  DecimalMultiplicationTest<cudf::test::fixed_width_column_wrapper,
+                            float,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColDoubleColMultiplication)
+{
+  DecimalMultiplicationTest<cudf::test::fixed_point_column_wrapper,
+                            __int128_t,
+                            cudf::test::fixed_width_column_wrapper,
+                            double,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t>();
+}
+
+TEST(EvalExpressionsTest, Decimal128LitDecimal128ColMultiplication)
+{
+  DecimalMultiplicationTest<cudf::fixed_point_scalar,
+                            numeric::decimal128,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColDecimal32LitMultiplication)
+{
+  DecimalMultiplicationTest<cudf::test::fixed_point_column_wrapper,
+                            __int128_t,
+                            cudf::fixed_point_scalar,
+                            numeric::decimal32,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t>();
+}
+TEST(EvalExpressionsTest, Decimal128ColFloatLitMultiplication)
+{
+  DecimalMultiplicationTest<cudf::test::fixed_point_column_wrapper,
+                            __int128_t,
+                            cudf::numeric_scalar,
+                            float,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t>();
+}
+TEST(EvalExpressionsTest, DoubleLitDecimal128ColMultiplication)
+{
+  DecimalMultiplicationTest<cudf::numeric_scalar,
+                            double,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t,
+                            cudf::test::fixed_point_column_wrapper,
+                            __int128_t>();
+}
+
+template <template <typename> typename LhsType,
+          typename LhsDataType,
+          template <typename>
+          typename RhsType,
+          typename RhsDataType,
+          template <typename>
+          typename ResultColType,
+          typename ResultDataType>
+void DecimalDivisionTest(double abs_error = 0.0)
+{
+  std::vector<cudf::test::detail::column_wrapper> table_columns;
+  std::vector<cudf::column_view> table_column_views;
+  std::shared_ptr<gqe::expression> lhs;
+  std::shared_ptr<gqe::expression> rhs;
+  cudf::data_type lhs_type;
+  cudf::data_type rhs_type;
+
+  bool is_lhs_scalar = true;
+  bool is_rhs_scalar = true;
+
+  if constexpr (std::is_same_v<cudf::fixed_point_scalar<LhsDataType>, LhsType<LhsDataType>>) {
+    lhs = std::make_shared<gqe::literal_expression<LhsDataType>>(
+      LhsDataType(2, numeric::scale_type(-3)));
+    lhs_type = static_cast<gqe::literal_expression<LhsDataType>*>(lhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::numeric_scalar<LhsDataType>, LhsType<LhsDataType>>) {
+    lhs      = std::make_shared<gqe::literal_expression<LhsDataType>>(LhsDataType(2));
+    lhs_type = static_cast<gqe::literal_expression<LhsDataType>*>(lhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::test::fixed_point_column_wrapper<LhsDataType>,
+                                      LhsType<LhsDataType>> ||
+                       std::is_same_v<cudf::test::fixed_width_column_wrapper<LhsDataType>,
+                                      LhsType<LhsDataType>>) {
+    auto col = make_numeric_column_wrapper<LhsType, LhsDataType>(
+      {LhsDataType(-2000), LhsDataType(5000), LhsDataType(3000), LhsDataType(8000)},
+      numeric::scale_type{-3});
+
+    lhs_type = static_cast<cudf::column_view>(col).type();
+    table_columns.push_back(std::move(col));
+    table_column_views.push_back(table_columns.back());
+    lhs           = std::make_shared<gqe::column_reference_expression>(table_columns.size() - 1);
+    is_lhs_scalar = false;
+  }
+
+  if constexpr (std::is_same_v<cudf::fixed_point_scalar<RhsDataType>, RhsType<RhsDataType>>) {
+    rhs = std::make_shared<gqe::literal_expression<RhsDataType>>(
+      RhsDataType(5, numeric::scale_type(-2)));
+    rhs_type = static_cast<gqe::literal_expression<RhsDataType>*>(rhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::numeric_scalar<RhsDataType>, RhsType<RhsDataType>>) {
+    rhs      = std::make_shared<gqe::literal_expression<RhsDataType>>(RhsDataType(5));
+    rhs_type = static_cast<gqe::literal_expression<RhsDataType>*>(rhs.get())->data_type(
+      std::vector<cudf::data_type>{});
+  } else if constexpr (std::is_same_v<cudf::test::fixed_point_column_wrapper<RhsDataType>,
+                                      RhsType<RhsDataType>> ||
+                       std::is_same_v<cudf::test::fixed_width_column_wrapper<RhsDataType>,
+                                      RhsType<RhsDataType>>) {
+    auto col = make_numeric_column_wrapper<RhsType, RhsDataType>(
+      {RhsDataType(500), RhsDataType(400), RhsDataType(300), RhsDataType(200)},
+      numeric::scale_type{-2});
+
+    rhs_type = static_cast<cudf::column_view>(col).type();
+    table_columns.push_back(std::move(col));
+    table_column_views.push_back(table_columns.back());
+    rhs           = std::make_shared<gqe::column_reference_expression>(table_columns.size() - 1);
+    is_rhs_scalar = false;
+  }
+
+  auto table                                      = cudf::table_view{table_column_views};
+  auto expr                                       = gqe::divide_expression(lhs, rhs);
+  std::vector<gqe::expression const*> expressions = {&expr};
+  auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
+
+  // Floating point columns and cudf::cast introduce small precision artifacts, even for values
+  // that are representable in IEEE754. This seems to happen when casting to larger precision type,
+  // like float->DECIMAL128. We use absolute error ignore these artifacts.
+
+  auto result_type = gqe::arithmetic_output_type(cudf::binary_operator::DIV, lhs_type, rhs_type);
+
+  if (is_lhs_scalar && is_rhs_scalar) {
+    assert(0 && "Not Supported");
+  } else if (!is_lhs_scalar && is_rhs_scalar) {
+    auto expected = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+      {ResultDataType(-0.4 * pow(10, -result_type.scale())),
+       ResultDataType(1.0 * pow(10, -result_type.scale())),
+       ResultDataType(0.6 * pow(10, -result_type.scale())),
+       ResultDataType(1.6 * pow(10, -result_type.scale()))},
+      numeric::scale_type{result_type.scale()});
+    expect_columns_equal<ResultColType, ResultDataType>(expected, evaluated_results[0], abs_error);
+  } else if (is_lhs_scalar && !is_rhs_scalar) {
+    auto expected = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+      {ResultDataType(0.4 * pow(10, -result_type.scale())),
+       ResultDataType(0.5 * pow(10, -result_type.scale())),
+       ResultDataType((2.0 / 3.0) * pow(10, -result_type.scale())),
+       ResultDataType(1.0 * pow(10, -result_type.scale()))},
+      numeric::scale_type{result_type.scale()});
+    expect_columns_equal<ResultColType, ResultDataType>(expected, evaluated_results[0], abs_error);
+  } else {
+    auto expected = make_numeric_column_wrapper<ResultColType, ResultDataType>(
+      {ResultDataType(-0.4 * pow(10, -result_type.scale())),
+       ResultDataType(1.25 * pow(10, -result_type.scale())),
+       ResultDataType(1.0 * pow(10, -result_type.scale())),
+       ResultDataType(4.0 * pow(10, -result_type.scale()))},
+      numeric::scale_type{result_type.scale()});
+    expect_columns_equal<ResultColType, ResultDataType>(expected, evaluated_results[0], abs_error);
+  }
+}
+
+constexpr double decimal_division_error = 0.001;
+
+TEST(EvalExpressionsTest, Decimal32ColDecimal32ColDivision)
+{
+  DecimalDivisionTest<cudf::test::fixed_point_column_wrapper,
+                      int32_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      int32_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      int64_t>(decimal_division_error);
+}
+TEST(EvalExpressionsTest, Decimal64ColDecimal64ColDivision)
+{
+  DecimalDivisionTest<cudf::test::fixed_point_column_wrapper,
+                      int64_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      int64_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>(decimal_division_error);
+}
+TEST(EvalExpressionsTest, Decimal128ColDecimal128ColDivision)
+{
+  DecimalDivisionTest<cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>(decimal_division_error);
+}
+TEST(EvalExpressionsTest, Decimal32ColDecimal128ColDivision)
+{
+  DecimalDivisionTest<cudf::test::fixed_point_column_wrapper,
+                      int32_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>(decimal_division_error);
+}
+TEST(EvalExpressionsTest, Decimal128ColInt32ColDivision)
+{
+  DecimalDivisionTest<cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_width_column_wrapper,
+                      int32_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>(decimal_division_error);
+}
+TEST(EvalExpressionsTest, FloatColDecimal128ColDivision)
+{
+  DecimalDivisionTest<cudf::test::fixed_width_column_wrapper,
+                      float,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>(decimal_division_error);
+}
+TEST(EvalExpressionsTest, Decimal128ColDoubleColDivision)
+{
+  DecimalDivisionTest<cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_width_column_wrapper,
+                      double,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>(decimal_division_error);
+}
+
+TEST(EvalExpressionsTest, Decimal128LitDecimal128ColDivision)
+{
+  DecimalDivisionTest<cudf::fixed_point_scalar,
+                      numeric::decimal128,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>(decimal_division_error);
+}
+TEST(EvalExpressionsTest, Decimal128ColDecimal32LitDivision)
+{
+  DecimalDivisionTest<cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::fixed_point_scalar,
+                      numeric::decimal32,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>(decimal_division_error);
+}
+TEST(EvalExpressionsTest, Decimal128ColFloatLitDivision)
+{
+  DecimalDivisionTest<cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::numeric_scalar,
+                      float,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>(decimal_division_error);
+}
+TEST(EvalExpressionsTest, DoubleLitDecimal128ColDivision)
+{
+  DecimalDivisionTest<cudf::numeric_scalar,
+                      double,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t,
+                      cudf::test::fixed_point_column_wrapper,
+                      __int128_t>(decimal_division_error);
 }
 
 TEST(EvalExpressionsTest, SimpleConditional)

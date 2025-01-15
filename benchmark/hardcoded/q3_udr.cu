@@ -274,8 +274,8 @@ void custom_task::execute()
                                    empty_value_sentinel,
                                    thrust::equal_to<int64_t>{},
                                    cuco::linear_probing<1, cuco::default_hash_function<int64_t>>{},
-                                   {},
-                                   {},
+                                           {},
+                                           {},
                                    stream_alloc};
   auto i_item_sk_column = cudf::column_device_view::create(item_table.column(0));
 
@@ -415,6 +415,8 @@ int main(int argc, char* argv[])
   rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource> pool_mr{
     &cuda_mr, pool_size, pool_size};
   rmm::mr::set_current_device_resource(&pool_mr);
+
+  gqe::optimization_parameters opt_params;
 
   // Register the input tables
   gqe::catalog tpcds_catalog;

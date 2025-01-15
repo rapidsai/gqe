@@ -14,6 +14,7 @@
 
 #include <gqe/utility/helpers.hpp>
 
+#include <cudf/fixed_point/fixed_point.hpp>
 #include <cudf/types.hpp>
 #include <cudf/wrappers/timestamps.hpp>
 
@@ -82,6 +83,21 @@ struct expression_visitor {
   virtual void visit(literal_expression<std::string> const* expression)
   {
     throw std::logic_error("Visiting literal_expression<string> is not implemented");
+  }
+
+  virtual void visit(literal_expression<numeric::decimal32> const* expression)
+  {
+    throw std::logic_error("Visiting literal_expression<numeric::decimal32> is not implemented");
+  }
+
+  virtual void visit(literal_expression<numeric::decimal64> const* expression)
+  {
+    throw std::logic_error("Visiting literal_expression<numeric::decimal64> is not implemented");
+  }
+
+  virtual void visit(literal_expression<numeric::decimal128> const* expression)
+  {
+    throw std::logic_error("Visiting literal_expression<numeric::decimal128> is not implemented");
   }
 
   virtual void visit(binary_op_expression const* expression)

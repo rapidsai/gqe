@@ -12,6 +12,7 @@
 #include "common.hpp"
 
 #include <gqe/catalog.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/logical/from_substrait.hpp>
 #include <gqe/utility/tpcds.hpp>
 #include <gqe/utility/tpch.hpp>
@@ -49,9 +50,12 @@ int main(int argc, char** argv)
 
   gqe::catalog catalog;
 
+  gqe::optimization_parameters opt_params;
+
   // Register all tables
-  auto const& table_definitions = (tpc_type == "ds") ? gqe::utility::tpcds::table_definitions()
-                                                     : gqe::utility::tpch::table_definitions();
+  auto const& table_definitions =
+    (tpc_type == "ds") ? gqe::utility::tpcds::table_definitions(opt_params.use_fixed_point)
+                       : gqe::utility::tpch::table_definitions(opt_params.use_fixed_point);
   for (auto const& [name, definition] : table_definitions) {
     catalog.register_table(name,
                            definition,
@@ -60,7 +64,7 @@ int main(int argc, char** argv)
   }
 
   // Read and parse substrait file
-  gqe::substrait_parser parser(&catalog);
+  gqe::substrait_parser parser(&catalog, opt_params);
   std::vector<std::shared_ptr<gqe::logical::relation>> query_plan =
     parser.from_file(substrait_file);
   // Print gqe logical relation in json format

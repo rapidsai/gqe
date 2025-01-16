@@ -35,6 +35,8 @@ set(CMAKE_CUDA_STANDARD 17)
 
 add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wall>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Werror>")
+add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wimplicit-fallthrough>")
+add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wsuggest-override>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--compiler-options=-Wall>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--compiler-options=-Werror>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>")

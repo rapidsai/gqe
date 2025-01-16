@@ -41,10 +41,13 @@ std::shared_ptr<gqe::logical::relation> gqe::optimizer::logical_optimizer::optim
     switch (rule->direction()) {
       case optimization_rule::transform_direction::NONE:
         logical_relation = _optimize(logical_relation, *rule, rule_applied);
+        break;
       case optimization_rule::transform_direction::DOWN:
         logical_relation = _optimize_down(logical_relation, *rule, rule_applied);
+        break;
       case optimization_rule::transform_direction::UP:
         logical_relation = _optimize_up(logical_relation, *rule, rule_applied);
+        break;
     }
     // Update rule application counts
     if (rule_applied) {

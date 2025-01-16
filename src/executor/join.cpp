@@ -320,17 +320,32 @@ struct predicate_rewriter : public expression_visitor {
     cache.push_back(std::move(cudf_expr));
   }
 
-  void visit(literal_expression<int32_t> const* expression) { create_literal_ast(expression); }
+  void visit(literal_expression<int32_t> const* expression) override
+  {
+    create_literal_ast(expression);
+  }
 
-  void visit(literal_expression<int64_t> const* expression) { create_literal_ast(expression); }
+  void visit(literal_expression<int64_t> const* expression) override
+  {
+    create_literal_ast(expression);
+  }
 
-  void visit(literal_expression<float> const* expression) { create_literal_ast(expression); }
+  void visit(literal_expression<float> const* expression) override
+  {
+    create_literal_ast(expression);
+  }
 
-  void visit(literal_expression<double> const* expression) { create_literal_ast(expression); }
+  void visit(literal_expression<double> const* expression) override
+  {
+    create_literal_ast(expression);
+  }
 
-  void visit(literal_expression<std::string> const* expression) { create_literal_ast(expression); }
+  void visit(literal_expression<std::string> const* expression) override
+  {
+    create_literal_ast(expression);
+  }
 
-  void visit(literal_expression<cudf::timestamp_D> const* expression)
+  void visit(literal_expression<cudf::timestamp_D> const* expression) override
   {
     create_literal_ast(expression);
   }

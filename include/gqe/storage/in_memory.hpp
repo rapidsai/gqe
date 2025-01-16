@@ -209,7 +209,7 @@ class compressed_column : public column_base {
   /**
    * @copydoc gqe::storage::type()
    */
-  in_memory_column_type type() const { return in_memory_column_type::COMPRESSED; }
+  in_memory_column_type type() const override { return in_memory_column_type::COMPRESSED; }
 
   /**
    * @copydoc gqe::storage::column_base::size()

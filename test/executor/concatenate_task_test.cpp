@@ -35,9 +35,9 @@ TEST(ConcatenateTaskTest, MixTypes)
   // string. All columns have hand-coded values. Then, a concatenate task with these input tables is
   // created and executed. The correctness is verified by comparing against the hand-coded reference
   // result.
-  gqe::task_manager_context dbctx{};
-  gqe::query_context qctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&dbctx, &qctx};
+  gqe::task_manager_context task_manager_ctx{};
+  gqe::query_context query_ctx(gqe::optimization_parameters(true));
+  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
   constexpr int32_t stage_id = 0;
 
   cudf::test::fixed_width_column_wrapper<int64_t> table_0_col_0({1, 2});

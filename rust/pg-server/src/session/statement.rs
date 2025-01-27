@@ -134,7 +134,7 @@ pub(super) async fn execute_prepared_statement(
         // up a bit.
         let session = session.deref_mut();
 
-        let mut dbctx = TaskManagerContext::new().map_err(|e| {
+        let mut task_manager_ctx = TaskManagerContext::new().map_err(|e| {
             pg_wire_usererror(
                 PgErrorSeverity::Error,
                 PgErrorCode::InternalError,
@@ -142,7 +142,7 @@ pub(super) async fn execute_prepared_statement(
             )
         })?;
 
-        let mut qctx = QueryContext::new(&session.parameters).map_err(|e| {
+        let mut query_ctx = QueryContext::new(&session.parameters).map_err(|e| {
             pg_wire_usererror(
                 PgErrorSeverity::Error,
                 PgErrorCode::InternalError,
@@ -198,7 +198,7 @@ pub(super) async fn execute_prepared_statement(
         };
 
         let task_graph = {
-            let mut task_graph_builder = TaskGraphBuilder::new(&mut dbctx, &mut qctx, &mut session.catalog)
+            let mut task_graph_builder = TaskGraphBuilder::new(&mut task_manager_ctx, &mut query_ctx, &mut session.catalog)
                 .map_err(|e| {
                     pg_wire_usererror(
                         PgErrorSeverity::Error,
@@ -217,7 +217,7 @@ pub(super) async fn execute_prepared_statement(
         };
 
         let timer = Instant::now();
-        gqe_executor::execute_task_graph_single_gpu(&mut dbctx, &mut qctx, &task_graph).map_err(|e| {
+        gqe_executor::execute_task_graph_single_gpu(&mut task_manager_ctx, &mut query_ctx, &task_graph).map_err(|e| {
             pg_wire_usererror(
                 PgErrorSeverity::Error,
                 PgErrorCode::InternalError,
@@ -264,7 +264,7 @@ pub(super) async fn insert_from_table(
             dst_table_name.as_str(),
         )?;
         
-        let mut dbctx = TaskManagerContext::new().map_err(|e| {
+        let mut task_manager_ctx = TaskManagerContext::new().map_err(|e| {
             pg_wire_usererror(
                 PgErrorSeverity::Error,
                 PgErrorCode::InternalError,
@@ -272,7 +272,7 @@ pub(super) async fn insert_from_table(
             )
         })?;
 
-        let mut qctx = QueryContext::new(&session.parameters).map_err(|e| {
+        let mut query_ctx = QueryContext::new(&session.parameters).map_err(|e| {
             pg_wire_usererror(
                 PgErrorSeverity::Error,
                 PgErrorCode::InternalError,
@@ -300,7 +300,7 @@ pub(super) async fn insert_from_table(
         };
 
         let task_graph = {
-            let mut task_graph_builder = TaskGraphBuilder::new(&mut dbctx, &mut qctx, &mut session.catalog)
+            let mut task_graph_builder = TaskGraphBuilder::new(&mut task_manager_ctx, &mut query_ctx, &mut session.catalog)
                 .map_err(|e| {
                     pg_wire_usererror(
                         PgErrorSeverity::Error,
@@ -319,7 +319,7 @@ pub(super) async fn insert_from_table(
         };
 
         let timer = Instant::now();
-        gqe_executor::execute_task_graph_single_gpu(&mut dbctx, &mut qctx, &task_graph).map_err(|e| {
+        gqe_executor::execute_task_graph_single_gpu(&mut task_manager_ctx, &mut query_ctx, &task_graph).map_err(|e| {
             pg_wire_usererror(
                 PgErrorSeverity::Error,
                 PgErrorCode::InternalError,

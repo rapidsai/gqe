@@ -106,9 +106,9 @@ TEST(InMemoryStorage, CopyTable)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(write_relation.get());
 
-  gqe::task_manager_context dbctx{};
-  gqe::query_context qctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&dbctx, &qctx};
+  gqe::task_manager_context task_manager_ctx{};
+  gqe::query_context query_ctx(gqe::optimization_parameters(true));
+  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
   // Generate the task graph and execute on a single GPU
   gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
@@ -217,9 +217,9 @@ TEST(InMemoryStorage, CopyTableParallel)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(write_relation.get());
 
-  gqe::task_manager_context dbctx{};
-  gqe::query_context qctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&dbctx, &qctx};
+  gqe::task_manager_context task_manager_ctx{};
+  gqe::query_context query_ctx(gqe::optimization_parameters(true));
+  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
   // Generate the task graph and execute on a single GPU
   gqe::task_graph_builder graph_builder(ctx_ref, &catalog);

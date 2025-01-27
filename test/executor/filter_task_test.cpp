@@ -56,9 +56,9 @@ class FilterTest : public ::testing::Test {
     constexpr int32_t stage_id       = 0;
     constexpr int32_t filter_task_id = 1;
 
-    gqe::task_manager_context dbctx{};
-    gqe::query_context qctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&dbctx, &qctx};
+    gqe::task_manager_context task_manager_ctx{};
+    gqe::query_context query_ctx(gqe::optimization_parameters(true));
+    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     construct_input_task(stage_id, ctx_ref);
 

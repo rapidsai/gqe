@@ -42,9 +42,9 @@ class WindowOrderByPartitionBy : public ::testing::Test {
     constexpr int32_t input_task_id  = 0;
     constexpr int32_t filter_task_id = 1;
 
-    gqe::task_manager_context dbctx{};
-    gqe::query_context qctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&dbctx, &qctx};
+    gqe::task_manager_context task_manager_ctx{};
+    gqe::query_context query_ctx(gqe::optimization_parameters(true));
+    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     int64_column_wrapper input_col_0({1, 1, 2, 1, 2, 2, 1});
     int64_column_wrapper input_col_1({1, 2, 4, 3, 5, 6, 2});
@@ -111,9 +111,9 @@ class WindowOrderBy : public ::testing::Test {
     constexpr int32_t input_task_id  = 0;
     constexpr int32_t filter_task_id = 1;
 
-    gqe::task_manager_context dbctx{};
-    gqe::query_context qctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&dbctx, &qctx};
+    gqe::task_manager_context task_manager_ctx{};
+    gqe::query_context query_ctx(gqe::optimization_parameters(true));
+    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     int64_column_wrapper input_col_0({1, 2, 3, 4, 5, 6, 2});
     int32_column_wrapper input_col_1({6, 5, 4, 3, 2, 1, 7});
@@ -175,9 +175,9 @@ class WindowOrderByPartitionByRank : public ::testing::Test {
     constexpr int32_t input_task_id  = 0;
     constexpr int32_t filter_task_id = 1;
 
-    gqe::task_manager_context dbctx{};
-    gqe::query_context qctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&dbctx, &qctx};
+    gqe::task_manager_context task_manager_ctx{};
+    gqe::query_context query_ctx(gqe::optimization_parameters(true));
+    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     int64_column_wrapper input_col_0({1, 1, 2, 3, 2, 2, 1, 1});
     int32_column_wrapper input_col_1({5, 5, 4, 3, 2, 1, 0, 6});
@@ -239,9 +239,9 @@ class WindowOrderByRank : public ::testing::Test {
     constexpr int32_t input_task_id  = 0;
     constexpr int32_t filter_task_id = 1;
 
-    gqe::task_manager_context dbctx{};
-    gqe::query_context qctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&dbctx, &qctx};
+    gqe::task_manager_context task_manager_ctx{};
+    gqe::query_context query_ctx(gqe::optimization_parameters(true));
+    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     int32_column_wrapper input_col_0({5, 5, 4, 3, 2, 1, 0, 6});
     int64_column_wrapper input_col_1({0, 1, 2, 3, 4, 5, 6, 7});

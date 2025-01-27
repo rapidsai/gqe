@@ -40,9 +40,9 @@ class SingleKeyColumnSortTest : public ::testing::Test {
     constexpr int32_t input_task_id = 0;
     constexpr int32_t sort_task_id  = 1;
 
-    gqe::task_manager_context dbctx{};
-    gqe::query_context qctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&dbctx, &qctx};
+    gqe::task_manager_context task_manager_ctx{};
+    gqe::query_context query_ctx(gqe::optimization_parameters(true));
+    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     int64_column_wrapper input_col_0({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
     int64_column_wrapper input_col_1({5, 3, 4, 8, 1, 9, 6, 7, 2, 0},

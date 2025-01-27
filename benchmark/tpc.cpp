@@ -289,9 +289,9 @@ int main(int argc, char* argv[])
 
   gqe::optimization_parameters read_opms{};
   read_opms.max_num_partitions = parse_num_row_groups();
-  gqe::task_manager_context dbctx{};
-  gqe::query_context qctx(read_opms);
-  gqe::context_reference ctx_ref{&dbctx, &qctx};
+  gqe::task_manager_context task_manager_ctx{};
+  gqe::query_context query_ctx(read_opms);
+  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
   gqe::catalog catalog;
 
   // register all tables
@@ -355,7 +355,7 @@ int main(int argc, char* argv[])
     auto opt_logical_plan = optimizer.optimize(logical_plan[0]);
 
     gqe::optimization_parameters execute_opms{};
-    qctx.parameters = execute_opms;
+    query_ctx.parameters = execute_opms;
 
     query_result_writer result_writer(ctx_ref, &catalog);
     auto const cached_result_name = "query_result_" + query_identifier;

@@ -52,11 +52,11 @@ gqe::storage::table_with_metadata write_file_and_load_back(cudf::table_view tabl
   gqe::optimization_parameters opms{};
   opms.max_num_workers   = 1;
   opms.use_customized_io = true;
-  gqe::query_context qctx(opms);
+  gqe::query_context query_ctx(opms);
 
-  auto const bounce_buffer_size = qctx.io_bounce_buffer_mr->get_block_size();
+  auto const bounce_buffer_size = query_ctx.io_bounce_buffer_mr->get_block_size();
   rmm::device_buffer bounce_buffer(
-    bounce_buffer_size, rmm::cuda_stream_default, qctx.io_bounce_buffer_mr.get());
+    bounce_buffer_size, rmm::cuda_stream_default, query_ctx.io_bounce_buffer_mr.get());
 
   gqe::storage::table_with_metadata result_table;
 
@@ -65,29 +65,29 @@ gqe::storage::table_with_metadata write_file_and_load_back(cudf::table_view tabl
                                                      column_names,
                                                      bounce_buffer.data(),
                                                      bounce_buffer_size,
-                                                     qctx.parameters.io_auxiliary_threads,
-                                                     qctx.parameters.io_block_size,
-                                                     qctx.parameters.io_engine,
-                                                     qctx.parameters.io_pipelining,
-                                                     qctx.parameters.io_alignment,
-                                                     qctx.disk_timer,
-                                                     qctx.h2d_timer,
-                                                     qctx.decomp_timer,
-                                                     qctx.decode_timer);
+                                                     query_ctx.parameters.io_auxiliary_threads,
+                                                     query_ctx.parameters.io_block_size,
+                                                     query_ctx.parameters.io_engine,
+                                                     query_ctx.parameters.io_pipelining,
+                                                     query_ctx.parameters.io_alignment,
+                                                     query_ctx.disk_timer,
+                                                     query_ctx.h2d_timer,
+                                                     query_ctx.decomp_timer,
+                                                     query_ctx.decode_timer);
   } else {
     result_table = gqe::storage::read_parquet_custom({table_filepath},
                                                      std::vector<std::string>(),
                                                      bounce_buffer.data(),
                                                      bounce_buffer_size,
-                                                     qctx.parameters.io_auxiliary_threads,
-                                                     qctx.parameters.io_block_size,
-                                                     qctx.parameters.io_engine,
-                                                     qctx.parameters.io_pipelining,
-                                                     qctx.parameters.io_alignment,
-                                                     qctx.disk_timer,
-                                                     qctx.h2d_timer,
-                                                     qctx.decomp_timer,
-                                                     qctx.decode_timer);
+                                                     query_ctx.parameters.io_auxiliary_threads,
+                                                     query_ctx.parameters.io_block_size,
+                                                     query_ctx.parameters.io_engine,
+                                                     query_ctx.parameters.io_pipelining,
+                                                     query_ctx.parameters.io_alignment,
+                                                     query_ctx.disk_timer,
+                                                     query_ctx.h2d_timer,
+                                                     query_ctx.decomp_timer,
+                                                     query_ctx.decode_timer);
   }
 
   return result_table;

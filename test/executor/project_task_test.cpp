@@ -50,9 +50,9 @@ TEST(ProjectTaskTest, ReorderColumns)
                                 input_table_columns[1]->view(),
                                 input_table_columns[2]->view()});
 
-  gqe::task_manager_context dbctx{};
-  gqe::query_context qctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&dbctx, &qctx};
+  gqe::task_manager_context task_manager_ctx{};
+  gqe::query_context query_ctx(gqe::optimization_parameters(true));
+  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
   auto input_task = std::make_shared<gqe::test::executed_task>(
     ctx_ref, input_task_id, stage_id, std::make_unique<cudf::table>(input_table));

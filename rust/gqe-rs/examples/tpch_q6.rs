@@ -59,8 +59,8 @@ fn main() {
     let parameters =
         OptimizationParameters::new().expect("Failed to construct optimization parameters");
     
-    let mut dbctx = TaskManagerContext::new().expect("Failed to construct a db context.");;
-    let mut qctx = QueryContext::new(&parameters).expect("Failed to construct a query context.");
+    let mut task_manager_ctx = TaskManagerContext::new().expect("Failed to construct a db context.");;
+    let mut query_ctx = QueryContext::new(&parameters).expect("Failed to construct a query context.");
 
     println!("{:?}", parameters);
 
@@ -86,7 +86,7 @@ fn main() {
     };
 
     let task_graph = {
-        let mut task_graph_builder = TaskGraphBuilder::new(&mut dbctx, &mut qctx, &mut catalog)
+        let mut task_graph_builder = TaskGraphBuilder::new(&mut task_manager_ctx, &mut query_ctx, &mut catalog)
             .expect("Failed to construct a task graph builder.");
         let task_graph = task_graph_builder
             .build(&mut physical_plan)
@@ -94,7 +94,7 @@ fn main() {
         task_graph
     };
 
-    executor::execute_task_graph_single_gpu(&mut dbctx, &mut qctx, &task_graph)
+    executor::execute_task_graph_single_gpu(&mut task_manager_ctx, &mut query_ctx, &task_graph)
         .expect("Failed to execute the task graph.");
 
     println!("Executed");

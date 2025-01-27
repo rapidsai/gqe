@@ -316,9 +316,9 @@ int main(int argc, char* argv[])
   gqe::physical_plan_builder plan_builder(&tpcds_catalog);
   auto physical_plan = plan_builder.build(logical_plan.get());
 
-  gqe::task_manager_context dbctx{};
-  gqe::query_context qctx(gqe::optimization_parameters{});
-  gqe::context_reference ctx_ref{&dbctx, &qctx};
+  gqe::task_manager_context task_manager_ctx{};
+  gqe::query_context query_ctx(gqe::optimization_parameters{});
+  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
   gqe::task_graph_builder graph_builder(ctx_ref, &tpcds_catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
@@ -335,10 +335,10 @@ int main(int argc, char* argv[])
   // Output performance information to disk
   std::ofstream out;
   out.open("bandwidth.json");
-  out << qctx.disk_timer.to_string();
-  out << qctx.h2d_timer.to_string();
-  out << qctx.decomp_timer.to_string();
-  out << qctx.decode_timer.to_string();
+  out << query_ctx.disk_timer.to_string();
+  out << query_ctx.h2d_timer.to_string();
+  out << query_ctx.decomp_timer.to_string();
+  out << query_ctx.decode_timer.to_string();
 
   return 0;
 }

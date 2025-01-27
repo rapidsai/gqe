@@ -54,8 +54,8 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
     opms.read_zero_copy_enable              = params.read_zero_copy_enable;
     opms.in_memory_table_compression_format = params.comp_format;
 
-    qctx  = std::make_unique<gqe::query_context>(opms);
-    dbctx = std::make_unique<gqe::task_manager_context>();
+    query_ctx        = std::make_unique<gqe::query_context>(opms);
+    task_manager_ctx = std::make_unique<gqe::task_manager_context>();
   }
 
   void SetUp() override
@@ -68,9 +68,9 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
     test_columns.push_back(col_1.release());
 
     // Setup row group
-    auto const comp_format        = qctx->parameters.in_memory_table_compression_format;
-    auto const nvcomp_data_format = qctx->parameters.in_memory_table_compression_data_type;
-    auto const chunk_size         = qctx->parameters.compression_chunk_size;
+    auto const comp_format        = query_ctx->parameters.in_memory_table_compression_format;
+    auto const nvcomp_data_format = query_ctx->parameters.in_memory_table_compression_data_type;
+    auto const chunk_size         = query_ctx->parameters.compression_chunk_size;
     std::vector<std::unique_ptr<gqe::storage::column_base>> columns;
     std::transform(test_columns.cbegin(),
                    test_columns.cend(),
@@ -109,8 +109,8 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
 
   void TearDown() override { table = nullptr; }
 
-  std::unique_ptr<gqe::task_manager_context> dbctx;
-  std::unique_ptr<gqe::query_context> qctx;
+  std::unique_ptr<gqe::task_manager_context> task_manager_ctx;
+  std::unique_ptr<gqe::query_context> query_ctx;
   std::unique_ptr<gqe::storage::in_memory_table> table;
   std::unique_ptr<cudf::table> test_table;
 };
@@ -129,7 +129,7 @@ TEST_P(InMemoryReadTest, ReadFirstCol)
     std::back_inserter(task_parameters),
     [](auto id) -> gqe::storage::in_memory_readable_view::task_parameters { return {id}; });
 
-  gqe::context_reference ctx_ref{dbctx.get(), qctx.get()};
+  gqe::context_reference ctx_ref{task_manager_ctx.get(), query_ctx.get()};
   auto tasks = table->readable_view()->get_read_tasks(
     std::move(task_parameters), ctx_ref, stage_id, col_names, col_types);
 
@@ -159,7 +159,7 @@ TEST_P(InMemoryReadTest, ReadSecondCol)
     std::back_inserter(task_parameters),
     [](auto id) -> gqe::storage::in_memory_readable_view::task_parameters { return {id}; });
 
-  gqe::context_reference ctx_ref{dbctx.get(), qctx.get()};
+  gqe::context_reference ctx_ref{task_manager_ctx.get(), query_ctx.get()};
   auto tasks = table->readable_view()->get_read_tasks(
     std::move(task_parameters), ctx_ref, stage_id, col_names, col_types);
 
@@ -190,7 +190,7 @@ TEST_P(InMemoryReadTest, ReadAll)
     std::back_inserter(task_parameters),
     [](auto id) -> gqe::storage::in_memory_readable_view::task_parameters { return {id}; });
 
-  gqe::context_reference ctx_ref{dbctx.get(), qctx.get()};
+  gqe::context_reference ctx_ref{task_manager_ctx.get(), query_ctx.get()};
   auto tasks = table->readable_view()->get_read_tasks(
     std::move(task_parameters), ctx_ref, stage_id, col_names, col_types);
 

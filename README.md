@@ -91,7 +91,7 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | MAX_NUM_WORKERS | 1 | Max number of worker threads per stage |
 | MAX_NUM_PARTITIONS | 8 | The maximum number of read tasks that can be generated for a single table |
 | GQE_LOG_LEVEL | info | Enable log messages for this level or higher |
-| GQE_JOIN_USE_HASH_MAP_CACHE | false | Allow multiple join tasks to reuse the same hash map. Enabling this option may increase device-memory usage in some circumstances. If `MAX_NUM_WORKERS` is set to more than 1, this option is disabled. |
+| GQE_JOIN_USE_HASH_MAP_CACHE | false | Allow multiple join tasks to reuse the same hash map. Enabling this option may increase device-memory usage in some circumstances. |
 | GQE_READ_USE_ZERO_COPY | true | Enable zero-copy reads for in-memory table. When disabled, read tasks copy input data to a temporary output buffer. |
 | GQE_USE_CUSTOMIZED_IO | false | Whether to use the customized Parquet reader if supported. |
 | GQE_IO_BOUNCE_BUFFER_SIZE | 4 | Size in GB per worker of the page-locked CPU memory bounce buffer used for the customized Parquet reader. |

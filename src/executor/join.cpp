@@ -43,6 +43,8 @@ namespace gqe {
 cudf::hash_join const* join_hash_map_cache::hash_map(cudf::table_view build_keys,
                                                      cudf::null_equality compare_nulls) const
 {
+  std::unique_lock latch_guard(_hash_map_latch);
+
   if (!_hash_map) { _hash_map = std::make_unique<cudf::hash_join>(build_keys, compare_nulls); }
 
   return _hash_map.get();

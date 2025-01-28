@@ -73,6 +73,12 @@ class join_hash_map_cache {
  private:
   build_location _build_side;
   mutable std::unique_ptr<cudf::hash_join> _hash_map;
+  mutable std::shared_mutex
+    _hash_map_latch;  //> The latch guards the hash map object. It needs to be acquired to allocate
+                      // and free the hash map. It does not need to be acquired for (thread-safe
+                      // parallel) read-write or read-only access to hash map entries. Note: The
+                      // current implementation allocates and builds the map in a single step,
+                      // inside the critical section.
 };
 
 class join_task : public task {

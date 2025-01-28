@@ -277,10 +277,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
 
   auto const children = relation->children_unsafe();
 
-  // If MAX_NUM_WORKERS is set to more than 1, we disable the use of join cache because `pair_count`
-  // in cuCollection is not thread safe.
-  bool cache_enabled = _builder->_ctx_ref._query_context->parameters.join_use_hash_map_cache &&
-                       _builder->_ctx_ref._query_context->parameters.max_num_workers == 1;
+  bool cache_enabled = _builder->_ctx_ref._query_context->parameters.join_use_hash_map_cache;
 
   std::shared_ptr<gqe::join_hash_map_cache> hash_map_cache = nullptr;
 

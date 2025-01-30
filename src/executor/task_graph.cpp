@@ -353,16 +353,16 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     // Generate the join tasks
     std::vector<std::shared_ptr<task>> join_tasks;
     for (auto& right_task : right_tasks) {
-      _generated_tasks.push_back(std::make_shared<join_task>(_builder->_ctx_ref,
-                                                             _builder->_current_task_id,
-                                                             _builder->_current_stage_id,
-                                                             concatenated_left_task,
-                                                             std::move(right_task),
-                                                             relation_join_type,
-                                                             relation->condition()->clone(),
-                                                             relation->projection_indices(),
-                                                             hash_map_cache,
-                                                             !separate_materialization));
+      join_tasks.push_back(std::make_shared<join_task>(_builder->_ctx_ref,
+                                                       _builder->_current_task_id,
+                                                       _builder->_current_stage_id,
+                                                       concatenated_left_task,
+                                                       std::move(right_task),
+                                                       relation_join_type,
+                                                       relation->condition()->clone(),
+                                                       relation->projection_indices(),
+                                                       hash_map_cache,
+                                                       !separate_materialization));
       _builder->_current_task_id++;
     }
 
@@ -370,12 +370,11 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     if (separate_materialization) {
       _builder->insert_pipeline_breaker(utility::to_raw_ptrs(join_tasks));
 
-      join_tasks.insert(join_tasks.begin(), concatenated_left_task);
-
       _generated_tasks.push_back(std::make_shared<materialize_join_from_position_lists_task>(
         _builder->_ctx_ref,
         _builder->_current_task_id,
         _builder->_current_stage_id,
+        std::move(concatenated_left_task),
         std::move(join_tasks),
         relation_join_type,
         relation->projection_indices()));

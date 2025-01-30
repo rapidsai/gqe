@@ -181,8 +181,8 @@ class materialize_join_from_position_lists_task : public task {
    * @param[in] ctx_ref The context in which the current task is running.
    * @param[in] task_id Globally unique identifier of the task.
    * @param[in] stage_id Stage of the current task.
-   * @param[in] dependencies The first dependent task is the left table of the join. The remaining
-   * depedent tasks are position lists that will be merged.
+   * @param[in] left_table Left table of the join
+   * @param[in] position_lists Position lists to be merged.
    * @param[in] join_type Type of the join. Currently, only left semi and left anti join are
    * supported.
    * @param[in] projection_indices Column indices to materialize.
@@ -190,7 +190,8 @@ class materialize_join_from_position_lists_task : public task {
   materialize_join_from_position_lists_task(context_reference ctx_ref,
                                             int32_t task_id,
                                             int32_t stage_id,
-                                            std::vector<std::shared_ptr<task>> dependencies,
+                                            std::shared_ptr<task> left_table,
+                                            std::vector<std::shared_ptr<task>> position_lists,
                                             join_type_type join_type,
                                             std::vector<cudf::size_type> projection_indices);
 

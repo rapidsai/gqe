@@ -675,10 +675,21 @@ materialize_join_from_position_lists_task::materialize_join_from_position_lists_
   context_reference ctx_ref,
   int32_t task_id,
   int32_t stage_id,
-  std::vector<std::shared_ptr<task>> dependencies,
+  std::shared_ptr<task> left_table,
+  std::vector<std::shared_ptr<task>> position_lists,
   join_type_type join_type,
   std::vector<cudf::size_type> projection_indices)
-  : task(ctx_ref, task_id, stage_id, std::move(dependencies), {}),
+  : task(ctx_ref,
+         task_id,
+         stage_id,
+         [&left_table, &position_lists]() -> std::vector<std::shared_ptr<task>> {
+           std::vector<std::shared_ptr<task>> dependencies = std::move(position_lists);
+           // implementation of this task expects the left table to be the first element in
+           // dependencies vector
+           dependencies.insert(dependencies.begin(), std::move(left_table));
+           return dependencies;
+         }(),
+         {}),
     _join_type(join_type),
     _projection_indices(projection_indices)
 {

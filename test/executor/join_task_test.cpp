@@ -869,15 +869,20 @@ class MaterializeJoinFromPositionListsTest : public ::testing::Test {
       ctx_ref, position_list_2_task_id, stage_id, std::move(position_list_2));
 
     std::vector<std::shared_ptr<gqe::task>> inputs;
-    inputs.push_back(std::move(left_table_task));
     inputs.push_back(std::move(position_list_1_task));
     inputs.push_back(std::move(position_list_2_task));
 
     constexpr int32_t materialize_task_id           = 3;
     std::vector<cudf::size_type> projection_indices = {0};
 
-    materialize_task = std::make_unique<gqe::materialize_join_from_position_lists_task>(
-      ctx_ref, materialize_task_id, stage_id, std::move(inputs), join_type, projection_indices);
+    materialize_task =
+      std::make_unique<gqe::materialize_join_from_position_lists_task>(ctx_ref,
+                                                                       materialize_task_id,
+                                                                       stage_id,
+                                                                       std::move(left_table_task),
+                                                                       std::move(inputs),
+                                                                       join_type,
+                                                                       projection_indices);
   }
 
   std::unique_ptr<gqe::materialize_join_from_position_lists_task> materialize_task;

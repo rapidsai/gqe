@@ -10,6 +10,7 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     wget \
     git \
     vim \
+    ccache \
     libpciaccess-dev \
     pciutils \
     ca-certificates \

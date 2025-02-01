@@ -27,6 +27,7 @@
 #include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/helpers.hpp>
+#include <gqe/utility/logger.hpp>
 #include <gqe/utility/tpcds.hpp>
 #include <gqe/utility/tpch.hpp>
 
@@ -350,9 +351,13 @@ int main(int argc, char* argv[])
     assert(logical_plan.size() == 1);
 
     gqe::optimizer::optimization_configuration logical_rule_config(
-      {gqe::optimizer::logical_optimization_rule_type::projection_pushdown}, {});
+      {gqe::optimizer::logical_optimization_rule_type::projection_pushdown,
+       gqe::optimizer::logical_optimization_rule_type::string_to_int_literal},
+      {});
     gqe::optimizer::logical_optimizer optimizer(&logical_rule_config, &catalog);
     auto opt_logical_plan = optimizer.optimize(logical_plan[0]);
+
+    GQE_LOG_TRACE("Optimized query plan: \n {}", opt_logical_plan->to_string());
 
     gqe::optimization_parameters execute_opms{};
     query_ctx.parameters = execute_opms;

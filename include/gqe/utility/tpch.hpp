@@ -31,6 +31,7 @@ constexpr auto identifier_type = cudf::data_type(cudf::type_id::INT32);
 constexpr auto integer_type    = cudf::data_type(cudf::type_id::INT32);
 constexpr auto decimal_type    = cudf::data_type(cudf::type_id::FLOAT64);
 constexpr auto string_type     = cudf::data_type(cudf::type_id::STRING);
+constexpr auto char_type       = cudf::data_type(cudf::type_id::INT8);
 constexpr auto date_type       = cudf::data_type(cudf::type_id::TIMESTAMP_DAYS);
 
 /**

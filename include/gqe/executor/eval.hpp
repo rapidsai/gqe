@@ -88,6 +88,11 @@ class expression_evaluator : public expression_visitor {
   /**
    * @copydoc gqe::expression_visitor::visit(literal_expression<T> const*)
    */
+  void visit(literal_expression<int8_t> const* expression) override;
+
+  /**
+   * @copydoc gqe::expression_visitor::visit(literal_expression<T> const*)
+   */
   void visit(literal_expression<int32_t> const* expression) override;
 
   /**

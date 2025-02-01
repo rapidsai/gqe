@@ -59,6 +59,11 @@ struct expression_visitor {
     throw std::logic_error("Visiting a generic literal_expression<T> is not implemented");
   }
 
+  virtual void visit(literal_expression<int8_t> const* expression)
+  {
+    throw std::logic_error("Visiting literal_expression<int8_t> is not implemented");
+  }
+
   virtual void visit(literal_expression<int32_t> const* expression)
   {
     throw std::logic_error("Visiting literal_expression<int32_t> is not implemented");

@@ -23,7 +23,7 @@ std::shared_ptr<gqe::logical::relation> gqe::optimizer::not_not_rewrite::try_opt
   std::shared_ptr<logical::relation> logical_relation, bool& rule_applied) const
 {
   // Define how to optimize expressions
-  auto expr_modifier = [&](expression* expr) {
+  auto expr_modifier = [&](expression* expr, std::vector<cudf::data_type> const& column_types) {
     // Look for outer `not`
     if (expr->type() == gqe::expression::expression_type::unary_op) {
       auto op = dynamic_cast<gqe::unary_op_expression*>(expr);

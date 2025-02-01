@@ -28,7 +28,6 @@
 #include <cudf/io/types.hpp>
 #include <cudf/stream_compaction.hpp>
 #include <cudf/table/table.hpp>
-#include <cudf/unary.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
@@ -195,7 +194,7 @@ std::unique_ptr<cudf::table> enforce_data_types(std::unique_ptr<cudf::table> inp
     if (column_view.type() == expected_type) {
       converted_columns.push_back(std::move(input_columns[column_idx]));
     } else {
-      converted_columns.push_back(cudf::cast(column_view, expected_type));
+      converted_columns.push_back(gqe::storage::cast(column_view, expected_type));
     }
   }
   assert(converted_columns.size() == num_columns);
@@ -375,11 +374,11 @@ void parquet_read_task::execute()
     result_table = std::move(partitioned_table);
 
   } else {
-    // There are both partitioned and unpartitioned files, so we need to merge the partitioned table
-    // with the unpartitioned table.
-    // This should be uncommon.
+    // There are both partitioned and unpartitioned files, so we need to merge the partitioned
+    // table with the unpartitioned table. This should be uncommon.
     GQE_LOG_WARN(
-      "Both the partitioned and unpartitioned files are present. This usually means the dataset is "
+      "Both the partitioned and unpartitioned files are present. This usually means the dataset "
+      "is "
       "not partitioned properly.");
 
     std::vector<cudf::table_view> tables_to_concat = {non_partitioned_table->view(),

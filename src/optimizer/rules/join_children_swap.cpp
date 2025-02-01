@@ -97,7 +97,9 @@ void gqe::optimizer::join_children_swap::_swap_join_keys_inplace(logical::join_r
     throw std::runtime_error("join_children_swap: invalid join condition");
 
   // Add offset
-  auto colref_modifier = [=](expression* expr) -> std::unique_ptr<expression> {
+  auto colref_modifier =
+    [=](expression* expr,
+        std::vector<cudf::data_type> const& column_types) -> std::unique_ptr<expression> {
     // Look for column reference
     if (expr->type() == gqe::expression::expression_type::column_reference) {
       auto colref = dynamic_cast<gqe::column_reference_expression*>(expr);
@@ -115,7 +117,9 @@ void gqe::optimizer::join_children_swap::_swap_join_keys_inplace(logical::join_r
   rewrite_relation_expressions(join, colref_modifier, transform_direction::DOWN);
 
   // Switch children of each equal operation
-  auto eq_expr_children_swap = [](expression* expr) -> std::unique_ptr<expression> {
+  auto eq_expr_children_swap =
+    [](expression* expr,
+       std::vector<cudf::data_type> const& column_types) -> std::unique_ptr<expression> {
     std::cout << expr->to_string() << std::endl;
     // Look for equal binary expression
     if (expr->type() == expression::expression_type::binary_op) {

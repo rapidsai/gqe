@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -41,8 +41,7 @@
 #include <vector>
 
 using relation_t = gqe::logical::relation::relation_type;
-
-class RewriteRuleTest : public testing::TestWithParam<relation_t> {
+class StringToIntLiteralTest : public testing::TestWithParam<relation_t> {
  protected:
   void initialize_optimizer(gqe::optimizer::optimization_configuration rule_config)
   {
@@ -52,9 +51,6 @@ class RewriteRuleTest : public testing::TestWithParam<relation_t> {
 
   void construct_test_plan(relation_t rel_type) { test_plan = _construct_plan(false, rel_type); }
   void construct_ref_plan(relation_t rel_type) { ref_plan = _construct_plan(true, rel_type); }
-
-  void construct_test_plan() { test_plan = _construct_plan(false); }
-  void construct_ref_plan() { ref_plan = _construct_plan(true); }
 
   std::unique_ptr<gqe::optimizer::logical_optimizer> optimizer;
   std::shared_ptr<gqe::logical::relation> test_plan;
@@ -67,19 +63,20 @@ class RewriteRuleTest : public testing::TestWithParam<relation_t> {
   std::unique_ptr<gqe::logical::relation> _construct_plan(bool optimized, relation_t rel_type)
   {
     // Hand coded logical plan for testing
-    auto literal_one_expr = std::make_shared<gqe::literal_expression<int32_t>>(1);
-    auto literal_two_expr = std::make_shared<gqe::literal_expression<int32_t>>(2);
+    auto column_reference_expr = std::make_shared<gqe::column_reference_expression>(0);
+    auto literal_int_expr      = std::make_shared<gqe::literal_expression<int8_t>>(82);
+    auto literal_string_expr   = std::make_shared<gqe::literal_expression<std::string>>("R");
     auto comparison_expr =
-      std::make_shared<gqe::less_expression>(literal_one_expr, literal_two_expr);
+      std::make_shared<gqe::less_expression>(column_reference_expr, literal_string_expr);
     std::unique_ptr<gqe::expression> inner_expr;
     if (optimized) {
-      inner_expr = comparison_expr->clone();  // not-not removed
+      inner_expr = std::make_unique<gqe::equal_expression>(column_reference_expr, literal_int_expr);
     } else {
-      inner_expr = std::make_unique<gqe::not_expression>(
-        std::make_shared<gqe::not_expression>(comparison_expr));  // not-not
+      inner_expr =
+        std::make_unique<gqe::equal_expression>(column_reference_expr, literal_string_expr);
     }
     std::vector<std::string> column_names = {"a"};
-    auto column_types                     = {cudf::data_type(cudf::type_id::INT32)};
+    auto column_types                     = {cudf::data_type(cudf::type_id::INT8)};
     std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
 
     auto read_rel = std::make_shared<gqe::logical::read_relation>(
@@ -164,74 +161,13 @@ class RewriteRuleTest : public testing::TestWithParam<relation_t> {
       default: throw std::runtime_error("unsupported relation type");
     }
   }
-
-  /*
-   * Constructs a general plan:
-   *       J
-   *      / \
-   *     J   P
-   *     /\  |
-   *    P  P R
-   *    |  |
-   *    R  R
-   */
-  std::unique_ptr<gqe::logical::relation> _construct_plan(bool optimized)
-  {
-    // Hand coded logical plan for testing
-    auto literal_one_expr = std::make_shared<gqe::literal_expression<int32_t>>(1);
-    auto literal_two_expr = std::make_shared<gqe::literal_expression<int32_t>>(2);
-    auto comparison_expr =
-      std::make_shared<gqe::less_expression>(literal_one_expr, literal_two_expr);
-    std::unique_ptr<gqe::expression> inner_expr;
-    if (optimized) {
-      inner_expr = comparison_expr->clone();  // not-not removed
-    } else {
-      inner_expr = std::make_unique<gqe::not_expression>(
-        std::make_shared<gqe::not_expression>(comparison_expr));  // not-not
-    }
-    std::vector<std::string> column_names = {"a"};
-    auto column_types                     = {cudf::data_type(cudf::type_id::INT32)};
-    std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
-
-    auto read_rel = std::make_shared<gqe::logical::read_relation>(
-      subquery_relations, column_names, column_types, "test_table", nullptr);
-
-    std::vector<std::unique_ptr<gqe::expression>> select_exprs_1;
-    select_exprs_1.push_back(inner_expr->clone());
-    std::vector<std::unique_ptr<gqe::expression>> select_exprs_2;
-    select_exprs_2.push_back(inner_expr->clone());
-    std::vector<std::unique_ptr<gqe::expression>> select_exprs_3;
-    select_exprs_3.push_back(inner_expr->clone());
-    auto project_1 = std::make_shared<gqe::logical::project_relation>(
-      read_rel, subquery_relations, std::move(select_exprs_1));
-    auto project_2 = std::make_shared<gqe::logical::project_relation>(
-      read_rel, subquery_relations, std::move(select_exprs_2));
-    auto project_3 = std::make_shared<gqe::logical::project_relation>(
-      read_rel, subquery_relations, std::move(select_exprs_3));
-
-    std::vector<cudf::size_type> projection_indices = {0};
-    auto join_1 = std::make_shared<gqe::logical::join_relation>(project_1,
-                                                                project_2,
-                                                                subquery_relations,
-                                                                inner_expr->clone(),
-                                                                gqe::join_type_type::inner,
-                                                                projection_indices);
-    auto join_2 = std::make_unique<gqe::logical::join_relation>(join_1,
-                                                                project_3,
-                                                                subquery_relations,
-                                                                inner_expr->clone(),
-                                                                gqe::join_type_type::inner,
-                                                                projection_indices);
-
-    return join_2;
-  }
 };
 
-TEST_P(RewriteRuleTest, TestTypes)
+TEST_P(StringToIntLiteralTest, TestTypes)
 {
   // Initialize and create optimizer
   gqe::optimizer::optimization_configuration logical_rule_config(
-    {gqe::optimizer::logical_optimization_rule_type::not_not_rewrite}, {});
+    {gqe::optimizer::logical_optimization_rule_type::string_to_int_literal}, {});
   initialize_optimizer(logical_rule_config);
 
   // Construct test and ref plans
@@ -247,8 +183,8 @@ TEST_P(RewriteRuleTest, TestTypes)
   EXPECT_EQ(*ref_plan, *optimized_plan);
 }
 
-INSTANTIATE_TEST_SUITE_P(NotNotRelations,
-                         RewriteRuleTest,
+INSTANTIATE_TEST_SUITE_P(Relations,
+                         StringToIntLiteralTest,
                          testing::Values(relation_t::aggregate,
                                          relation_t::project,
                                          relation_t::filter,
@@ -256,22 +192,3 @@ INSTANTIATE_TEST_SUITE_P(NotNotRelations,
                                          relation_t::read,
                                          relation_t::sort,
                                          relation_t::window));
-
-TEST_F(RewriteRuleTest, NotNotGeneral)
-{
-  // Initialize and create optimizer
-  gqe::optimizer::optimization_configuration logical_rule_config(
-    {gqe::optimizer::logical_optimization_rule_type::not_not_rewrite}, {});
-  initialize_optimizer(logical_rule_config);
-
-  // Construct test and ref plans
-  construct_test_plan();
-  construct_ref_plan();
-
-  // Optimize
-  assert(optimizer);
-  auto optimized_plan = optimizer->optimize(test_plan);
-
-  // Test
-  EXPECT_EQ(*ref_plan, *optimized_plan);
-}

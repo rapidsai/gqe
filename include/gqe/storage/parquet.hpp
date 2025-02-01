@@ -100,9 +100,9 @@ class parquet_read_task : public read_task_base {
    * column is different from expected, the column will be casted to the data type specified. Must
    * have the same length as `column_names`.
    * @param[in] partial_filter Used to support predicate pushdown. Note that a row that satisfies
-   * the predicate is guaranteed to be included in the loaded table, but a row that does not satisfy
-   * the predicate may or may not be excluded. If such exclusion needs to be guaranteed, an extra
-   * filter task is needed. If this argument is nullptr, no rows will be filtered out.
+   * the predicate is guaranteed to be included in the loaded table, but a row that does not
+   * satisfy the predicate may or may not be excluded. If such exclusion needs to be guaranteed,
+   * an extra filter task is needed. If this argument is nullptr, no rows will be filtered out.
    * @param[in] subquery_tasks Subquery tasks that may be referenced by a subquery expression. A
    * relation index `i` in a subquery expression refers to `subquery_expressions[i]`.
    */
@@ -225,6 +225,16 @@ class parquet_writeable_view : public writeable_view {
   std::vector<std::string>*
     _non_owning_file_paths /**< Non-owning reference to paths owned by `parquet_table`. */;
 };
+
+/**
+ * @brief Cast column to the specified data type, supports casting single-char (ASCII) string to
+ * cudf::data_type::INT8 and all casts supported by cudf
+ */
+std::unique_ptr<cudf::column> cast(
+  cudf::column_view input,
+  cudf::data_type type,
+  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 };  // namespace storage
 

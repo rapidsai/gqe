@@ -71,6 +71,7 @@ add_library(
     optimizer/rules/projection_pushdown.cpp
     optimizer/rules/join_children_swap.cpp
     optimizer/rules/not_not.cpp
+    optimizer/rules/string_to_int_literal.cpp
     optimizer/statistics.cpp
     storage/nvcomp_gqe.cpp
     storage/in_memory.cpp

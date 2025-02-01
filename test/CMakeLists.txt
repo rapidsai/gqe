@@ -173,6 +173,12 @@ target_link_libraries(rewrite_rule_test PUBLIC gqe)
 target_link_libraries(rewrite_rule_test PUBLIC GTest::gtest_main GTest::gmock)
 add_test(NAME rewrite_rule_test COMMAND rewrite_rule_test)
 
+add_executable(string_to_int_literal_test optimizer/string_to_int_literal_test.cpp)
+target_include_directories(string_to_int_literal_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(string_to_int_literal_test PUBLIC gqe)
+target_link_libraries(string_to_int_literal_test PUBLIC GTest::gtest_main GTest::gmock)
+add_test(NAME string_to_int_literal_test COMMAND string_to_int_literal_test)
+
 add_executable(join_children_swap_test optimizer/join_children_swap_test.cpp)
 target_include_directories(join_children_swap_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(join_children_swap_test PUBLIC gqe)

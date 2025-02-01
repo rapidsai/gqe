@@ -381,6 +381,11 @@ void expression_evaluator::visit(column_reference_expression const* expression)
   }
 }
 
+void expression_evaluator::visit(literal_expression<int8_t> const* expression)
+{
+  this->create_literal_context(expression);
+}
+
 void expression_evaluator::visit(literal_expression<int32_t> const* expression)
 {
   this->create_literal_context(expression);

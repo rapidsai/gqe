@@ -12,12 +12,20 @@ import os
 import pandas as pd
 import sys
 from argparse import ArgumentParser
-from pandas.api.types import is_float_dtype, is_integer_dtype, is_numeric_dtype
+from pandas.api.types import is_float_dtype, is_integer_dtype, is_numeric_dtype, is_string_dtype
 from pandas.testing import assert_frame_equal
 
 def normalize_type(df1: pd.DataFrame, df2: pd.DataFrame, col: str):
     old_type = df2[col].dtypes.name
     new_type = df1[col].dtypes.name
+
+    # Single-char (ASCII) strings can be compared to their integer representation
+    if is_numeric_dtype(df1[col]) and is_string_dtype(df2[col]):
+        all_single_char = df2[col].apply(lambda x: len(x) == 1).all()
+        if (not all_single_char):
+            raise Exception("Can only convert single-char (ASCII) strings to numeric type")
+        df2[col] = df2[col].apply(lambda x: ord(x) if isinstance(x, str) and len(x) == 1 else None)
+    
     df2[col] = df2[col].astype(new_type)
 
 def verify(test_file: str, ref_file: str):

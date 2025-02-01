@@ -51,11 +51,12 @@ class optimization_rule {
   };
 
   /**
-   * @brief This functor is used to defined the modification of the input expressions.
+   * @brief This functor is used to define the modification of the input expressions.
    *
    * @note If the functor does not modify the input expression, it should return a `nullptr`.
    */
-  using expression_modifier_functor = std::function<std::unique_ptr<expression>(expression* expr)>;
+  using expression_modifier_functor = std::function<std::unique_ptr<expression>(
+    expression* expr, std::vector<cudf::data_type> const& column_types)>;
 
   /**
    * @brief Construct a new optimization rule object
@@ -120,8 +121,10 @@ class optimization_rule {
    * @param f How to rewrite
    * @return The rewritten expression or null pointer if the rewrite has not been applied
    */
-  static std::unique_ptr<expression> _expression_rewrite(expression* expr,
-                                                         expression_modifier_functor f);
+  static std::unique_ptr<expression> _expression_rewrite(
+    expression* expr,
+    std::vector<cudf::data_type> const& column_types,
+    expression_modifier_functor f);
 
   /**
    * @brief Optimize/rewrite the input expression recursively
@@ -133,8 +136,10 @@ class optimization_rule {
    * @param f How to rewrite
    * @return The rewritten expression or null pointer if the rewrite has not been applied
    */
-  static std::unique_ptr<expression> _expression_rewrite_down(expression* expr,
-                                                              expression_modifier_functor f);
+  static std::unique_ptr<expression> _expression_rewrite_down(
+    expression* expr,
+    std::vector<cudf::data_type> const& column_types,
+    expression_modifier_functor f);
 
   /**
    * @brief Optimize/rewrite the input expression recursively
@@ -146,8 +151,10 @@ class optimization_rule {
    * @param f How to rewrite
    * @return The rewritten expression or null pointer if the rewrite has not been applied
    */
-  static std::unique_ptr<expression> _expression_rewrite_up(expression* expr,
-                                                            expression_modifier_functor f);
+  static std::unique_ptr<expression> _expression_rewrite_up(
+    expression* expr,
+    std::vector<cudf::data_type> const& column_types,
+    expression_modifier_functor f);
   transform_direction _direction;
   estimator _estimator;
 };

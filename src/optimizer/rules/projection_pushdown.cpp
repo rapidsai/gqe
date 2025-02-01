@@ -146,7 +146,9 @@ void gqe::optimizer::projection_pushdown::rewrite_project_relation(
 {
   auto map = construct_map(required_cr_indices);
 
-  auto expr_modifier = [&](expression* expr) -> std::unique_ptr<gqe::expression> {
+  auto expr_modifier =
+    [&](expression* expr,
+        std::vector<cudf::data_type> const& column_types) -> std::unique_ptr<gqe::expression> {
     if (expr->type() == gqe::expression::expression_type::column_reference) {
       auto cr = dynamic_cast<gqe::column_reference_expression*>(expr);
 

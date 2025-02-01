@@ -9,14 +9,16 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
+#include <cudf/strings/strings_column_view.hpp>
 #include <gqe/storage/parquet.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
+#include <rmm/exec_policy.hpp>
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/unary.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -74,9 +76,57 @@ struct fill_key_column_functor {
   }
 };
 
+// This expects the input to be cudf::data_type::STRING with each row a single (ASCII) character
+std::unique_ptr<cudf::column> cast_string_to_int(cudf::column_view input,
+                                                 rmm::cuda_stream_view stream,
+                                                 rmm::mr::device_memory_resource* mr)
+{
+  if (input.type() != cudf::data_type(cudf::type_id::STRING)) {
+    throw std::invalid_argument("Expected input to have string data type");
+  }
+
+  auto const size = input.size();
+  cudf::strings_column_view strings_view(input);
+  auto const chars_size = strings_view.chars_size(stream);
+
+  if (size != chars_size) {
+    throw std::invalid_argument("Expected each input string to be a single (ASCII) character");
+  }
+
+  auto output = std::make_unique<cudf::column>(
+    cudf::data_type(cudf::type_id::INT8),
+    size,
+    rmm::device_buffer{size * cudf::size_of(cudf::data_type(cudf::type_id::INT8)), stream, mr},
+    cudf::copy_bitmask(input, stream, mr),
+    input.null_count());
+
+  cudf::mutable_column_view output_mutable = *output;
+
+  thrust::transform(rmm::exec_policy(stream),
+                    strings_view.chars_begin(stream),
+                    strings_view.chars_begin(stream) + size,
+                    output_mutable.begin<int8_t>(),
+                    [] __device__(char element) { return static_cast<int8_t>(element); });
+
+  return output;
+}
+
 }  // namespace
 
 namespace gqe::storage {
+
+std::unique_ptr<cudf::column> cast(cudf::column_view input,
+                                   cudf::data_type type,
+                                   rmm::cuda_stream_view stream,
+                                   rmm::mr::device_memory_resource* mr)
+{
+  if (input.type() == cudf::data_type(cudf::type_id::STRING) &&
+      type == cudf::data_type(cudf::type_id::INT8)) {
+    return cast_string_to_int(input, stream, mr);
+  } else {
+    return cudf::cast(input, type, stream, mr);
+  }
+}
 
 std::unique_ptr<cudf::column> parquet_read_task::construct_partition_key_column(
   cudf::data_type dtype, std::vector<int64_t> keys, std::vector<cudf::size_type> num_rows)

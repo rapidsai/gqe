@@ -1012,9 +1012,10 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_read_relati
   }
 
   std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
-  std::unique_ptr<expression> partial_filter = nullptr;
-  // TODO: parse `best_effort_filter` when released by Substrait
-  // (PR: https://github.com/substrait-io/substrait/pull/271)
+  std::unique_ptr<expression> partial_filter =
+    read_relation.has_best_effort_filter()
+      ? parse_expression(read_relation.best_effort_filter(), subquery_relations)
+      : nullptr;
 
   auto named_table = read_relation.named_table();
   assert(named_table.names_size() == 1);

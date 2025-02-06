@@ -95,6 +95,13 @@ target_link_libraries(logical_to_execution PUBLIC GTest::gtest_main GTest::gmock
 target_link_libraries(logical_to_execution PUBLIC cudf::cudftestutil)
 add_test(NAME logical_to_execution COMMAND logical_to_execution)
 
+add_executable(substrait_to_physical integration/substrait_to_physical.cpp)
+target_include_directories(substrait_to_physical PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(substrait_to_physical PUBLIC gqe)
+target_link_libraries(substrait_to_physical PUBLIC GTest::gtest_main)
+target_compile_definitions(substrait_to_physical PUBLIC TEST_RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resource/")
+add_test(NAME substrait_to_physical COMMAND substrait_to_physical)
+
 add_executable(memory_resource memory_resource/memory_resource.cpp)
 target_include_directories(memory_resource PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(memory_resource PUBLIC gqe)

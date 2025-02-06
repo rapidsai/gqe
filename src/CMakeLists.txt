@@ -11,7 +11,7 @@
 # We cannot use add_custom_command() since the file names need to be known at
 #  configuration time so depenencies can be known during compile time
 execute_process(
-    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_substrait.sh ${CMAKE_CURRENT_SOURCE_DIR}/../substrait ${CMAKE_BINARY_DIR}
+    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_substrait.sh ${CMAKE_BINARY_DIR}/_deps/substrait-src/ ${CMAKE_BINARY_DIR}
 )
 
 file(GLOB substrait_sources ${CMAKE_BINARY_DIR}/substrait/*.cc ${CMAKE_BINARY_DIR}/substrait/extensions/*.cc)

@@ -1,13 +1,24 @@
 [package]
 name = "producer"
 version = "0.1.0"
+description = "SQL to Substrait producer for GQE"
+authors = ["NVIDIA"]
 edition = "2021"
+
+license = "LicenseRef-NvidiaProprietary"
+readme = "README.md"
+
+homepage = "https://confluence.nvidia.com/pages/viewpage.action?spaceKey=DevtechCompute&title=GQE"
+repository = "https://gitlab-master.nvidia.com/Devtech-Compute/gqe"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 colored = "2.0.0"
-datafusion = {git = "https://github.com/apache/arrow-datafusion.git", rev = "e18c709"}
-datafusion-substrait = {git = "https://github.com/apache/arrow-datafusion.git", rev = "e18c709"}
-tokio = "1.17"
+# using fork for datafusion and datafusion-substrait; to revert to using upstream repo after PR to DataFusion is approved and merged
+# datafusion = {git = "https://github.com/apache/arrow-datafusion.git", rev = "e18c709"}
+datafusion = {git = "https://github.com/jamxia155/datafusion.git", branch = "jamxia_substrait_logical_producer_ReadRel_best_effort_filter"}
+# datafusion-substrait = {git = "https://github.com/apache/arrow-datafusion.git", rev = "e18c709"}
+datafusion-substrait = {git = "https://github.com/jamxia155/datafusion.git", branch = "jamxia_substrait_logical_producer_ReadRel_best_effort_filter"}
+tokio = { version = "1.17", features = ["rt", "rt-multi-thread", "macros"] }
 yaml-rust = "0.4"

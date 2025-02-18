@@ -167,12 +167,12 @@ TEST_F(ExpressionEqualTest, InPredicateSubquery)
 
 TEST_F(ExpressionEqualTest, DatepartScalarFunction)
 {
-  auto datepart_expr1 = std::make_unique<gqe::datepart_expression>(
-    col_0, gqe::datepart_expression::datetime_component::day);
-  auto datepart_expr2 = std::make_unique<gqe::datepart_expression>(
-    col_1, gqe::datepart_expression::datetime_component::day);
-  auto datepart_expr3 = std::make_unique<gqe::datepart_expression>(
-    col_1, gqe::datepart_expression::datetime_component::second);
+  auto datepart_expr1 =
+    std::make_unique<gqe::datepart_expression>(col_0, cudf::datetime::datetime_component::DAY);
+  auto datepart_expr2 =
+    std::make_unique<gqe::datepart_expression>(col_1, cudf::datetime::datetime_component::DAY);
+  auto datepart_expr3 =
+    std::make_unique<gqe::datepart_expression>(col_1, cudf::datetime::datetime_component::SECOND);
 
   EXPECT_FALSE(*datepart_expr1 == *datepart_expr2);  // different input
   EXPECT_FALSE(*datepart_expr2 == *datepart_expr3);  // different datepart

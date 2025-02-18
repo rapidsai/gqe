@@ -17,19 +17,20 @@ namespace {
 /**
  * @brief Return the string representation of datetime `component`
  */
-std::string datetime_component_str(gqe::datepart_expression::datetime_component component)
+std::string datetime_component_str(cudf::datetime::datetime_component component)
 {
   std::string s;
   switch (component) {
-    case gqe::datepart_expression::datetime_component::year: s = "YEAR"; break;
-    case gqe::datepart_expression::datetime_component::month: s = "MONTH"; break;
-    case gqe::datepart_expression::datetime_component::day: s = "DAY"; break;
-    case gqe::datepart_expression::datetime_component::weekday: s = "WEEKDAY"; break;
-    case gqe::datepart_expression::datetime_component::hour: s = "HOUR"; break;
-    case gqe::datepart_expression::datetime_component::minute: s = "MINUTE"; break;
-    case gqe::datepart_expression::datetime_component::second: s = "SECOND"; break;
-    case gqe::datepart_expression::datetime_component::millisecond: s = "MILLISECOND"; break;
-    case gqe::datepart_expression::datetime_component::nanosecond: s = "NANOSECOND"; break;
+    case cudf::datetime::datetime_component::YEAR: s = "YEAR"; break;
+    case cudf::datetime::datetime_component::MONTH: s = "MONTH"; break;
+    case cudf::datetime::datetime_component::DAY: s = "DAY"; break;
+    case cudf::datetime::datetime_component::WEEKDAY: s = "WEEKDAY"; break;
+    case cudf::datetime::datetime_component::HOUR: s = "HOUR"; break;
+    case cudf::datetime::datetime_component::MINUTE: s = "MINUTE"; break;
+    case cudf::datetime::datetime_component::SECOND: s = "SECOND"; break;
+    case cudf::datetime::datetime_component::MILLISECOND: s = "MILLISECOND"; break;
+    case cudf::datetime::datetime_component::MICROSECOND: s = "MICROSECOND"; break;
+    case cudf::datetime::datetime_component::NANOSECOND: s = "NANOSECOND"; break;
   }
   return s;
 }

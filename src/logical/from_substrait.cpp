@@ -319,19 +319,19 @@ cudf::data_type substrait_to_cudf_type(substrait::Type const& substrait_type)
 
 // Helper function to translate datetime component string into
 // gqe::date_part_expression::datetime_component
-gqe::datepart_expression::datetime_component datetime_component_from_str(std::string s)
+cudf::datetime::datetime_component datetime_component_from_str(std::string s)
 {
   std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
-  if (s == "year") return gqe::datepart_expression::datetime_component::year;
-  if (s == "month") return gqe::datepart_expression::datetime_component::month;
-  if (s == "day") return gqe::datepart_expression::datetime_component::day;
-  if (s == "weekday") return gqe::datepart_expression::datetime_component::weekday;
-  if (s == "hour") return gqe::datepart_expression::datetime_component::hour;
-  if (s == "minute") return gqe::datepart_expression::datetime_component::minute;
-  if (s == "second") return gqe::datepart_expression::datetime_component::second;
-  if (s == "millisecond") return gqe::datepart_expression::datetime_component::millisecond;
+  if (s == "year") return cudf::datetime::datetime_component::YEAR;
+  if (s == "month") return cudf::datetime::datetime_component::MONTH;
+  if (s == "day") return cudf::datetime::datetime_component::DAY;
+  if (s == "weekday") return cudf::datetime::datetime_component::WEEKDAY;
+  if (s == "hour") return cudf::datetime::datetime_component::HOUR;
+  if (s == "minute") return cudf::datetime::datetime_component::MINUTE;
+  if (s == "second") return cudf::datetime::datetime_component::SECOND;
+  if (s == "millisecond") return cudf::datetime::datetime_component::MILLISECOND;
   if (s == "nanosecond")
-    return gqe::datepart_expression::datetime_component::nanosecond;
+    return cudf::datetime::datetime_component::NANOSECOND;
   else
     throw std::runtime_error("Unsupported datetime component string: " + s);
 }

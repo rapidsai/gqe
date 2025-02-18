@@ -452,7 +452,7 @@ TEST(EvalExpressionTest, ScalarFunctionDatepart)
   auto c_0   = column_wrapper<cudf::timestamp_D>{ct1, ct2};
   auto table = cudf::table_view{{c_0}};
 
-  auto dt_component = gqe::datepart_expression::datetime_component::year;
+  auto dt_component = cudf::datetime::datetime_component::YEAR;
   auto dp_expr =
     gqe::datepart_expression(std::make_shared<gqe::column_reference_expression>(0), dt_component);
   std::vector<gqe::expression const*> expressions = {&dp_expr};

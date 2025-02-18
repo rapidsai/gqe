@@ -15,6 +15,7 @@
 #include <gqe/expression/expression.hpp>
 #include <gqe/logical/utility.hpp>
 
+#include <cudf/datetime.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/traits.hpp>
 
@@ -85,25 +86,14 @@ class scalar_function_expression : public expression {
 
 class datepart_expression : public scalar_function_expression {
  public:
-  enum class datetime_component {
-    year,
-    month,
-    day,
-    weekday,
-    hour,
-    minute,
-    second,
-    millisecond,
-    nanosecond
-  };
-
   /**
    * @brief Construct a new datepart expression object
    *
    * @param input Expression to extract date part from
    * @param component Type of date part to extract
    */
-  datepart_expression(std::shared_ptr<expression> input, datetime_component component)
+  datepart_expression(std::shared_ptr<expression> input,
+                      cudf::datetime::datetime_component component)
     : scalar_function_expression(function_kind::datepart, {std::move(input)}), _component(component)
   {
   }
@@ -111,7 +101,7 @@ class datepart_expression : public scalar_function_expression {
   /**
    * @brief Returns the component type of the input timestamp to extract
    */
-  [[nodiscard]] datetime_component component() const noexcept { return _component; }
+  [[nodiscard]] cudf::datetime::datetime_component component() const noexcept { return _component; }
 
   /**
    * @copydoc gqe::expression::data_type(std::vector<cudf::data_type> const&)
@@ -142,7 +132,7 @@ class datepart_expression : public scalar_function_expression {
   bool operator==(const expression& other) const override;
 
  private:
-  datetime_component _component;
+  cudf::datetime::datetime_component _component;
 };
 
 class like_expression : public scalar_function_expression {

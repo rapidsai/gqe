@@ -296,53 +296,8 @@ expression_evaluator::evaluate() const
             case gqe::scalar_function_expression::function_kind::datepart: {
               auto const dp_expr = dynamic_cast<gqe::datepart_expression*>(scalar_func);
 
-              switch (dp_expr->component()) {
-                case gqe::datepart_expression::datetime_component::year: {
-                  append_result(cudf::datetime::extract_year(table.column(col_ref->column_idx())));
-                  break;
-                }
-                case gqe::datepart_expression::datetime_component::month: {
-                  append_result(cudf::datetime::extract_month(table.column(col_ref->column_idx())));
-                  break;
-                }
-                case gqe::datepart_expression::datetime_component::day: {
-                  append_result(cudf::datetime::extract_day(table.column(col_ref->column_idx())));
-                  break;
-                }
-                case gqe::datepart_expression::datetime_component::weekday: {
-                  append_result(
-                    cudf::datetime::extract_weekday(table.column(col_ref->column_idx())));
-                  break;
-                }
-                case gqe::datepart_expression::datetime_component::hour: {
-                  append_result(cudf::datetime::extract_hour(table.column(col_ref->column_idx())));
-                  break;
-                }
-                case gqe::datepart_expression::datetime_component::minute: {
-                  append_result(
-                    cudf::datetime::extract_minute(table.column(col_ref->column_idx())));
-                  break;
-                }
-                case gqe::datepart_expression::datetime_component::second: {
-                  append_result(
-                    cudf::datetime::extract_second(table.column(col_ref->column_idx())));
-                  break;
-                }
-                case gqe::datepart_expression::datetime_component::millisecond: {
-                  append_result(cudf::datetime::extract_millisecond_fraction(
-                    table.column(col_ref->column_idx())));
-                  break;
-                }
-                case gqe::datepart_expression::datetime_component::nanosecond: {
-                  append_result(cudf::datetime::extract_nanosecond_fraction(
-                    table.column(col_ref->column_idx())));
-                  break;
-                }
-                default: {
-                  throw std::logic_error("Cannot evaluate `datepart_expression` " +
-                                         expression->to_string());
-                }
-              }
+              append_result(cudf::datetime::extract_datetime_component(
+                table.column(col_ref->column_idx()), dp_expr->component()));
               break;
             }
             default:

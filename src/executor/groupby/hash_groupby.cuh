@@ -20,6 +20,8 @@
 
 #include <cuco/static_set.cuh>
 
+#include <cudf/detail/aggregation/device_aggregators.cuh>
+
 #include <rmm/device_scalar.hpp>
 
 #include <thrust/iterator/counting_iterator.h>
@@ -29,7 +31,6 @@
 #include <iostream>
 
 namespace gqe {
-
 namespace groupby {
 
 namespace hash {
@@ -72,8 +73,8 @@ __device__ void find_local_mapping(cudf::size_type cur_idx,
     }
   }
 
-  // Syncing the thread block is needed so that updates in `local_mapping_index` are visible to all
-  // threads in the thread block.
+  // Syncing the thread block is needed so that updates in `local_mapping_index` are visible to
+  // all threads in the thread block.
   __syncthreads();
 
   if (cur_idx < num_input_rows) {
@@ -97,9 +98,10 @@ __device__ void find_global_mapping(cudf::size_type cur_idx,
 /*
  * Inserts keys into the shared memory hash set, and stores the row index of the local
  * pre-aggregate table in `local_mapping_index`. If the number of unique keys found in a
- * threadblock exceeds `cardinality_threshold`, the threads in that block will exit without updating
- * `global_set` or setting `global_mapping_index`. Else, we insert the unique keys found to the
- * global hash set, and save the row index of the global sparse table in `global_mapping_index`.
+ * threadblock exceeds `cardinality_threshold`, the threads in that block will exit without
+ * updating `global_set` or setting `global_mapping_index`. Else, we insert the unique keys found
+ * to the global hash set, and save the row index of the global sparse table in
+ * `global_mapping_index`.
  */
 template <class SetRef,
           cudf::size_type shared_set_num_elements,
@@ -390,7 +392,7 @@ struct compute_direct_aggregates {
     int block_id = (i % stride) / block_size;
     if (block_cardinality[block_id] >= cardinality_threshold) {
       auto const result = set.insert_and_find(i);
-      cudf::detail::aggregate_row<true, true>(output_values, *result.first, input_values, i, aggs);
+      cudf::detail::aggregate_row(output_values, *result.first, input_values, i, aggs);
     }
   }
 };

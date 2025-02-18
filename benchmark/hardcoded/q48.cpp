@@ -36,6 +36,7 @@
 #include <cudf/io/parquet.hpp>
 
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>

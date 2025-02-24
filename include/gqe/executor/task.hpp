@@ -170,6 +170,7 @@ class task {
    */
   void remove_dependencies() noexcept
   {
+    cudf::get_default_stream().synchronize();
     _dependencies.clear();
     _subqueries.clear();
   }

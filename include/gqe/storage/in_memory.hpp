@@ -16,7 +16,7 @@
 #include <gqe/executor/read.hpp>
 #include <gqe/executor/write.hpp>
 #include <gqe/optimizer/statistics.hpp>
-#include <gqe/storage/nvcomp_gqe.hpp>
+#include <gqe/storage/compression.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/table.hpp>
 #include <gqe/storage/writeable_view.hpp>
@@ -158,38 +158,6 @@ class plain_buffer : public compressed_buffer {
 };
 
 /**
- * @brief A buffer compressed using Asymmetric Numeral Systems (ANS).
- */
-class ans_compressed_buffer : public compressed_buffer {
- public:
-  /**
-   * @brief Construct a compressed buffer using ANS.
-   *
-   * @param[in] input Input buffer to be compressed.
-   * @param[in] stream CUDA stream used for compression.
-   * @param[in] mr Memory resource used to allocate the compressed buffer.
-   */
-  ans_compressed_buffer(rmm::device_buffer const* input,
-                        rmm::cuda_stream_view stream,
-                        rmm::device_async_resource_ref mr);
-
-  /**
-   * @copydoc gqe::storage::compressed_buffer::decompress(rmm::cuda_stream_view,
-   * rmm::device_async_resource_ref)
-   */
-  std::unique_ptr<rmm::device_buffer> decompress(rmm::cuda_stream_view stream,
-                                                 rmm::device_async_resource_ref mr) const override;
-
-  /**
-   * @copydoc gqe::storage::compressed_size()
-   */
-  std::size_t compressed_size() const override { return _compressed_buffer->size(); }
-
- private:
-  std::unique_ptr<rmm::device_buffer> _compressed_buffer;
-};
-
-/**
  * @brief Compressed in-memory table.
  */
 class compressed_column : public column_base {
@@ -224,6 +192,7 @@ class compressed_column : public column_base {
    */
   std::unique_ptr<rmm::device_buffer> compress(
     rmm::device_buffer const* input,
+    rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource(),
     bool is_null_mask                 = false);
 
@@ -235,7 +204,7 @@ class compressed_column : public column_base {
    */
   std::unique_ptr<cudf::column> decompress(
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource()) const;
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
  private:
   int64_t _size;
@@ -243,9 +212,11 @@ class compressed_column : public column_base {
   cudf::data_type _dtype;
   cudf::size_type _null_count;
   compression_format _comp_format;
-  float compression_ratio;
-  bool is_compressed;
-  nvcomp_gqe _nvcomp_manager;
+  float _compression_ratio;
+  float _null_mask_compression_ratio;
+  bool _is_compressed;
+  bool _is_null_mask_compressed;
+  compression_manager _nvcomp_manager;
 
   std::unique_ptr<rmm::device_buffer> _compressed_data;
   std::unique_ptr<rmm::device_buffer> _compressed_null_mask;

@@ -73,7 +73,7 @@ add_library(
     optimizer/rules/not_not.cpp
     optimizer/rules/string_to_int_literal.cpp
     optimizer/statistics.cpp
-    storage/nvcomp_gqe.cpp
+    storage/compression.cpp
     storage/in_memory.cpp
     storage/parquet.cpp
     storage/parquet.cu

@@ -296,8 +296,10 @@ int main(int argc, char* argv[])
   gqe::catalog catalog;
 
   // register all tables
-  auto const& table_definitions = (tpc_type == "ds") ? gqe::utility::tpcds::table_definitions()
-                                                     : gqe::utility::tpch::table_definitions();
+  auto const& table_definitions = (tpc_type == "ds")
+                                    ? gqe::utility::tpcds::table_definitions()
+                                    : gqe::utility::tpch::table_definitions(
+                                        query_ctx.parameters.use_opt_type_for_single_char_col);
   copy_plan_builder copy_plan(ctx_ref, &catalog);
   for (auto const& [name, definition] : table_definitions) {
     const auto file_paths   = gqe::utility::get_parquet_files(dataset_location + "/" + name);

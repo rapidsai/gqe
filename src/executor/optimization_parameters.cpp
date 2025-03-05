@@ -202,6 +202,9 @@ optimization_parameters::optimization_parameters(bool only_defaults)
 
     io_auxiliary_threads = parse_env_variable("GQE_IO_AUXILIARY_THREADS", io_auxiliary_threads);
 
+    use_opt_type_for_single_char_col =
+      parse_env_variable("GQE_USE_OPT_TYPE_FOR_SINGLE_CHAR_COL", use_opt_type_for_single_char_col);
+
     in_memory_table_compression_format = parse_nvcomp_compression_format(
       "GQE_IN_MEMORY_TABLE_COMP_FORMAT", in_memory_table_compression_format);
 

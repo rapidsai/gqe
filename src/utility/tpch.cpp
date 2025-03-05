@@ -16,8 +16,8 @@ namespace gqe::utility {
 
 namespace tpch {
 
-std::unordered_map<std::string, std::vector<column_definition_type>> const&
-table_definitions() noexcept
+std::unordered_map<std::string, std::vector<column_definition_type>> const& table_definitions(
+  bool use_opt_type_for_single_char_col) noexcept
 {
   static const std::unordered_map<std::string, std::vector<column_definition_type>> definitions = {
     {"part",
@@ -60,7 +60,7 @@ table_definitions() noexcept
     {"orders",
      {{"o_orderkey", identifier_type},  // primary key
       {"o_custkey", identifier_type},
-      {"o_orderstatus", char_type},
+      {"o_orderstatus", use_opt_type_for_single_char_col ? char_type : string_type},
       {"o_totalprice", decimal_type},
       {"o_orderdate", date_type},
       {"o_orderpriority", string_type},
@@ -77,8 +77,8 @@ table_definitions() noexcept
        {"l_extendedprice", decimal_type},
        {"l_discount", decimal_type},
        {"l_tax", decimal_type},
-       {"l_returnflag", char_type},
-       {"l_linestatus", char_type},
+       {"l_returnflag", use_opt_type_for_single_char_col ? char_type : string_type},
+       {"l_linestatus", use_opt_type_for_single_char_col ? char_type : string_type},
        {"l_shipdate", date_type},
        {"l_commitdate", date_type},
        {"l_receiptdate", date_type},

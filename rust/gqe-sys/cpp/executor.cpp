@@ -39,6 +39,7 @@ cxx_gqe::optimization_parameters new_optimization_parameters()
           p.use_customized_io,
           p.io_bounce_buffer_size,
           p.io_auxiliary_threads,
+          p.use_opt_type_for_single_char_col,
           p.in_memory_table_compression_format,
           p.io_block_size,
           p.io_engine,
@@ -58,6 +59,7 @@ gqe::optimization_parameters to_gqe(cxx_gqe::optimization_parameters const& p)
   n.use_customized_io                  = p.use_customized_io;
   n.io_bounce_buffer_size              = p.io_bounce_buffer_size;
   n.io_auxiliary_threads               = p.io_auxiliary_threads;
+  n.use_opt_type_for_single_char_col   = p.use_opt_type_for_single_char_col;
   n.in_memory_table_compression_format = p.in_memory_table_compression_format;
   n.io_block_size                      = p.io_block_size;
   n.io_engine                          = p.io_engine;

@@ -54,6 +54,11 @@ struct optimization_parameters {
         ///< buffer used by the customized Parquet reader. Default to 4 (GB).
   std::size_t io_auxiliary_threads =
     8;  ///< Number of auxiliary threads per worker launched by the customized Parquet reader.
+  bool use_opt_type_for_single_char_col =
+    true;  ///< Use optimized char type instead of string type to store single-char columns
+           ///< Char type requires less memory to store and kernels on this type
+           ///< are more efficient (ex. gather), but it cannot perform any string
+           ///< operations (ex. `like` , `contains`).
   compression_format in_memory_table_compression_format =
     compression_format::none;  ///< Compression format for the in-memory table.
   nvcompType_t in_memory_table_compression_data_type =

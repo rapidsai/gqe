@@ -45,10 +45,12 @@ using column_definition_type = std::pair<std::string, cudf::data_type>;
  * @details See the [TPC-H
  * reference](https://www.tpc.org/TPC_Documents_Current_Versions/pdf/TPC-H_v3.0.1.pdf) for details.
  *
+ * @param use_opt_type_for_single_char_col If true, use optimized char type instead of string type
+ * for single-character columns
  * @return A map, which associates table names to column definition vectors
  */
-std::unordered_map<std::string, std::vector<column_definition_type>> const&
-table_definitions() noexcept;
+std::unordered_map<std::string, std::vector<column_definition_type>> const& table_definitions(
+  bool use_opt_type_for_single_char_col = true) noexcept;
 
 }  // namespace tpch
 }  // namespace gqe::utility

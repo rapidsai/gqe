@@ -12,7 +12,6 @@
 
 #pragma once
 
-#include <cstddef>
 #include <gqe/catalog.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/logical/filter.hpp>
@@ -21,9 +20,11 @@
 #include <gqe/logical/relation.hpp>
 #include <gqe/optimizer/estimator.hpp>
 #include <gqe/optimizer/optimization_configuration.hpp>
+#include <gqe/optimizer/relation_properties.hpp>
 #include <gqe/utility/helpers.hpp>
 
 #include <cassert>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -37,7 +38,7 @@ namespace optimizer {
  * @brief The optimization rule will operate at the logical plan level. The optimization steps
  * should be overloaded by the rule developer in `try_optimize()`. There are helper functions to
  * enable modifications of logical relations and their expressions:
- *  - `replace_child_at(logical::relation*, ...)` can be used to replace the origimal relation child
+ *  - `replace_child_at(logical::relation*, ...)` can be used to replace the original relation child
  * of the current relation with a new optimized relation child
  *  - `rewrite_relation_expressions(logical::relation*, ...)` can be used to apply a rewrite rule to
  * all of the expressions in the input relation
@@ -65,7 +66,7 @@ class optimization_rule {
    * @param direction Determine how the query optimizer should apply this rule to the logical plan
    */
   optimization_rule(catalog const* cat, transform_direction direction = transform_direction::NONE)
-    : _direction(direction), _estimator(cat)
+    : _direction(direction), _estimator(cat), _catalog(cat)
   {
   }
 
@@ -108,7 +109,20 @@ class optimization_rule {
                                            expression_modifier_functor f,
                                            transform_direction direction);
 
+  /**
+   * @brief Add column property to specified column index in the input relation
+   *
+   * @param relation Relation to set column property for
+   * @param col_idx Index of the column that has this property
+   * @param prop Type of column property to set
+   */
+  static void set_relation_property(logical::relation* relation,
+                                    std::size_t col_idx,
+                                    column_property::property_id prop);
+
   estimator get_estimator() const noexcept { return _estimator; }
+
+  catalog const* get_catalog() const noexcept { return _catalog; }
 
  private:
   /**
@@ -157,6 +171,7 @@ class optimization_rule {
     expression_modifier_functor f);
   transform_direction _direction;
   estimator _estimator;
+  catalog const* _catalog;
 };
 
 class logical_optimizer {
@@ -188,6 +203,20 @@ class logical_optimizer {
    * @brief Return the raw pointers of on-rule objects
    */
   std::vector<optimization_rule*> rules_unsafe() { return gqe::utility::to_raw_ptrs(_rules); }
+
+  /**
+   * @brief Return pointer to the rule object with specified rule type if enabled
+   *
+   * @param rule_type Type of optimization rule to look for
+   * @return Pointer to the rule object if enabled, `nullptr` otherwise
+   */
+  optimization_rule* get_rule_unsafe(logical_optimization_rule_type rule_type) const
+  {
+    for (auto& rule : _rules) {
+      if (rule->type() == rule_type) return rule.get();
+    }
+    return nullptr;
+  }
 
   /**
    * @brief Return how many times the specified rule was actually applied

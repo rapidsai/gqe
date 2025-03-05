@@ -30,6 +30,7 @@ add_library(
     logical/join.cpp
     logical/project.cpp
     logical/read.cpp
+    logical/relation.cpp
     logical/set.cpp
     logical/sort.cpp
     logical/window.cpp
@@ -68,9 +69,11 @@ add_library(
     optimizer/logical_optimization.cpp
     optimizer/optimization_configuration.cpp
     optimizer/physical_transformation.cpp
+    optimizer/relation_properties.cpp
     optimizer/rules/projection_pushdown.cpp
     optimizer/rules/join_children_swap.cpp
     optimizer/rules/not_not.cpp
+    optimizer/rules/uniqueness_propagation.cpp
     optimizer/rules/string_to_int_literal.cpp
     optimizer/statistics.cpp
     storage/compression.cpp

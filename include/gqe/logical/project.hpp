@@ -84,6 +84,18 @@ class project_relation : public relation {
    */
   bool operator==(const relation& other) const override;
 
+  /**
+   * @brief Replace the output expression at the specified index
+   *
+   * @param idx Index of the output expression to replace
+   * @param new_expr The new expression to replace with
+   */
+  void replace_expr_at(cudf::size_type idx, std::unique_ptr<expression> new_expr)
+  {
+    assert(idx < _output_expressions.size());
+    _output_expressions[idx] = std::move(new_expr);
+  }
+
  private:
   //! List of one or more expressions to add to the input
   /*!

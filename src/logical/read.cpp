@@ -47,6 +47,8 @@ std::string read_relation::to_string() const
   read_relation_str += "\t\"partial filter\" : \"" + partial_filter_str + "\",\n";
   // Children
   read_relation_str += "\t\"children\" : " + utility::list_to_string(children_unsafe()) + "\n";
+  // Relation traits
+  read_relation_str += "\t\"traits\" : \"" + relation_traits().to_string() + "\"\n";
   read_relation_str += "}}";
   return read_relation_str;
 }
@@ -82,14 +84,8 @@ bool read_relation::operator==(const relation& other) const
     utility::log_relation_comparison_message(this_type, "operator==(): data types mismatch");
     return false;
   }
-  // Compare subquery_relations
-  if (!gqe::utility::compare_pointer_vectors(this->subqueries_unsafe(),
-                                             other_read_relation->subqueries_unsafe())) {
-    utility::log_relation_comparison_message(this_type,
-                                             "operator==(): subquery relations mismatch");
-    return false;
-  }
-  return true;
+  // Compare members defined in base class
+  return relation::compare_relation_members(other);
 }
 
 }  // namespace logical

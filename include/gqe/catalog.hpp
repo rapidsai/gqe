@@ -28,6 +28,30 @@
 namespace gqe {
 
 /**
+ * @brief Struct for consolidating column traits.
+ */
+struct column_traits {
+  enum class column_property { unique };
+
+  /**
+   * @brief Constructor for `column_traits`.
+   *
+   * @param[in] name_ Name of the column.
+   * @param[in] data_type_ Data type of the column.
+   * @param[in] props Brace-enclosed initializer list of all properties (see `enum class
+   * column_property`) that the column possesses. Any duplicates are ignored.
+   */
+  column_traits(std::string const& name_,
+                cudf::data_type const& data_type_,
+                std::initializer_list<column_property> props);
+
+  std::string name;           // name of the column
+  cudf::data_type data_type;  // data type of the column's elements
+  bool is_unique =
+    false;  // whether the column possesses the property that all elements are always unique
+};
+
+/**
  * @brief Store the metadata of the tables.
  *
  * Before a table can be referenced in a SQL query, it must be registered in the catalog. The stored
@@ -45,8 +69,23 @@ class catalog {
    * @param[in] storage Storage hint to phyiscally store the table's data.
    * @param[in] partitioning_schema Partitioning schema with which the table's data are divided.
    */
-  void register_table(std::string table_name,
+  void register_table(std::string const& table_name,
                       std::vector<std::pair<std::string, cudf::data_type>> const& columns,
+                      storage_kind::type storage,
+                      partitioning_schema_kind::type partitioning_schema);
+
+  /**
+   * @brief Register a new table into the catalog.
+   *
+   * @throw std::logic_error if `table_name` is already registered.
+   *
+   * @param[in] table_name Name of the table to create.
+   * @param[in] columns A collection of `column_traits`.
+   * @param[in] storage Storage hint to phyiscally store the table's data.
+   * @param[in] partitioning_schema Partitioning schema with which the table's data are divided.
+   */
+  void register_table(std::string const& table_name,
+                      std::vector<column_traits> const& columns,
                       storage_kind::type storage,
                       partitioning_schema_kind::type partitioning_schema);
 
@@ -66,6 +105,16 @@ class catalog {
    * @param[in] column_name Column name of the query column.
    */
   cudf::data_type column_type(std::string const& table_name, std::string const& column_name) const;
+
+  /**
+   * @brief Returns whether the specified column in the specified table is unique
+   *
+   * @param table_name Name of the table to check uniqueness
+   * @param column_name Name of the column to to check uniqueness
+   * @return true If the specified column in the specified table is unique
+   * @return false Otherwise
+   */
+  bool column_is_unique(std::string const& table_name, std::string const& column_name) const;
 
   /**
    * @brief Return the storage type of a table.
@@ -128,6 +177,8 @@ class catalog {
     std::vector<std::string> _column_names;  ///< column names in the user-defined order
     std::unordered_map<std::string, cudf::data_type>
       _column_name_to_type;  ///< map from column names to their data types
+    std::unordered_map<std::string, bool>
+      _column_name_to_uniq;  ///< map from column names whether they are unique
     storage_kind::type _storage;
     partitioning_schema_kind::type _partitioning_schema;
     std::unique_ptr<table_statistics_manager> _statistics;

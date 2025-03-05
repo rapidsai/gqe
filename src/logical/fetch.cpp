@@ -66,8 +66,8 @@ bool fetch_relation::operator==(const relation& other) const
     utility::log_relation_comparison_message(this_type, "operator==(): data types mismatch");
     return false;
   }
-
-  return true;
+  // Compare members defined in base class
+  return relation::compare_relation_members(other);
 }
 
 std::vector<cudf::data_type> fetch_relation::data_types() const

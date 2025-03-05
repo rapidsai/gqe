@@ -50,9 +50,9 @@ int main(int argc, char** argv)
   gqe::catalog catalog;
 
   // Register all tables
-  auto const& table_definitions = (tpc_type == "ds") ? gqe::utility::tpcds::table_definitions()
-                                                     : gqe::utility::tpch::table_definitions();
-  for (auto const& [name, definition] : table_definitions) {
+  auto& table_definitions = (tpc_type == "ds") ? gqe::utility::tpcds::table_definitions()
+                                               : gqe::utility::tpch::table_definitions();
+  for (auto& [name, definition] : table_definitions) {
     catalog.register_table(name,
                            definition,
                            gqe::storage_kind::parquet_file{{"/" + name}},

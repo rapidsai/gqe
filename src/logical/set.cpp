@@ -80,14 +80,8 @@ bool set_relation::operator==(const relation& other) const
     utility::log_relation_comparison_message(this_type, "operator==(): data types mismatch");
     return false;
   }
-  // Compare children
-  if (!gqe::utility::compare_pointer_vectors(this->children_unsafe(),
-                                             other_set_relation->children_unsafe())) {
-    utility::log_relation_comparison_message(this_type, "operator==(): children mismatch");
-    return false;
-  }
-
-  return true;
+  // Compare members defined in base class
+  return relation::compare_relation_members(other);
 }
 
 }  // namespace logical

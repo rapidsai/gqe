@@ -23,6 +23,7 @@
 #include <gqe/optimizer/rules/not_not.hpp>
 #include <gqe/optimizer/rules/projection_pushdown.hpp>
 #include <gqe/optimizer/rules/string_to_int_literal.hpp>
+#include <gqe/optimizer/rules/uniqueness_propagation.hpp>
 #include <gqe/physical/join.hpp>
 
 #include <cstddef>
@@ -111,6 +112,8 @@ std::unique_ptr<gqe::optimizer::optimization_rule> gqe::optimizer::logical_optim
       return std::make_unique<join_children_swap>(cat, gqe::physical::broadcast_policy::right);
     case logical_optimization_rule_type::projection_pushdown:
       return std::make_unique<projection_pushdown>(cat);
+    case logical_optimization_rule_type::uniqueness_propagation:
+      return std::make_unique<uniqueness_propagation>(cat);
     default:
       throw std::runtime_error("Logical Optimizer: logical_optimization_rule_type " +
                                std::to_string(static_cast<size_t>(rule_type)) + " not supported");
@@ -274,4 +277,11 @@ void gqe::optimizer::optimization_rule::replace_child_at(logical::relation* rela
                                                          std::shared_ptr<logical::relation> child)
 {
   relation->_children[child_idx] = child;
+}
+
+void gqe::optimizer::optimization_rule::set_relation_property(logical::relation* relation,
+                                                              std::size_t col_idx,
+                                                              column_property::property_id prop)
+{
+  relation->_relation_traits->_properties.add_column_property(col_idx, prop);
 }

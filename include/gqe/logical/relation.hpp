@@ -14,6 +14,7 @@
 
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/subquery.hpp>
+#include <gqe/optimizer/relation_traits.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/helpers.hpp>
 
@@ -62,10 +63,7 @@ class relation {
    * @param[in] subqueries Subquery relations references by expressions own by this relation
    */
   relation(std::vector<std::shared_ptr<relation>> children,
-           std::vector<std::shared_ptr<relation>> subqueries)
-    : _children(std::move(children)), _subqueries(std::move(subqueries))
-  {
-  }
+           std::vector<std::shared_ptr<relation>> subqueries);
 
   virtual ~relation()       = default;
   relation(const relation&) = delete;
@@ -98,7 +96,7 @@ class relation {
    *
    * @return Number of columns.
    */
-  [[nodiscard]] cudf::size_type num_columns() const { return data_types().size(); }
+  [[nodiscard]] cudf::size_type num_columns() const;
 
   /**
    * @brief Return the children nodes as a list of `shared_ptr`.
@@ -108,17 +106,7 @@ class relation {
    * only be used in place of its `_unsafe` counterpart if sharing of ownership
    * is absolutely necessary.
    */
-  [[nodiscard]] std::vector<std::shared_ptr<relation>> children_safe() const noexcept
-  {
-    std::vector<std::shared_ptr<relation>> children_to_return;
-    children_to_return.reserve(_children.size());
-
-    for (auto& child : _children) {
-      children_to_return.push_back(child);
-    }
-
-    return children_to_return;
-  }
+  [[nodiscard]] std::vector<std::shared_ptr<relation>> children_safe() const noexcept;
 
   /**
    * @brief Return the children nodes as a list of raw pointers.
@@ -126,15 +114,12 @@ class relation {
    * @note The returned relations do not share ownership. This object must be kept alive for the
    * returned relations to be valid.
    */
-  [[nodiscard]] std::vector<relation*> children_unsafe() const noexcept
-  {
-    return utility::to_raw_ptrs(_children);
-  }
+  [[nodiscard]] std::vector<relation*> children_unsafe() const noexcept;
 
   /**
    * @brief Return the number of children
    */
-  [[nodiscard]] std::size_t children_size() const noexcept { return _children.size(); }
+  [[nodiscard]] std::size_t children_size() const noexcept;
 
   /**
    * @brief Return the subquery relation nodes as a list of raw pointers.
@@ -142,15 +127,12 @@ class relation {
    * @note The returned relations do not share ownership. This object must be kept alive for the
    * returned relations to be valid.
    */
-  [[nodiscard]] std::vector<relation*> subqueries_unsafe() const noexcept
-  {
-    return utility::to_raw_ptrs(_subqueries);
-  }
+  [[nodiscard]] std::vector<relation*> subqueries_unsafe() const noexcept;
 
   /**
    * @brief Return the number of subqueries that reference this relation
    */
-  [[nodiscard]] std::size_t subqueries_size() const noexcept { return _subqueries.size(); }
+  [[nodiscard]] std::size_t subqueries_size() const noexcept;
 
   /**
    * @brief Overloading == operator to compare this relation with another.
@@ -165,11 +147,38 @@ class relation {
    */
   virtual bool operator==(const relation& other) const = 0;
 
+  /**
+   * @brief Return relation traits associated with this relation
+   */
+  [[nodiscard]] optimizer::relation_traits relation_traits() const noexcept;
+
+  /**
+   * @brief Set relation traits associated with this relation
+   *
+   * @param traits The relation traits to be set to
+   */
+  void set_relation_traits(std::unique_ptr<optimizer::relation_traits> traits);
+
+ protected:
+  /**
+   * @brief Function to compare members defined in the logical relation base class
+   *
+   * @note We do not want to define this funtion in operator==() of this class to keep it pure
+   * virtual
+   *
+   * @param other The other relation to compare with
+   * @return true If all base class members are equal
+   * @return false Otherwise
+   */
+  [[nodiscard]] bool compare_relation_members(const relation& other) const;
+
  private:
   // Child nodes of the current relation
   std::vector<std::shared_ptr<relation>> _children;
   // Input relations to child subquery expressions
   std::vector<std::shared_ptr<relation>> _subqueries;
+  // Property traits accessible by the optimizers
+  std::unique_ptr<optimizer::relation_traits> _relation_traits;
 };
 
 }  // namespace logical

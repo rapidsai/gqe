@@ -25,6 +25,84 @@
 #include <stdexcept>
 #include <string>
 
+namespace {
+bool is_valid_join_condition(gqe::expression* condition, cudf::size_type n_cols_left, bool is_left)
+{
+  if (condition->type() == gqe::expression::expression_type::binary_op) {
+    auto binary_expr = dynamic_cast<gqe::binary_op_expression*>(condition);
+    auto children    = binary_expr->children();
+    assert(children.size() == 2);
+    if (binary_expr->binary_operator() == cudf::binary_operator::EQUAL) {
+      // Check left and right
+      return is_valid_join_condition(children[0], n_cols_left, true) &&
+             is_valid_join_condition(children[1], n_cols_left, false);
+    }
+  } else if (condition->type() == gqe::expression::expression_type::column_reference) {
+    auto col_ref = dynamic_cast<gqe::column_reference_expression*>(condition);
+    auto col_idx = col_ref->column_idx();
+    if (is_left && (col_idx >= n_cols_left)) return false;
+    if (!is_left && (col_idx < n_cols_left)) return false;
+  }
+  return true;
+}
+
+class join_children_swap_helpers : public gqe::optimizer::join_children_swap {
+ public:
+  static void swap_join_keys_inplace(gqe::logical::join_relation* join,
+                                     cudf::size_type n_cols_left,
+                                     cudf::size_type n_cols_right)
+  {
+    // Check if both sides of equal operations have appropriate column references
+    // So the left and right side can be parsed as keys appropriately
+    if (!is_valid_join_condition(join->condition(), n_cols_left, true))
+      throw std::runtime_error("join_children_swap: invalid join condition");
+
+    // Add offset
+    auto colref_modifier =
+      [=](gqe::expression* expr,
+          std::vector<cudf::data_type> const& column_types) -> std::unique_ptr<gqe::expression> {
+      // Look for column reference
+      if (expr->type() == gqe::expression::expression_type::column_reference) {
+        auto colref = dynamic_cast<gqe::column_reference_expression*>(expr);
+        // Check value and adjust index
+        auto idx = colref->column_idx();
+        if (idx < n_cols_left) {
+          return std::make_unique<gqe::column_reference_expression>(idx + n_cols_right);
+        } else {
+          return std::make_unique<gqe::column_reference_expression>(idx - n_cols_left);
+        }
+      }
+      // Not column reference
+      return nullptr;
+    };
+    rewrite_relation_expressions(join, colref_modifier, transform_direction::DOWN);
+
+    // Switch children of each equal operation
+    auto eq_expr_children_swap =
+      [](gqe::expression* expr,
+         std::vector<cudf::data_type> const& column_types) -> std::unique_ptr<gqe::expression> {
+      std::cout << expr->to_string() << std::endl;
+      // Look for equal binary expression
+      if (expr->type() == gqe::expression::expression_type::binary_op) {
+        auto binary_expr = dynamic_cast<gqe::binary_op_expression*>(expr);
+        auto children    = binary_expr->children();
+        assert(children.size() == 2);
+        if (binary_expr->binary_operator() == cudf::binary_operator::EQUAL ||
+            binary_expr->binary_operator() == cudf::binary_operator::NULL_EQUALS) {
+          // Swap children
+          return std::make_unique<gqe::equal_expression>(children[1]->clone(),
+                                                         children[0]->clone());
+        }
+      }
+      // Not an equal binary expression
+      return nullptr;
+    };
+    rewrite_relation_expressions(join, eq_expr_children_swap, transform_direction::UP);
+  }
+};
+
+}  // namespace
+
 using relation_t = gqe::logical::relation::relation_type;
 
 std::shared_ptr<gqe::logical::relation> gqe::optimizer::join_children_swap::try_optimize(
@@ -53,7 +131,8 @@ std::shared_ptr<gqe::logical::relation> gqe::optimizer::join_children_swap::try_
         replace_child_at(join, 0, child_1);
         replace_child_at(join, 1, child_0);
         // Rewrite join condition
-        _swap_join_keys_inplace(join, child_0->num_columns(), child_1->num_columns());
+        join_children_swap_helpers::swap_join_keys_inplace(
+          join, child_0->num_columns(), child_1->num_columns());
         // Update swapped projection indices
         optimizer::utility::swap_projection_indices_inplace(
           join->_projection_indices, child_0->num_columns(), child_1->num_columns());
@@ -63,77 +142,4 @@ std::shared_ptr<gqe::logical::relation> gqe::optimizer::join_children_swap::try_
     }
   }
   return logical_relation;
-}
-
-namespace {
-bool is_valid_join_condition(gqe::expression* condition, cudf::size_type n_cols_left, bool is_left)
-{
-  if (condition->type() == gqe::expression::expression_type::binary_op) {
-    auto binary_expr = dynamic_cast<gqe::binary_op_expression*>(condition);
-    auto children    = binary_expr->children();
-    assert(children.size() == 2);
-    if (binary_expr->binary_operator() == cudf::binary_operator::EQUAL) {
-      // Check left and right
-      return is_valid_join_condition(children[0], n_cols_left, true) &&
-             is_valid_join_condition(children[1], n_cols_left, false);
-    }
-  } else if (condition->type() == gqe::expression::expression_type::column_reference) {
-    auto col_ref = dynamic_cast<gqe::column_reference_expression*>(condition);
-    auto col_idx = col_ref->column_idx();
-    if (is_left && (col_idx >= n_cols_left)) return false;
-    if (!is_left && (col_idx < n_cols_left)) return false;
-  }
-  return true;
-}
-}  // namespace
-
-void gqe::optimizer::join_children_swap::_swap_join_keys_inplace(logical::join_relation* join,
-                                                                 cudf::size_type n_cols_left,
-                                                                 cudf::size_type n_cols_right) const
-{
-  // Check if both sides of equal operations have appropriate column references
-  // So the left and right side can be parsed as keys appropriately
-  if (!is_valid_join_condition(join->condition(), n_cols_left, true))
-    throw std::runtime_error("join_children_swap: invalid join condition");
-
-  // Add offset
-  auto colref_modifier =
-    [=](expression* expr,
-        std::vector<cudf::data_type> const& column_types) -> std::unique_ptr<expression> {
-    // Look for column reference
-    if (expr->type() == gqe::expression::expression_type::column_reference) {
-      auto colref = dynamic_cast<gqe::column_reference_expression*>(expr);
-      // Check value and adjust index
-      auto idx = colref->column_idx();
-      if (idx < n_cols_left) {
-        return std::make_unique<column_reference_expression>(idx + n_cols_right);
-      } else {
-        return std::make_unique<column_reference_expression>(idx - n_cols_left);
-      }
-    }
-    // Not column reference
-    return nullptr;
-  };
-  rewrite_relation_expressions(join, colref_modifier, transform_direction::DOWN);
-
-  // Switch children of each equal operation
-  auto eq_expr_children_swap =
-    [](expression* expr,
-       std::vector<cudf::data_type> const& column_types) -> std::unique_ptr<expression> {
-    std::cout << expr->to_string() << std::endl;
-    // Look for equal binary expression
-    if (expr->type() == expression::expression_type::binary_op) {
-      auto binary_expr = dynamic_cast<binary_op_expression*>(expr);
-      auto children    = binary_expr->children();
-      assert(children.size() == 2);
-      if (binary_expr->binary_operator() == cudf::binary_operator::EQUAL ||
-          binary_expr->binary_operator() == cudf::binary_operator::NULL_EQUALS) {
-        // Swap children
-        return std::make_unique<equal_expression>(children[1]->clone(), children[0]->clone());
-      }
-    }
-    // Not an equal binary expression
-    return nullptr;
-  };
-  rewrite_relation_expressions(join, eq_expr_children_swap, transform_direction::UP);
 }

@@ -22,16 +22,40 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <tuple>
 #include <variant>
+#include <vector>
 
 namespace gqe {
 
-void catalog::register_table(std::string table_name,
-                             const std::vector<std::pair<std::string, cudf::data_type>>& columns,
+column_traits::column_traits(std::string const& name_,
+                             cudf::data_type const& data_type_,
+                             std::initializer_list<column_property> props)
+  : name(name_), data_type(data_type_)
+{
+  for (auto prop : props) {
+    if (prop == column_property::unique) is_unique = true;
+  }
+}
+
+void catalog::register_table(std::string const& table_name,
+                             std::vector<std::pair<std::string, cudf::data_type>> const& columns,
                              storage_kind::type storage,
                              partitioning_schema_kind::type partitioning_schema)
 {
-  if (_table_entries.find(table_name) != _table_entries.end())
+  std::vector<column_traits> new_columns;
+  for (auto column : columns) {
+    new_columns.push_back({column.first, column.second, {}});  // no column properties by default
+  }
+  register_table(table_name, new_columns, storage, partitioning_schema);
+}
+
+void catalog::register_table(std::string const& table_name,
+                             std::vector<column_traits> const& columns,
+                             storage_kind::type storage,
+                             partitioning_schema_kind::type partitioning_schema)
+{
+  if (_table_entries.count(table_name))
     throw std::logic_error("table \"" + table_name + "\" is already registered");
 
   table_info_type table_info;
@@ -40,11 +64,12 @@ void catalog::register_table(std::string table_name,
   column_names.reserve(columns.size());
   column_types.reserve(columns.size());
   for (auto const& column : columns) {
-    auto const& column_name = column.first;
-    auto const& column_type = column.second;
-    if (table_info._column_name_to_type.find(column_name) != table_info._column_name_to_type.end())
+    auto& column_name = column.name;
+    auto& column_type = column.data_type;
+    if (table_info._column_name_to_type.count(column_name))
       throw std::logic_error("column name already exists when registering table");
     table_info._column_name_to_type[column_name] = column_type;
+    table_info._column_name_to_uniq[column_name] = column.is_unique;
     column_names.push_back(std::move(column_name));
     column_types.push_back(std::move(column_type));
   }
@@ -118,6 +143,22 @@ cudf::data_type catalog::column_type(std::string const& table_name,
                            "\" in the catalog");
 
   return column_type_iter->second;
+}
+
+bool catalog::column_is_unique(std::string const& table_name, std::string const& column_name) const
+{
+  auto const table_info_iter = _table_entries.find(table_name);
+
+  if (table_info_iter == _table_entries.end())
+    throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
+  auto const& column_name_to_uniq = table_info_iter->second.info._column_name_to_uniq;
+
+  auto const column_uniq_iter = column_name_to_uniq.find(column_name);
+  if (column_uniq_iter == column_name_to_uniq.end())
+    throw std::logic_error("cannot find column \"" + column_name + "\" of table \"" + table_name +
+                           "\" in the catalog");
+
+  return column_uniq_iter->second;
 }
 
 storage_kind::type catalog::storage_kind(const std::string& table_name) const

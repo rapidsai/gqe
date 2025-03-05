@@ -46,9 +46,6 @@ class join_children_swap : public optimization_rule {
   };
 
  private:
-  void _swap_join_keys_inplace(logical::join_relation* join,
-                               cudf::size_type n_cols_left,
-                               cudf::size_type n_cols_right) const;
   gqe::physical::broadcast_policy _default_broadcast_policy;
 };
 

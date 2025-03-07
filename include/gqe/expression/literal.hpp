@@ -19,6 +19,8 @@
 #include <cudf/utilities/type_dispatcher.hpp>
 #include <cudf/wrappers/timestamps.hpp>
 
+#include <ctime>
+#include <sstream>
 #include <string>
 #include <typeinfo>
 
@@ -85,7 +87,14 @@ class literal_expression : public gqe::expression {
     } else if constexpr (std::is_convertible_v<T, std::string>) {
       value_string = _value;
     } else if constexpr (std::is_convertible_v<T, cudf::timestamp_D>) {
-      value_string = "date";  // TODO: format _value into string
+      std::time_t time_since_epoch = cuda::std::chrono::system_clock::to_time_t(_value);
+      // Use POSIX localtime_r because C++11 std::localtime may not be thread-safe.
+      // C++20 provides std::format as a more concise alternative.
+      std::tm tm{};
+      localtime_r(&time_since_epoch, &tm);
+      std::stringstream ss;
+      ss << std::put_time(&tm, "%Y-%m-%d");
+      value_string = ss.str();
     } else {
       value_string = std::to_string(_value);
     }

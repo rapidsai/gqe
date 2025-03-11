@@ -20,7 +20,7 @@ log = "~0.4"
 pgwire = "~0.19"
 simplelog = "~0.12"
 sqlparser = "~0.43"
-tokio = { version = "~1.36", features = ["rt-multi-thread", "net", "macros"]}
+tokio = { version = "~1.43", features = ["rt-multi-thread", "net", "macros"]}
 tokio-stream = "~0.1"
 
 [dependencies.gqe-rs]

@@ -25,7 +25,7 @@ GQE has the following CMake flags to control what to build.
 
 `GQE` does not have a SQL parser. Instead, it can import a logical plan from a [Substrait](https://substrait.io) file.
 
-To generate a Substrait query plan, `GQE` uses the producer from [datafusion-substrait](https://github.com/datafusion-contrib/datafusion-substrait). The `datafusion-substrait` project relies on the `SQL` parser and optimizer from [DataFusion](https://github.com/apache/arrow-datafusion). The code is written in Rust and all dependencies managed by Cargo.
+To generate a Substrait query plan, `GQE` uses the producer from [datafusion-substrait](https://github.com/datafusion-contrib/datafusion-substrait). The `datafusion-substrait` project relies on the `SQL` parser and optimizer from [DataFusion](https://github.com/apache/datafusion). The code is written in Rust and all dependencies managed by Cargo.
 
 ### Pre-requisites
 #### Install Rust

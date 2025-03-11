@@ -994,9 +994,6 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_read_relati
 
   std::vector<size_t> projection_indices;
 
-  if (read_relation.has_filter())
-    throw std::runtime_error("Read relation does not support hard filter");
-
   if (read_relation.has_projection()) {
     if (!read_relation.projection().has_select())
       throw std::runtime_error("Read relation projection requires select field");
@@ -1013,9 +1010,8 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_read_relati
 
   std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
   std::unique_ptr<expression> partial_filter =
-    read_relation.has_best_effort_filter()
-      ? parse_expression(read_relation.best_effort_filter(), subquery_relations)
-      : nullptr;
+    read_relation.has_filter() ? parse_expression(read_relation.filter(), subquery_relations)
+                               : nullptr;
 
   auto named_table = read_relation.named_table();
   assert(named_table.names_size() == 1);

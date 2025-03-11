@@ -45,7 +45,7 @@ class SubstraitToPhysical : public ::testing::Test {
   gqe::catalog catalog;
 };
 
-TEST_F(SubstraitToPhysical, SubstraitBestEffortFilterToPhysicalReadRelationPartialFilter)
+TEST_F(SubstraitToPhysical, SubstraitFilterToPhysicalReadRelationPartialFilter)
 {
   /*
   Substrait file generated as described in section "Running DataFusion-Substrait producer from GQE"

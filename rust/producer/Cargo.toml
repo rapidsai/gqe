@@ -15,10 +15,7 @@ repository = "https://gitlab-master.nvidia.com/Devtech-Compute/gqe"
 
 [dependencies]
 colored = "2.0.0"
-# using fork for datafusion and datafusion-substrait; to revert to using upstream repo after PR to DataFusion is approved and merged
-# datafusion = {git = "https://github.com/apache/arrow-datafusion.git", rev = "e18c709"}
-datafusion = {git = "https://github.com/jamxia155/datafusion.git", branch = "jamxia_substrait_logical_producer_ReadRel_best_effort_filter"}
-# datafusion-substrait = {git = "https://github.com/apache/arrow-datafusion.git", rev = "e18c709"}
-datafusion-substrait = {git = "https://github.com/jamxia155/datafusion.git", branch = "jamxia_substrait_logical_producer_ReadRel_best_effort_filter"}
-tokio = { version = "1.17", features = ["rt", "rt-multi-thread", "macros"] }
+datafusion = {git = "https://github.com/apache/datafusion.git", rev = "04d823b"}
+datafusion-substrait = {git = "https://github.com/apache/datafusion.git", rev = "04d823b"}
+tokio = { version = "1.43", features = ["rt", "rt-multi-thread", "macros"] }
 yaml-rust = "0.4"

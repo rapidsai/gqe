@@ -88,7 +88,7 @@ CPMAddPackage(
 CPMAddPackage(
     NAME substrait
     GITHUB_REPOSITORY substrait-io/substrait
-    GIT_TAG v0.52.0)
+    GIT_TAG v0.53.0)
 
 # Setup CTest
 if(PROJECT_IS_TOP_LEVEL)

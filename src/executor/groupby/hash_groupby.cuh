@@ -314,6 +314,10 @@ __global__ void compute_aggregates(cudf::size_type* local_mapping_index,
   __syncthreads();
 
   while (col_end < num_input_cols) {
+    // We need all the threads to enter the loop,
+    // before thread 0 updates col_end in calculate_columns_to_aggregate
+    __syncthreads();
+
     calculate_columns_to_aggregate(col_start,
                                    col_end,
                                    output_values,
@@ -353,7 +357,6 @@ __global__ void compute_aggregates(cudf::size_type* local_mapping_index,
                                                       s_aggregates_pointer,
                                                       s_aggregates_valid_pointer,
                                                       aggs);
-    __syncthreads();
   }
 }
 

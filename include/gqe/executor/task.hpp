@@ -48,7 +48,8 @@ class task {
   enum class status_type {
     not_started,  ///< Task has not been started on the current GPU.
     in_progress,  ///< Task is currently executing on or migrating to the current GPU.
-    finished      ///< Task result is available to the current GPU.
+    finished,     ///< Task result is available to the current GPU.
+    failed        ///< Task has failed execution.
   };
 
   /**
@@ -122,6 +123,11 @@ class task {
    * ownership of the data.
    */
   void emit_result(cudf::table_view new_result);
+
+  /**
+   * @brief Set task status to failed.
+   */
+  void fail();
 
   /**
    * @brief Return the dependent tasks.

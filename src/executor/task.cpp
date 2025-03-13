@@ -61,6 +61,8 @@ void task::emit_result(cudf::table_view new_result)
   _status = status_type::finished;
 }
 
+void task::fail() { _status = status_type::failed; }
+
 std::vector<task*> task::dependencies() const noexcept
 {
   return utility::to_raw_ptrs(_dependencies);
@@ -76,7 +78,12 @@ void task::prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent
       if (dependent_task->stage_id() == this->stage_id()) {
         // If the dependent task belongs to the same stage, it has not been executed by any other
         // GPUs, so the current GPU executes the task.
-        dependent_task->execute();
+        try {
+          dependent_task->execute();
+        } catch (const std::exception&) {
+          dependent_task->fail();
+          throw;
+        }
       } else if (dependent_task->stage_id() < this->stage_id()) {
         // If the dependent task belongs to a previous stage, it has already been executed by
         // another GPU, so we migrate the result to the current GPU.
@@ -85,7 +92,11 @@ void task::prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent
         throw std::logic_error("Dependent task belongs to a later stage than the current task");
       }
     } else {
-      while (dependent_task->_status != status_type::finished) {}
+      while (dependent_task->_status != status_type::finished &&
+             dependent_task->_status != status_type::failed) {}
+      if (dependent_task->_status == status_type::failed) {
+        throw std::runtime_error("Dependent task failed execution");
+      }
     }
   }
 }

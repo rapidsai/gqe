@@ -114,7 +114,7 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
       // main thread.
       for (auto& task : tasks_current_stage)
         task->execute();
-      cudaStreamSynchronize(cudaStreamDefault);
+      cudf::get_default_stream().synchronize();
     } else {
       std::vector<std::thread> workers;
       workers.reserve(num_workers);
@@ -129,7 +129,7 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
                  task_idx += num_workers) {
               tasks_current_stage[task_idx]->execute();
             }
-            cudaStreamSynchronize(cudaStreamDefault);
+            cudf::get_default_stream().synchronize();
           } catch (const std::exception&) {
             worker_exception = std::current_exception();
           }

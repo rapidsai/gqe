@@ -232,11 +232,12 @@ __device__ void compute_pre_aggregrates(int col_start,
                                         cudf::size_type* local_mapping_index,
                                         std::byte** s_aggregates_pointer,
                                         bool** s_aggregates_valid_pointer,
-                                        cudf::aggregation::Kind const* aggs)
+                                        cudf::aggregation::Kind const* aggs,
+                                        cudf::size_type agg_location_offset)
 {
   for (auto cur_idx = blockDim.x * blockIdx.x + threadIdx.x; cur_idx < num_input_rows;
        cur_idx += blockDim.x * gridDim.x) {
-    auto map_idx = local_mapping_index[cur_idx];
+    auto map_idx = agg_location_offset + local_mapping_index[cur_idx];
 
     for (auto col_idx = col_start; col_idx < col_end; col_idx++) {
       auto input_col = input_values.column(col_idx);
@@ -259,13 +260,15 @@ __device__ void compute_final_aggregates(int col_start,
                                          cudf::table_device_view input_values,
                                          cudf::mutable_table_device_view output_values,
                                          cudf::size_type cardinality,
+                                         cudf::size_type num_agg_locations,
                                          cudf::size_type* global_mapping_index,
                                          std::byte** s_aggregates_pointer,
                                          bool** s_aggregates_valid_pointer,
                                          cudf::aggregation::Kind const* aggs)
 {
-  for (auto cur_idx = threadIdx.x; cur_idx < cardinality; cur_idx += blockDim.x) {
-    auto out_idx = global_mapping_index[blockIdx.x * shared_set_num_elements + cur_idx];
+  for (auto cur_idx = threadIdx.x; cur_idx < num_agg_locations; cur_idx += blockDim.x) {
+    auto out_idx =
+      global_mapping_index[blockIdx.x * shared_set_num_elements + cur_idx % cardinality];
     for (auto col_idx = col_start; col_idx < col_end; col_idx++) {
       auto output_col = output_values.column(col_idx);
 
@@ -293,10 +296,17 @@ __global__ void compute_aggregates(cudf::size_type* local_mapping_index,
                                    cudf::size_type num_input_rows,
                                    cudf::aggregation::Kind const* aggs,
                                    int total_agg_size,
-                                   int pointer_size)
+                                   int pointer_size,
+                                   cudf::size_type min_shmem_agg_locations)
 {
   cudf::size_type cardinality = block_cardinality[blockIdx.x];
-  if (cardinality >= cardinality_threshold) { return; }
+  if (cardinality >= cardinality_threshold || cardinality == 0) { return; }
+
+  cudf::size_type multiplication_factor = min_shmem_agg_locations / cardinality;
+  cudf::size_type num_agg_locations =
+    multiplication_factor > 1 ? multiplication_factor * cardinality : cardinality;
+  cudf::size_type const agg_location_offset =
+    multiplication_factor > 1 ? (threadIdx.x % multiplication_factor) * cardinality : 0;
 
   int num_input_cols = output_values.num_columns();
   extern __shared__ std::byte shared_set_aggregates[];
@@ -325,7 +335,7 @@ __global__ void compute_aggregates(cudf::size_type* local_mapping_index,
                                    s_aggregates_pointer,
                                    s_aggregates_valid_pointer,
                                    shared_set_aggregates,
-                                   cardinality,
+                                   num_agg_locations,
                                    total_agg_size);
     __syncthreads();
 
@@ -334,7 +344,7 @@ __global__ void compute_aggregates(cudf::size_type* local_mapping_index,
                                         output_values,
                                         s_aggregates_pointer,
                                         s_aggregates_valid_pointer,
-                                        cardinality,
+                                        num_agg_locations,
                                         aggs);
     __syncthreads();
 
@@ -345,7 +355,8 @@ __global__ void compute_aggregates(cudf::size_type* local_mapping_index,
                             local_mapping_index,
                             s_aggregates_pointer,
                             s_aggregates_valid_pointer,
-                            aggs);
+                            aggs,
+                            agg_location_offset);
     __syncthreads();
 
     compute_final_aggregates<shared_set_num_elements>(col_start,
@@ -353,6 +364,7 @@ __global__ void compute_aggregates(cudf::size_type* local_mapping_index,
                                                       input_values,
                                                       output_values,
                                                       cardinality,
+                                                      num_agg_locations,
                                                       global_mapping_index,
                                                       s_aggregates_pointer,
                                                       s_aggregates_valid_pointer,
@@ -561,6 +573,10 @@ void launch_compute_aggregates(int block_size,
   // The rest of shmem is utilized for the actual arrays in shmem
   auto shmem_agg_size = d_shmem_size - shmem_agg_pointer_size * 2;
 
+  // Determined through benchmarking experiments
+  // Minimum shared memory locations for aggregation to avoid high shmem atomic contention
+  cudf::size_type constexpr min_shmem_agg_locations = 32;
+
   compute_aggregates<shared_set_num_elements, cardinality_threshold>
     <<<grid_size, block_size, d_shmem_size, stream>>>(local_mapping_index,
                                                       global_mapping_index,
@@ -570,7 +586,8 @@ void launch_compute_aggregates(int block_size,
                                                       num_input_rows,
                                                       aggs,
                                                       shmem_agg_size,
-                                                      shmem_agg_pointer_size);
+                                                      shmem_agg_pointer_size,
+                                                      min_shmem_agg_locations);
 }
 
 template <typename SetType, typename KeyEqual, typename RowHasher>

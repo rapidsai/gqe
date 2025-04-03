@@ -153,11 +153,11 @@ std::unique_ptr<nvcompManagerBase> compression_manager::create_manager(
   }
 
   auto alloc_fn = [&mr, stream](std::size_t bytes) {
-    return mr.allocate(bytes, alignof(std::max_align_t));
+    return mr.allocate_async(bytes, alignof(std::max_align_t), stream);
   };
 
   auto dealloc_fn = [&mr, stream](void* ptr, std::size_t bytes) {
-    mr.deallocate(ptr, bytes, alignof(std::max_align_t));
+    mr.deallocate_async(ptr, bytes, alignof(std::max_align_t), stream);
   };
 
   manager->set_scratch_allocators(alloc_fn, dealloc_fn);

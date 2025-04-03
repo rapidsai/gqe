@@ -65,7 +65,6 @@ class compression_manager {
   /**
    * @brief Constructor for class
    *
-   * @param[in] supplied_stream Stream to use for compression
    * @param[in] comp_format Compression format to use
    * @param[in] data_format Data format to use for compression configuration
    * @param[in] explicit_chunk_size Chunk size to use for nvcomp
@@ -79,13 +78,14 @@ class compression_manager {
    * column.
    *
    * @param[in] uncompressed Data buffer to compress
-   * @param[out] compression_viable Boolean flag that stores whether compression was viable or not
+   * @param[out] compression_ratio Compression ratio of the compressed column
+   * @param[out] is_compressed Boolean flag that stores whether compression was viable or not
    * @param[in] supplied_stream Stream to use for compression
    * @param[in] mr Memory resource to use for compression
    */
   std::unique_ptr<rmm::device_buffer> do_compress(rmm::device_buffer const* uncompressed,
                                                   float& compression_ratio,
-                                                  bool& compression_viable,
+                                                  bool& is_compressed,
                                                   rmm::cuda_stream_view supplied_stream,
                                                   rmm::device_async_resource_ref mr);
 

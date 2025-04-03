@@ -139,7 +139,7 @@ std::unique_ptr<nvcompManagerBase> compression_manager::create_manager(
       break;
     case gqe::compression_format::deflate:
       manager = std::make_unique<DeflateManager>(
-        _chunk_size, nvcompBatchedDeflateDefaultOpts, stream, NoComputeNoVerify);
+        _chunk_size, nvcompBatchedDeflateOpts_t{5}, stream, NoComputeNoVerify);
       break;
     case gqe::compression_format::zstd:
       manager = std::make_unique<ZstdManager>(

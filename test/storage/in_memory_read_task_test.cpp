@@ -71,6 +71,7 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
     auto const comp_format        = query_ctx->parameters.in_memory_table_compression_format;
     auto const nvcomp_data_format = query_ctx->parameters.in_memory_table_compression_data_type;
     auto const chunk_size         = query_ctx->parameters.compression_chunk_size;
+
     std::vector<std::unique_ptr<gqe::storage::column_base>> columns;
     std::transform(test_columns.cbegin(),
                    test_columns.cend(),
@@ -205,9 +206,18 @@ TEST_P(InMemoryReadTest, ReadAll)
   CUDF_TEST_EXPECT_TABLES_EQUAL(*result, test_table->view());
 }
 
-INSTANTIATE_TEST_SUITE_P(ZeroCopyOnOff,
-                         InMemoryReadTest,
-                         testing::Values(test_parameters{false, gqe::compression_format::none},
-                                         test_parameters{true, gqe::compression_format::none},
-                                         test_parameters{false, gqe::compression_format::ans},
-                                         test_parameters{true, gqe::compression_format::ans}));
+INSTANTIATE_TEST_SUITE_P(
+  ZeroCopyOnOff,
+  InMemoryReadTest,
+  testing::Values(test_parameters{true, gqe::compression_format::none},
+                  test_parameters{false, gqe::compression_format::none},
+                  test_parameters{false, gqe::compression_format::ans},
+                  test_parameters{false, gqe::compression_format::lz4},
+                  test_parameters{false, gqe::compression_format::snappy},
+                  test_parameters{false, gqe::compression_format::gdeflate},
+                  test_parameters{false, gqe::compression_format::deflate},
+                  test_parameters{false, gqe::compression_format::cascaded},
+                  test_parameters{false, gqe::compression_format::zstd},
+                  test_parameters{false, gqe::compression_format::bitcomp},
+                  test_parameters{false, gqe::compression_format::best_compression_ratio},
+                  test_parameters{false, gqe::compression_format::best_decompression_speed}));

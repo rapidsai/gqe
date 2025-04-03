@@ -123,6 +123,10 @@ gqe::compression_format compression_format_from_str(std::string const& format_st
     return gqe::compression_format::gzip;
   } else if (format_str == "bitcomp") {
     return gqe::compression_format::bitcomp;
+  } else if (format_str == "best_compression_ratio") {
+    return gqe::compression_format::best_compression_ratio;
+  } else if (format_str == "best_decompression_speed") {
+    return gqe::compression_format::best_decompression_speed;
   } else {
     throw std::logic_error("Unrecognized compression format");
   }
@@ -180,6 +184,7 @@ int parse_nvcomp_chunk_size(std::string const& env_variable, int const default_v
     return default_value;
   }
 }
+
 }  // namespace
 
 namespace gqe {

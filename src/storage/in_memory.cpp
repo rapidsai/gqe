@@ -87,6 +87,90 @@ nvcompType_t get_optimal_nvcomp_data_type(cudf::type_id dtype)
   }
 }
 
+// Function to map cudf::type_id to ideal compression_format and nvcomp_data_format.
+// Mode 0: Optimizes for best compression ratio
+// Mode 1: Optimizes for best decompression speed
+void best_compression_config(cudf::type_id dtype,
+                             gqe::compression_format& comp_format,
+                             nvcompType_t& nvcomp_data_format,
+                             int mode)
+{
+  switch (dtype) {
+    case cudf::type_id::INT8:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_CHAR;
+      break;
+    case cudf::type_id::INT16:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_SHORT;
+      break;
+    case cudf::type_id::INT32:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_INT;
+      break;
+    case cudf::type_id::INT64:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_LONGLONG;
+      break;
+    case cudf::type_id::UINT8:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_UCHAR;
+      break;
+    case cudf::type_id::UINT16:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_USHORT;
+      break;
+    case cudf::type_id::UINT32:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_UINT;
+      break;
+    case cudf::type_id::UINT64:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_ULONGLONG;
+      break;
+    case cudf::type_id::FLOAT32:
+    case cudf::type_id::FLOAT64:
+    case cudf::type_id::DICTIONARY32:
+    case cudf::type_id::LIST:
+      if (mode == 0) {
+        comp_format        = gqe::compression_format::zstd;
+        nvcomp_data_format = NVCOMP_TYPE_CHAR;
+      } else {
+        comp_format        = gqe::compression_format::ans;
+        nvcomp_data_format = NVCOMP_TYPE_FLOAT16;
+      }
+      break;
+    case cudf::type_id::BOOL8:
+    case cudf::type_id::TIMESTAMP_DAYS:
+    case cudf::type_id::TIMESTAMP_SECONDS:
+    case cudf::type_id::TIMESTAMP_MILLISECONDS:
+    case cudf::type_id::TIMESTAMP_MICROSECONDS:
+    case cudf::type_id::TIMESTAMP_NANOSECONDS:
+    case cudf::type_id::DURATION_DAYS:
+    case cudf::type_id::DURATION_SECONDS:
+    case cudf::type_id::DURATION_MILLISECONDS:
+    case cudf::type_id::DURATION_MICROSECONDS:
+    case cudf::type_id::DURATION_NANOSECONDS:
+    case cudf::type_id::DECIMAL32:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_INT;
+      break;
+    case cudf::type_id::DECIMAL64:
+    case cudf::type_id::DECIMAL128:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_LONGLONG;
+      break;
+    case cudf::type_id::STRING:
+      comp_format        = gqe::compression_format::ans;
+      nvcomp_data_format = NVCOMP_TYPE_CHAR;
+      break;
+    default:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_INT;
+      break;
+  }
+}
+
 contiguous_column::contiguous_column(cudf::column&& cudf_column)
   : column_base(), _data(std::move(cudf_column))
 {
@@ -161,6 +245,15 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
   for (auto& child : column_content.children) {
     auto dtype         = child->type().id();
     nvcomp_data_format = get_optimal_nvcomp_data_type(dtype);
+
+    if ((comp_format == gqe::compression_format::best_compression_ratio) or
+        (comp_format == gqe::compression_format::best_decompression_speed)) {
+      best_compression_config(
+        dtype,
+        comp_format,
+        nvcomp_data_format,
+        (comp_format == gqe::compression_format::best_compression_ratio ? 0 : 1));
+    }
 
     _compressed_children.push_back(std::make_unique<compressed_column>(
       std::move(*child), comp_format, stream, mr, nvcomp_data_format, chunk_size));
@@ -523,14 +616,21 @@ void in_memory_write_task::execute()
     auto const& input_column = input_table.column(column_idx);
     auto cudf_column         = cudf::column(input_column, stream, _non_owned_memory_resource);
 
-    auto comp_format = get_query_context()->parameters.in_memory_table_compression_format;
-    nvcompType_t nvcomp_data_format =
-      get_query_context()->parameters.in_memory_table_compression_data_type;
+    auto comp_format      = get_query_context()->parameters.in_memory_table_compression_format;
     auto const chunk_size = get_query_context()->parameters.compression_chunk_size;
 
     auto dtype = cudf_column.type().id();
 
-    nvcomp_data_format = get_optimal_nvcomp_data_type(dtype);
+    nvcompType_t nvcomp_data_format = get_optimal_nvcomp_data_type(dtype);
+
+    if ((comp_format == gqe::compression_format::best_compression_ratio) or
+        (comp_format == gqe::compression_format::best_decompression_speed)) {
+      best_compression_config(
+        dtype,
+        comp_format,
+        nvcomp_data_format,
+        (comp_format == gqe::compression_format::best_compression_ratio ? 0 : 1));
+    }
 
     if (comp_format == compression_format::none) {
       new_columns[_column_indexes[column_idx]] =

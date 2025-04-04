@@ -68,28 +68,39 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
     test_columns.push_back(col_1.release());
 
     // Setup row group
-    auto const comp_format        = query_ctx->parameters.in_memory_table_compression_format;
-    auto const nvcomp_data_format = query_ctx->parameters.in_memory_table_compression_data_type;
-    auto const chunk_size         = query_ctx->parameters.compression_chunk_size;
+    auto comp_format        = query_ctx->parameters.in_memory_table_compression_format;
+    auto nvcomp_data_format = query_ctx->parameters.in_memory_table_compression_data_type;
+    auto const chunk_size   = query_ctx->parameters.compression_chunk_size;
 
     std::vector<std::unique_ptr<gqe::storage::column_base>> columns;
-    std::transform(test_columns.cbegin(),
-                   test_columns.cend(),
-                   std::back_inserter(columns),
-                   [comp_format, nvcomp_data_format, chunk_size](
-                     auto const& col) -> std::unique_ptr<gqe::storage::column_base> {
-                     if (comp_format == gqe::compression_format::none) {
-                       return std::make_unique<gqe::storage::contiguous_column>(cudf::column(*col));
-                     } else {
-                       return std::make_unique<gqe::storage::compressed_column>(
-                         cudf::column(*col),
-                         comp_format,
-                         rmm::cuda_stream_default,
-                         rmm::mr::get_current_device_resource(),
-                         nvcomp_data_format,
-                         chunk_size);
-                     }
-                   });
+    std::transform(
+      test_columns.cbegin(),
+      test_columns.cend(),
+      std::back_inserter(columns),
+      [comp_format, nvcomp_data_format, chunk_size](
+        auto const& col) mutable -> std::unique_ptr<gqe::storage::column_base> {
+        if (comp_format == gqe::compression_format::none) {
+          return std::make_unique<gqe::storage::contiguous_column>(cudf::column(*col));
+        } else {
+          auto cudf_col = cudf::column(*col);
+          auto dtype    = cudf_col.type().id();
+          if ((comp_format == gqe::compression_format::best_compression_ratio) or
+              (comp_format == gqe::compression_format::best_decompression_speed)) {
+            best_compression_config(
+              dtype,
+              comp_format,
+              nvcomp_data_format,
+              (comp_format == gqe::compression_format::best_compression_ratio ? 0 : 1));
+          }
+          return std::make_unique<gqe::storage::compressed_column>(
+            std::move(cudf_col),
+            comp_format,
+            rmm::cuda_stream_default,
+            rmm::mr::get_current_device_resource(),
+            nvcomp_data_format,
+            chunk_size);
+        }
+      });
     gqe::storage::row_group row_group(std::move(columns));
 
     // Setup test table

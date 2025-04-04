@@ -34,9 +34,15 @@
 #include <memory>
 #include <nvcomp.hpp>
 #include <nvcomp/nvcompManagerFactory.hpp>
+
+#include <cudf/column/column.hpp>
+#include <cudf/column/column_view.hpp>
+#include <cudf/types.hpp>
+
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
+
 #include <vector>
 
 using namespace nvcomp;
@@ -117,3 +123,117 @@ class compression_manager {
    * */
   int get_chunk_size() const;
 };
+
+// Function to map cudf::type_id to nvcomp_data_format
+inline nvcompType_t get_optimal_nvcomp_data_type(cudf::type_id dtype)
+{
+  switch (dtype) {
+    case cudf::type_id::INT8: return NVCOMP_TYPE_CHAR;
+    case cudf::type_id::INT16: return NVCOMP_TYPE_SHORT;
+    case cudf::type_id::INT32: return NVCOMP_TYPE_INT;
+    case cudf::type_id::INT64: return NVCOMP_TYPE_LONGLONG;
+    case cudf::type_id::UINT8: return NVCOMP_TYPE_UCHAR;
+    case cudf::type_id::UINT16: return NVCOMP_TYPE_USHORT;
+    case cudf::type_id::UINT32: return NVCOMP_TYPE_UINT;
+    case cudf::type_id::UINT64: return NVCOMP_TYPE_ULONGLONG;
+    case cudf::type_id::BOOL8: return NVCOMP_TYPE_CHAR;
+    case cudf::type_id::TIMESTAMP_DAYS:
+    case cudf::type_id::TIMESTAMP_SECONDS:
+    case cudf::type_id::TIMESTAMP_MILLISECONDS:
+    case cudf::type_id::TIMESTAMP_MICROSECONDS:
+    case cudf::type_id::TIMESTAMP_NANOSECONDS:
+    case cudf::type_id::DURATION_DAYS:
+    case cudf::type_id::DURATION_SECONDS:
+    case cudf::type_id::DURATION_MILLISECONDS:
+    case cudf::type_id::DURATION_MICROSECONDS:
+    case cudf::type_id::DURATION_NANOSECONDS:
+    case cudf::type_id::DECIMAL32: return NVCOMP_TYPE_INT;
+    case cudf::type_id::DECIMAL64:
+    case cudf::type_id::DECIMAL128: return NVCOMP_TYPE_LONGLONG;
+    default: return NVCOMP_TYPE_CHAR;
+  }
+}
+
+// Function to map cudf::type_id to ideal compression_format and nvcomp_data_format.
+// Mode 0: Optimizes for best compression ratio
+// Mode 1: Optimizes for best decompression speed
+inline void best_compression_config(cudf::type_id dtype,
+                                    gqe::compression_format& comp_format,
+                                    nvcompType_t& nvcomp_data_format,
+                                    int mode)
+{
+  switch (dtype) {
+    case cudf::type_id::INT8:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_CHAR;
+      break;
+    case cudf::type_id::INT16:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_SHORT;
+      break;
+    case cudf::type_id::INT32:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_INT;
+      break;
+    case cudf::type_id::INT64:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_LONGLONG;
+      break;
+    case cudf::type_id::UINT8:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_UCHAR;
+      break;
+    case cudf::type_id::UINT16:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_USHORT;
+      break;
+    case cudf::type_id::UINT32:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_UINT;
+      break;
+    case cudf::type_id::UINT64:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_ULONGLONG;
+      break;
+    case cudf::type_id::FLOAT32:
+    case cudf::type_id::FLOAT64:
+    case cudf::type_id::DICTIONARY32:
+    case cudf::type_id::LIST:
+      if (mode == 0) {
+        comp_format        = gqe::compression_format::zstd;
+        nvcomp_data_format = NVCOMP_TYPE_CHAR;
+      } else {
+        comp_format        = gqe::compression_format::ans;
+        nvcomp_data_format = NVCOMP_TYPE_FLOAT16;
+      }
+      break;
+    case cudf::type_id::BOOL8:
+    case cudf::type_id::TIMESTAMP_DAYS:
+    case cudf::type_id::TIMESTAMP_SECONDS:
+    case cudf::type_id::TIMESTAMP_MILLISECONDS:
+    case cudf::type_id::TIMESTAMP_MICROSECONDS:
+    case cudf::type_id::TIMESTAMP_NANOSECONDS:
+    case cudf::type_id::DURATION_DAYS:
+    case cudf::type_id::DURATION_SECONDS:
+    case cudf::type_id::DURATION_MILLISECONDS:
+    case cudf::type_id::DURATION_MICROSECONDS:
+    case cudf::type_id::DURATION_NANOSECONDS:
+    case cudf::type_id::DECIMAL32:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_INT;
+      break;
+    case cudf::type_id::DECIMAL64:
+    case cudf::type_id::DECIMAL128:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_LONGLONG;
+      break;
+    case cudf::type_id::STRING:
+      comp_format        = gqe::compression_format::ans;
+      nvcomp_data_format = NVCOMP_TYPE_CHAR;
+      break;
+    default:
+      comp_format        = gqe::compression_format::bitcomp;
+      nvcomp_data_format = NVCOMP_TYPE_INT;
+      break;
+  }
+}

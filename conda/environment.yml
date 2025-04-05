@@ -12,7 +12,7 @@ dependencies:
   - cuda-cudart
   - cuda-cudart-dev
   - cuda-nvcc
-  - cuda-version=12.6
+  - cuda-version=12.8
   - cmake
   - c-compiler
   - cxx-compiler

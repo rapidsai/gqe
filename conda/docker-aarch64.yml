@@ -14,7 +14,7 @@ dependencies:
   - cuda-nvcc
   - cuda-nvrtc-dev
   - cuda-nvtx-dev
-  - cuda-version=12.6
+  - cuda-version=12.8
   - cmake
   - c-compiler
   - cxx-compiler

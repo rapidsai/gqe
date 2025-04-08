@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -14,8 +14,11 @@
 
 #include <kernel_launch.hpp>
 
+#include <mlir/Conversion/ArithToLLVM/ArithToLLVM.h>
+#include <mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h>
 #include <mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h>
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
+#include <mlir/Conversion/NVVMToLLVM/NVVMToLLVM.h>
 #include <mlir/Dialect/GPU/IR/CompilationInterfaces.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
 #include <mlir/Dialect/GPU/Transforms/Passes.h>
@@ -117,7 +120,7 @@ mlir::ModuleOp generate_gpu_test(mlir::OpBuilder& builder)
 std::optional<llvm::SmallVector<char, 0>> serialize_module(
   mlir::ModuleOp& module, mlir::gpu::CompilationTarget target_format)
 {
-  mlir::gpu::TargetOptions options("", {}, "", target_format);
+  mlir::gpu::TargetOptions options("", {}, "", "", target_format);
 
   for (auto gpuModule : module.getBody()->getOps<mlir::gpu::GPUModuleOp>()) {
     auto targetAttr = gpuModule.getTargetsAttr();
@@ -227,12 +230,16 @@ class mlir_gpu_standalone_test : public testing::Test {
     // list is partially from `registerAllToLLVMIRTranslations` and
     // `registerAllGPUToLLVMIRTranslations`.
     mlir::registerBuiltinDialectTranslation(*registry);
+    mlir::arith::registerConvertArithToLLVMInterface(*registry);
+    mlir::cf::registerConvertControlFlowToLLVMInterface(*registry);
     mlir::registerGPUDialectTranslation(*registry);
     mlir::registerLLVMDialectTranslation(*registry);
+    mlir::registerConvertMemRefToLLVMInterface(*registry);
     // Make sure `registerNVVMDialectTranslation` is registered. Otherwise, the
     // `GpuFuncOp` is translated to a PTX `.func` instead of a `.entry`. The
     // `.entry` is a kernel, the `.func` is a non-kernel function.
     mlir::registerNVVMDialectTranslation(*registry);
+    mlir::registerConvertNVVMToLLVMInterface(*registry);
     mlir::NVVM::registerNVVMTargetInterfaceExternalModels(*registry);
 
     // Create the Context and load the relevant dialects into in. The dialects

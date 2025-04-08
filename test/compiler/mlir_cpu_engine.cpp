@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -56,7 +56,7 @@
  *
  * The function calls `printf` to print the string "test".
  */
-[[nodiscard]] mlir::ModuleOp generate_host_main(mlir::OpBuilder& builder)
+[[nodiscard]] mlir::FailureOr<mlir::ModuleOp> generate_host_main(mlir::OpBuilder& builder)
 {
   // Create an MLIR module, effectively a top-level compiler basic block, and
   // set an insertion point at which we add ops.
@@ -122,9 +122,15 @@
   // consider variadic arguments.
   auto printffn = mlir::LLVM::lookupOrCreateFn(module, "printf", {llvmPtrTy}, llvmI32Ty, true);
 
+  // Check if the function was successfully created.
+  if (mlir::failed(printffn)) {
+    llvm::errs() << "Failed to create printf function\n";
+    return mlir::failure();  // Handle the failure appropriately
+  }
+
   // Create the call to `printf`.
   builder.create<mlir::LLVM::CallOp>(
-    builder.getUnknownLoc(), printffn, mlir::ValueRange{strGlobal});
+    builder.getUnknownLoc(), *printffn, mlir::ValueRange{strGlobal});
 
   // Create the return value of `main`.
   auto retVal = builder.create<mlir::arith::ConstantOp>(
@@ -247,7 +253,9 @@ TEST_F(mlir_cpu_engine_test, execute_hello_world)
 
   auto builder = get_builder();
 
-  auto host_main = generate_host_main(builder);
+  auto host_main_result = generate_host_main(builder);
+  EXPECT_TRUE(mlir::LogicalResult(host_main_result).succeeded());
+  auto host_main = *host_main_result;
 
   auto module_generation_end          = std::chrono::high_resolution_clock::now();
   auto module_generation_elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -258,15 +266,15 @@ TEST_F(mlir_cpu_engine_test, execute_hello_world)
 
   EXPECT_TRUE(convert_to_llvm(host_main).succeeded());
 
-#ifdef DEBUG_MLIR_MODULE
-  // Print the MLIR output after lowering to the MLIR LLVM dialect.
-  host_main.dump();
-#endif
-
   auto lowering_end = std::chrono::high_resolution_clock::now();
   auto lowering_elapsed_time =
     std::chrono::duration_cast<std::chrono::milliseconds>(lowering_end - lowering_start);
   llvm::errs() << "Module lowering time: " << lowering_elapsed_time.count() << "ms\n";
+
+#ifdef DEBUG_MLIR_MODULE
+  // Print the MLIR output after lowering to the MLIR LLVM dialect.
+  host_main.dump();
+#endif
 
   EXPECT_TRUE(execute(host_main).succeeded());
 }

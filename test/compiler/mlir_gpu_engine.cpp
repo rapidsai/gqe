@@ -290,6 +290,9 @@ class mlir_gpu_engine_test : public testing::Test {
     mlir::NVVM::registerNVVMTargetInterfaceExternalModels(*registry);
     mlir::ub::registerConvertUBToLLVMInterface(*registry);
 
+    // FIXME: This test is currently broken. Call
+    // `registerConvertVectorToLLVMInterface` when updating to 20.1.3 or later.
+
     // Create the Context and load the relevant dialects into in. The dialects
     // are the ones we explicitly use to generate our program.
     context = std::make_unique<mlir::MLIRContext>(*registry);
@@ -355,16 +358,16 @@ TEST_F(mlir_gpu_engine_test, execute_hello_world)
   // Lower the higher-level MLIR dialects to MLIR LLVM dialect.
   EXPECT_TRUE(convert_to_llvm(host_main, gpu_arch_str.str()).succeeded());
 
-#ifdef DEBUG_MLIR_MODULE
-  // Print the MLIR output after lowering to the MLIR LLVM dialect.
-  host_main.dump();
-#endif
-
   auto lowering_end = std::chrono::high_resolution_clock::now();
   auto lowering_elapsed_time =
     std::chrono::duration_cast<std::chrono::milliseconds>(lowering_end - lowering_start);
   llvm::errs() << "Module lowering time (includes serialization): " << lowering_elapsed_time.count()
                << "ms\n";
+
+#ifdef DEBUG_MLIR_MODULE
+  // Print the MLIR output after lowering to the MLIR LLVM dialect.
+  host_main.dump();
+#endif
 
   // Execute the generated module.
   EXPECT_TRUE(execute(host_main).succeeded());

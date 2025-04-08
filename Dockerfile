@@ -44,7 +44,7 @@ RUN git clone https://github.com/rapidsai/cudf.git /cudf \
 RUN git clone https://github.com/llvm/llvm-project.git \
     && mkdir llvm-project/build \
     && pushd llvm-project/build \
-    && git checkout -b llvmorg-18.1.8 \
+    && git checkout -b llvmorg-20.1.2 \
     && source activate gqe \
     && cmake -G Ninja ../llvm \
     -DCMAKE_BUILD_TYPE=Release \

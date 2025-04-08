@@ -4,6 +4,7 @@ channels:
   - conda-forge
   - nvidia
 dependencies:
+  - libxml2<2.14
   - libnuma
   - numactl
   - rust

@@ -29,15 +29,26 @@
 #include <memory>
 #include <vector>
 
-TEST(ConcatenateTaskTest, MixTypes)
+class ConcatenateTaskTest : public ::testing::Test {
+ protected:
+  ConcatenateTaskTest()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
+
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
+};
+
+TEST_F(ConcatenateTaskTest, MixTypes)
 {
   // This unit test creates two input tables. Each of them has 3 columns with types int64, int32 and
   // string. All columns have hand-coded values. Then, a concatenate task with these input tables is
   // created and executed. The correctness is verified by comparing against the hand-coded reference
   // result.
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
   constexpr int32_t stage_id = 0;
 
   cudf::test::fixed_width_column_wrapper<int64_t> table_0_col_0({1, 2});

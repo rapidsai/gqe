@@ -36,10 +36,23 @@
 auto const temp_env = static_cast<cudf::test::TempDirTestEnvironment*>(
   ::testing::AddGlobalTestEnvironment(new cudf::test::TempDirTestEnvironment));
 
-TEST(FixedDataReadTaskTest, MixTypes)
+class ReadTest : public ::testing::Test {
+ protected:
+  ReadTest()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
+
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
+};
+
+TEST_F(ReadTest, FixedDataReadTaskTest)
 {
   // Construct a test table with fixed data
-
   cudf::test::fixed_width_column_wrapper<int64_t> col_0({1, 2, 3, 4, 5, 6});
   cudf::test::fixed_width_column_wrapper<int32_t> col_1({6, 5, 4, 3, 2, 1});
   cudf::test::strings_column_wrapper col_2({"apple", "orange", "duck", "big", "random", "c++"});
@@ -75,10 +88,6 @@ TEST(FixedDataReadTaskTest, MixTypes)
                                                cudf::data_type(cudf::type_id::INT32),
                                                cudf::data_type(cudf::type_id::STRING)};
 
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-
   auto read_task = std::make_unique<gqe::storage::parquet_read_task>(
     ctx_ref, 0, 0, filepaths, column_names, column_types);
   read_task->execute();
@@ -91,7 +100,7 @@ TEST(FixedDataReadTaskTest, MixTypes)
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(result.value(), test_table->view());
 }
 
-TEST(FixedDataReadTaskTestMultiTask, MixTypes)
+TEST_F(ReadTest, FixedDataReadTaskTestMultiTask)
 {
   // Construct a test table with fixed data
 
@@ -164,10 +173,6 @@ TEST(FixedDataReadTaskTestMultiTask, MixTypes)
                                                cudf::data_type(cudf::type_id::INT32),
                                                cudf::data_type(cudf::type_id::STRING)};
 
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-
   auto read_task = std::make_unique<gqe::storage::parquet_read_task>(
     ctx_ref, 0, 0, filepaths, column_names, column_types);
   read_task->execute();
@@ -179,7 +184,7 @@ TEST(FixedDataReadTaskTestMultiTask, MixTypes)
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(result.value(), test_table_combined->view());
 }
 
-TEST(FixedDataReadTaskTestPartialFilter, MixTypes)
+TEST_F(ReadTest, FixedDataReadTaskTestPartialFilter)
 {
   std::size_t num_partitions = 5;
   std::vector<int64_t> partition_vals{1, 3, 4, 5, 6};
@@ -257,10 +262,6 @@ TEST(FixedDataReadTaskTestPartialFilter, MixTypes)
     cudf::io::sink_info(haystack_filepath), haystack_table->view());
   haystack_options.metadata(haystack_metadata);
   cudf::io::write_parquet(haystack_options);
-
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
   // Load the haystack table from disk
   std::vector<cudf::data_type> haystack_column_types = {cudf::data_type(cudf::type_id::INT32)};

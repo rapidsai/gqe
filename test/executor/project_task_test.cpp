@@ -31,7 +31,21 @@
 
 using int64_column_wrapper = cudf::test::fixed_width_column_wrapper<int64_t>;
 
-TEST(ProjectTaskTest, ReorderColumns)
+class ProjectTest : public ::testing::Test {
+ protected:
+  ProjectTest()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
+
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
+};
+
+TEST_F(ProjectTest, ReorderColumns)
 {
   constexpr int32_t stage_id        = 0;
   constexpr int32_t input_task_id   = 0;
@@ -49,10 +63,6 @@ TEST(ProjectTaskTest, ReorderColumns)
   cudf::table_view input_table({input_table_columns[0]->view(),
                                 input_table_columns[1]->view(),
                                 input_table_columns[2]->view()});
-
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
   auto input_task = std::make_shared<gqe::test::executed_task>(
     ctx_ref, input_task_id, stage_id, std::make_unique<cudf::table>(input_table));

@@ -41,8 +41,21 @@
 // Global environment for temporary files
 auto const temp_env = static_cast<cudf::test::TempDirTestEnvironment*>(
   ::testing::AddGlobalTestEnvironment(new cudf::test::TempDirTestEnvironment));
+class ParquetWrite : public ::testing::Test {
+ protected:
+  ParquetWrite()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
 
-TEST(ParquetWrite, CopyTable)
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
+};
+
+TEST_F(ParquetWrite, CopyTable)
 {
   // Write a test Parquet file to disk
   auto rand_gen = std::default_random_engine();
@@ -101,10 +114,6 @@ TEST(ParquetWrite, CopyTable)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(write_relation.get());
 
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-
   // Generate the task graph and execute on a single GPU
   gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
@@ -125,7 +134,7 @@ TEST(ParquetWrite, CopyTable)
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_table->view(), result_table.tbl->view());
 }
 
-TEST(ParquetWrite, CopyTableParallelRead)
+TEST_F(ParquetWrite, CopyTableParallelRead)
 {
   // Write a test Parquet file to disk
   auto rand_gen = std::default_random_engine();
@@ -201,10 +210,6 @@ TEST(ParquetWrite, CopyTableParallelRead)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(write_relation.get());
 
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-
   // Generate the task graph and execute on a single GPU
   gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
@@ -228,7 +233,7 @@ TEST(ParquetWrite, CopyTableParallelRead)
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_table->view(), result_table.tbl->view());
 }
 
-TEST(ParquetWrite, CopyTableParallel)
+TEST_F(ParquetWrite, CopyTableParallel)
 {
   // Write a test Parquet file to disk
   auto rand_gen = std::default_random_engine();
@@ -305,10 +310,6 @@ TEST(ParquetWrite, CopyTableParallel)
 
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(write_relation.get());
-
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
   // Generate the task graph and execute on a single GPU
   gqe::task_graph_builder graph_builder(ctx_ref, &catalog);

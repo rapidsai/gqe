@@ -33,6 +33,13 @@ using bool_column_wrapper  = cudf::test::fixed_width_column_wrapper<bool>;
 
 class FilterTest : public ::testing::Test {
  protected:
+  FilterTest()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
+
   void construct_input_task(int32_t const stage_id, gqe::context_reference& ctx_ref)
   {
     constexpr int32_t input_task_id = 0;
@@ -56,10 +63,6 @@ class FilterTest : public ::testing::Test {
     constexpr int32_t stage_id       = 0;
     constexpr int32_t filter_task_id = 1;
 
-    gqe::task_manager_context task_manager_ctx{};
-    gqe::query_context query_ctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-
     construct_input_task(stage_id, ctx_ref);
 
     std::unique_ptr<gqe::expression> condition{
@@ -73,6 +76,9 @@ class FilterTest : public ::testing::Test {
                                                      projection_indices);
   }
 
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
   std::shared_ptr<gqe::test::executed_task> input_task;
   std::unique_ptr<gqe::filter_task> filter_task;
 };

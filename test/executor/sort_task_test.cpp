@@ -34,15 +34,17 @@ using int64_column_wrapper = cudf::test::fixed_width_column_wrapper<int64_t>;
 
 class SingleKeyColumnSortTest : public ::testing::Test {
  protected:
+  SingleKeyColumnSortTest()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
   void construct_sort_task(cudf::order column_order, cudf::null_order null_precedence)
   {
     constexpr int32_t stage_id      = 0;
     constexpr int32_t input_task_id = 0;
     constexpr int32_t sort_task_id  = 1;
-
-    gqe::task_manager_context task_manager_ctx{};
-    gqe::query_context query_ctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     int64_column_wrapper input_col_0({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
     int64_column_wrapper input_col_1({5, 3, 4, 8, 1, 9, 6, 7, 2, 0},
@@ -67,6 +69,9 @@ class SingleKeyColumnSortTest : public ::testing::Test {
                                                  std::vector<cudf::null_order>({null_precedence}));
   }
 
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::sort_task> sort_task;
 };
 

@@ -32,6 +32,13 @@
 
 class HandCodedValuesAggregationTest : public ::testing::Test {
  protected:
+  HandCodedValuesAggregationTest()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
+
   void construct_aggregate_task(
     std::vector<std::unique_ptr<gqe::expression>> keys,
     std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<gqe::expression>>> values)
@@ -52,10 +59,6 @@ class HandCodedValuesAggregationTest : public ::testing::Test {
     input_columns.push_back(input_col_1.release());
     input_columns.push_back(input_col_2.release());
 
-    gqe::task_manager_context task_manager_ctx{};
-    gqe::query_context query_ctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-
     auto input_task = std::make_shared<gqe::test::executed_task>(
       ctx_ref, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
 
@@ -67,6 +70,9 @@ class HandCodedValuesAggregationTest : public ::testing::Test {
                                                            std::move(values));
   }
 
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::aggregate_task> aggregate_task;
 };
 

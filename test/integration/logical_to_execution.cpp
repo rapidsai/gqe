@@ -45,7 +45,21 @@
 auto const temp_env = static_cast<cudf::test::TempDirTestEnvironment*>(
   ::testing::AddGlobalTestEnvironment(new cudf::test::TempDirTestEnvironment));
 
-TEST(LogicalToExecution, HardcodePlanAndData)
+class LogicalToExecution : public ::testing::Test {
+ protected:
+  LogicalToExecution()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
+
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
+};
+
+TEST_F(LogicalToExecution, HardcodePlanAndData)
 {
   // Write two test Parquet files to the disk
   cudf::test::strings_column_wrapper table_0_col_0({"apple", "orange", "duck", "orange"});
@@ -128,10 +142,6 @@ TEST(LogicalToExecution, HardcodePlanAndData)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(join_relation.get());
 
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-
   // Generate the task graph and execute on a single GPU
   gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
@@ -159,7 +169,7 @@ TEST(LogicalToExecution, HardcodePlanAndData)
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(execute_result_sorted->view(), ref_table->view());
 }
 
-TEST(LogicalToExecution, ApplyConcatApply)
+TEST_F(LogicalToExecution, ApplyConcatApply)
 {
   auto generate_parquet_file = [](std::string file_name, std::vector<double> values) {
     cudf::test::fixed_width_column_wrapper<double> partition_values(values.begin(), values.end());
@@ -220,10 +230,6 @@ TEST(LogicalToExecution, ApplyConcatApply)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(aggregate_relation.get());
 
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-
   gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
@@ -240,7 +246,7 @@ TEST(LogicalToExecution, ApplyConcatApply)
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*execute_result, ref_table->view());
 }
 
-TEST(LogicalToExecution, Window)
+TEST_F(LogicalToExecution, Window)
 {
   auto generate_parquet_file = [](std::string file_name) {
     std::vector<int> arg_col{1, 2, 3};
@@ -317,10 +323,6 @@ TEST(LogicalToExecution, Window)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(window_relation.get());
 
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-
   gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());
 
@@ -347,7 +349,7 @@ TEST(LogicalToExecution, Window)
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(execute_result_sorted->view(), ref_table->view());
 }
 
-TEST(LogicalToExecution, WindowWithOrderBy)
+TEST_F(LogicalToExecution, WindowWithOrderBy)
 {
   auto generate_parquet_file = [](std::string file_name) {
     std::vector<int> arg_col{1, 2, 3, 4, 5, 6};
@@ -424,10 +426,6 @@ TEST(LogicalToExecution, WindowWithOrderBy)
 
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(window_relation.get());
-
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
   gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());

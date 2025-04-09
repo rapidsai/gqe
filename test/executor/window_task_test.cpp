@@ -36,15 +36,18 @@ using bool_column_wrapper  = cudf::test::fixed_width_column_wrapper<bool>;
 
 class WindowOrderByPartitionBy : public ::testing::Test {
  protected:
+  WindowOrderByPartitionBy()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
+
   void construct_window_task()
   {
     constexpr int32_t stage_id       = 0;
     constexpr int32_t input_task_id  = 0;
     constexpr int32_t filter_task_id = 1;
-
-    gqe::task_manager_context task_manager_ctx{};
-    gqe::query_context query_ctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     int64_column_wrapper input_col_0({1, 1, 2, 1, 2, 2, 1});
     int64_column_wrapper input_col_1({1, 2, 4, 3, 5, 6, 2});
@@ -100,20 +103,26 @@ class WindowOrderByPartitionBy : public ::testing::Test {
                                                      window_upper_bound);
   }
 
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::window_task> window_task;
 };
 
 class WindowOrderBy : public ::testing::Test {
  protected:
+  WindowOrderBy()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
+
   void construct_window_task()
   {
     constexpr int32_t stage_id       = 0;
     constexpr int32_t input_task_id  = 0;
     constexpr int32_t filter_task_id = 1;
-
-    gqe::task_manager_context task_manager_ctx{};
-    gqe::query_context query_ctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     int64_column_wrapper input_col_0({1, 2, 3, 4, 5, 6, 2});
     int32_column_wrapper input_col_1({6, 5, 4, 3, 2, 1, 7});
@@ -164,20 +173,26 @@ class WindowOrderBy : public ::testing::Test {
                                                      window_upper_bound);
   }
 
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::window_task> window_task;
 };
 
 class WindowOrderByPartitionByRank : public ::testing::Test {
  protected:
+  WindowOrderByPartitionByRank()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
+
   void construct_window_task()
   {
     constexpr int32_t stage_id       = 0;
     constexpr int32_t input_task_id  = 0;
     constexpr int32_t filter_task_id = 1;
-
-    gqe::task_manager_context task_manager_ctx{};
-    gqe::query_context query_ctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     int64_column_wrapper input_col_0({1, 1, 2, 3, 2, 2, 1, 1});
     int32_column_wrapper input_col_1({5, 5, 4, 3, 2, 1, 0, 6});
@@ -228,20 +243,26 @@ class WindowOrderByPartitionByRank : public ::testing::Test {
                                                      window_upper_bound);
   }
 
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::window_task> window_task;
 };
 
 class WindowOrderByRank : public ::testing::Test {
  protected:
+  WindowOrderByRank()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
+
   void construct_window_task()
   {
     constexpr int32_t stage_id       = 0;
     constexpr int32_t input_task_id  = 0;
     constexpr int32_t filter_task_id = 1;
-
-    gqe::task_manager_context task_manager_ctx{};
-    gqe::query_context query_ctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     int32_column_wrapper input_col_0({5, 5, 4, 3, 2, 1, 0, 6});
     int64_column_wrapper input_col_1({0, 1, 2, 3, 4, 5, 6, 7});
@@ -287,6 +308,9 @@ class WindowOrderByRank : public ::testing::Test {
                                                      window_upper_bound);
   }
 
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::window_task> window_task;
 };
 

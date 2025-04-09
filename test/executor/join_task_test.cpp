@@ -45,6 +45,12 @@ enum class cache_strategy { recompute, use_cache };
  */
 class SingleKeyColumnJoinTest : public ::testing::Test {
  protected:
+  SingleKeyColumnJoinTest()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
   void construct_join_task(gqe::join_type_type join_type,
                            std::vector<cudf::size_type> projection_indices,
                            cache_strategy strategy)
@@ -53,10 +59,6 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
     int64_column_wrapper left_payload({0, 1, 2, 3, 4, 5});
     int64_column_wrapper right_key({3, 1, 5, 1, 2});
     int64_column_wrapper right_payload({0, 1, 2, 3, 4});
-
-    gqe::task_manager_context task_manager_ctx{};
-    gqe::query_context query_ctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     std::vector<std::unique_ptr<cudf::column>> left_table_columns;
     left_table_columns.push_back(left_key.release());
@@ -204,7 +206,9 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
     CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
   }
-
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::join_task> join_task;
 };
 
@@ -290,6 +294,12 @@ TEST_F(SingleKeyColumnJoinTest, FullJoinCache)
 
 class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {
  protected:
+  SingleKeyColumnNullsEqualJoinTest()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
   void construct_join_task(gqe::join_type_type join_type,
                            std::vector<cudf::size_type> projection_indices,
                            bool nulls_equal)
@@ -313,10 +323,6 @@ class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {
     constexpr int32_t right_task_id = 1;
     constexpr int32_t join_task_id  = 2;
     constexpr int32_t stage_id      = 0;
-
-    gqe::task_manager_context task_manager_ctx{};
-    gqe::query_context query_ctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
     auto left_task = std::make_shared<gqe::test::executed_task>(
       ctx_ref, left_task_id, stage_id, std::move(left_table));
@@ -343,6 +349,9 @@ class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {
                                                  std::move(projection_indices));
   }
 
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::join_task> join_task;
 };
 
@@ -447,6 +456,12 @@ TEST(JoinHashMapCache, DISABLED_Multithread)
 
 class NonEqualityJoinConditionTest : public ::testing::Test {
  protected:
+  NonEqualityJoinConditionTest()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
   void construct_join_task(gqe::join_type_type join_type,
                            std::vector<cudf::size_type> projection_indices,
                            std::unique_ptr<gqe::expression> join_condition)
@@ -471,10 +486,6 @@ class NonEqualityJoinConditionTest : public ::testing::Test {
     constexpr int32_t join_task_id  = 2;
     constexpr int32_t stage_id      = 0;
 
-    gqe::task_manager_context task_manager_ctx{};
-    gqe::query_context query_ctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-
     auto left_task = std::make_shared<gqe::test::executed_task>(
       ctx_ref, left_task_id, stage_id, std::move(left_table));
     auto right_task = std::make_shared<gqe::test::executed_task>(
@@ -490,6 +501,9 @@ class NonEqualityJoinConditionTest : public ::testing::Test {
                                                  std::move(projection_indices));
   }
 
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::join_task> join_task;
 };
 
@@ -833,12 +847,14 @@ TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsFullJoin)
 
 class MaterializeJoinFromPositionListsTest : public ::testing::Test {
  protected:
+  MaterializeJoinFromPositionListsTest()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
   void construct_materialize_task(gqe::join_type_type join_type)
   {
-    gqe::task_manager_context task_manager_ctx{};
-    gqe::query_context query_ctx(gqe::optimization_parameters(true));
-    gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-
     constexpr int32_t stage_id = 0;
 
     cudf::test::fixed_width_column_wrapper<int64_t> left_table_col({10, 11, 12, 13, 14, 15});
@@ -885,6 +901,9 @@ class MaterializeJoinFromPositionListsTest : public ::testing::Test {
                                                                        projection_indices);
   }
 
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::materialize_join_from_position_lists_task> materialize_task;
 };
 

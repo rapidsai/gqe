@@ -121,10 +121,14 @@ class task_graph_builder {
   void insert_pipeline_breaker(std::vector<task*> root_tasks)
   {
     std::vector<task*> current_stage_tasks;
+    int32_t pipeline_id = 0;
     for (auto const& task : root_tasks) {
       // Checking the stage is necessary because a task from `root_tasks` can belong to a previous
       // stage.
-      if (task->stage_id() == _current_stage_id) current_stage_tasks.push_back(task);
+      if (task->stage_id() == _current_stage_id) {
+        current_stage_tasks.push_back(task);
+        task->assign_pipeline(pipeline_id++);  // assign pipeline id starting at this task as root
+      }
     }
 
     _stage_root_tasks.push_back(std::move(current_stage_tasks));

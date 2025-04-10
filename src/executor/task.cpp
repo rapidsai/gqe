@@ -16,6 +16,7 @@
 
 #include <cudf/table/table_view.hpp>
 
+#include <stack>
 #include <stdexcept>
 #include <variant>
 
@@ -105,6 +106,23 @@ void task::prepare_dependencies()
 {
   prepare_dependent_tasks(_dependencies);
   prepare_dependent_tasks(_subqueries);
+}
+
+void task::assign_pipeline(int32_t pipeline_id) noexcept
+{
+  std::stack<task*> tasks;
+  tasks.push(this);
+  while (!tasks.empty()) {
+    auto current_task = tasks.top();
+    tasks.pop();
+    current_task->_pipeline_ids.insert(pipeline_id);
+    for (auto dependency : current_task->dependencies()) {
+      if (dependency->stage_id() == this->stage_id()) { tasks.push(dependency); }
+    }
+    for (auto subquery : current_task->subqueries()) {
+      if (subquery->stage_id() == this->stage_id()) { tasks.push(subquery); }
+    }
+  }
 }
 
 }  // namespace gqe

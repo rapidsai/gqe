@@ -112,8 +112,14 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
     if (num_workers == 1) {
       // If the number of worker threads is 1, we could avoid the thread spawning cost by using the
       // main thread.
-      for (auto& task : tasks_current_stage)
+      for (auto& task : tasks_current_stage) {
+        // root task of a pipeline in a stage cannot belong to more than one pipeline
+        assert(task->pipeline_ids().size() == 1);
+        auto const root_task_pipeline_id = *(task->pipeline_ids().cbegin());
+        GQE_LOG_TRACE(
+          "Executing pipeline {} from stage {}.", root_task_pipeline_id, task->stage_id());
         task->execute();
+      }
       cudf::get_default_stream().synchronize();
     } else {
       std::vector<std::thread> workers;
@@ -127,6 +133,14 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
           try {
             for (std::size_t task_idx = worker_idx; task_idx < num_tasks_current_stage;
                  task_idx += num_workers) {
+              assert(tasks_current_stage[task_idx]->pipeline_ids().size() == 1);
+
+              // root task of a pipeline in a stage cannot belong to more than one pipeline
+              auto const root_task_pipeline_id =
+                *(tasks_current_stage[task_idx]->pipeline_ids().cbegin());
+              GQE_LOG_TRACE("Executing pipeline {} from stage {}.",
+                            root_task_pipeline_id,
+                            tasks_current_stage[task_idx]->stage_id());
               tasks_current_stage[task_idx]->execute();
             }
             cudf::get_default_stream().synchronize();

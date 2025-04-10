@@ -209,3 +209,9 @@ target_include_directories(uniqueness_prop_test PUBLIC ${CMAKE_CURRENT_SOURCE_DI
 target_link_libraries(uniqueness_prop_test PUBLIC gqe)
 target_link_libraries(uniqueness_prop_test PUBLIC GTest::gtest_main GTest::gmock)
 add_test(NAME uniqueness_prop_test COMMAND uniqueness_prop_test)
+
+add_executable(task_graph_test task_graph/task_graph_generation_test.cpp)
+target_include_directories(task_graph_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(task_graph_test PUBLIC gqe)
+target_link_libraries(task_graph_test PUBLIC GTest::gtest_main GTest::gmock)
+add_test(NAME task_graph_test COMMAND task_graph_test)

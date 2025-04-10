@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -103,6 +104,18 @@ class task {
    * @brief Return the stage ID of this task.
    */
   [[nodiscard]] int32_t stage_id() const noexcept { return _stage_id; }
+
+  /**
+   * @brief Returns the set of pipelines where this task should be executed. Pipeline ids are unique
+   * within a stage.
+   */
+  [[nodiscard]] std::unordered_set<int32_t> pipeline_ids() const noexcept { return _pipeline_ids; }
+
+  /**
+   * @brief Traverses dependencies and subqueries starting at the current task and assigns supplied
+   * pipeline_id. Tasks can belong in more than one pipeline.
+   */
+  void assign_pipeline(int32_t pipeline_id) noexcept;
 
  protected:
   /**
@@ -187,6 +200,7 @@ class task {
   context_reference _ctx_ref;
   int32_t _task_id;
   int32_t _stage_id;
+  std::unordered_set<int32_t> _pipeline_ids;
   std::vector<std::shared_ptr<task>> _dependencies;
   std::vector<std::shared_ptr<task>> _subqueries;
   result_kind::type _result;

@@ -72,6 +72,8 @@ struct optimization_parameters {
   bool io_pipelining       = true;  ///< Enable I/O pipelining for the customized Parquet reader.
   std::size_t io_alignment = 4096;  ///< Alignment in bytes for the I/O buffer used by the
                                     ///< customized Parquet reader for io_uring.
+  bool use_overlap_mtx =
+    true;  ///< Enable better overlap and pipelining by using locks in memory read task
 };
 
 }  // namespace gqe

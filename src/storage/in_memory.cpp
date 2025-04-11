@@ -19,6 +19,7 @@
 #include <gqe/storage/writeable_view.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/cuda.hpp>
+#include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
 
@@ -332,17 +333,17 @@ void in_memory_read_task::execute_read_by_value()
   auto mr     = rmm::mr::get_current_device_resource();
   auto stream = cudf::get_default_stream();
 
+  std::unique_ptr<cudf::table> result_table;
   std::vector<std::unique_ptr<cudf::column>> result_columns;
   result_columns.reserve(_column_indexes.size());
+  bool use_overlap_mtx = get_query_context()->parameters.use_overlap_mtx;
 
-  // For each table column, concatenate the row groups into a single cudf::column
-  for (auto const& idx : _column_indexes) {
+  auto collect_src_views = [this](cudf::size_type idx, rmm::cuda_stream_view decompress_stream) {
     std::vector<cudf::column_view> src_views;
     src_views.reserve(_row_groups.size());
     std::vector<std::unique_ptr<cudf::column>>
-      src_columns;  // Needed for keeping the decompressed column alive
-
-    for (auto const& row_group : _row_groups) {
+      decompressed_columns;  // Needed for keeping the decompressed column alive
+    for (auto const& row_group : this->_row_groups) {
       auto& current_column = row_group->get_column(idx);
 
       switch (current_column.type()) {
@@ -352,28 +353,82 @@ void in_memory_read_task::execute_read_by_value()
           break;
         }
         case in_memory_column_type::COMPRESSED: {
-          auto src_column = dynamic_cast<compressed_column&>(current_column).decompress(stream);
-          src_views.push_back(src_column->view());
-          src_columns.push_back(std::move(src_column));
+          auto decompressed_column =
+            dynamic_cast<compressed_column&>(current_column).decompress(decompress_stream);
+          src_views.push_back(decompressed_column->view());
+          decompressed_columns.push_back(std::move(decompressed_column));
           break;
         }
       }
     }
+    return std::make_tuple(src_views, std::move(decompressed_columns));
+  };
 
-    auto result_column = cudf::concatenate(src_views, stream, mr);
+  if (use_overlap_mtx) {
+    GQE_LOG_TRACE("Using overlap mutex for in_memory_read_task");
+    auto& shared_ce_stream = get_context_reference()._task_manager_context->copy_engine_stream;
+    cudaEvent_t ce_evt;
+    GQE_CUDA_TRY(cudaEventCreateWithFlags(&ce_evt, cudaEventDisableTiming));
+    {
+      const std::lock_guard lock{shared_ce_stream.mtx};
+      // For each table column, concatenate the row groups into a single cudf::column
+      for (auto const& idx : _column_indexes) {
+        auto [src_views, decompressed_columns] = collect_src_views(idx, shared_ce_stream.stream);
+        std::unique_ptr<cudf::column> result_column;
 
-    result_columns.emplace_back(std::move(result_column));
+        /**
+         * If column chunks are compressed we need to wait on memcopy +
+         * decompression before we concatenate.
+         */
+        if (!decompressed_columns.empty()) {
+          GQE_CUDA_TRY(cudaEventRecord(ce_evt, shared_ce_stream.stream.value()));
+          GQE_CUDA_TRY(cudaStreamWaitEvent(stream.value(), ce_evt));
+        }
+
+        /**
+         * If the column is not compressed we do a CE copy in concatenate, we want this copy
+         * to be done on the shared CE stream to allow for pipelining.
+         *
+         * Otherwise, it is better to do this on the thread specific stream to avoid false
+         * dependence. Note: The shared CE stream guarantees serial execution, if more than one
+         * row group is compressed then the ce_evt will have overwrites. This is intended as we
+         * only need to wait on the "last" scheduled copy on the shared CE stream.
+         */
+        if (decompressed_columns.empty()) {
+          result_column = cudf::concatenate(src_views, shared_ce_stream.stream, mr);
+          GQE_CUDA_TRY(cudaEventRecord(ce_evt, shared_ce_stream.stream.value()));
+        } else {
+          result_column = cudf::concatenate(src_views, stream, mr);
+        }
+
+        result_columns.emplace_back(std::move(result_column));
+      }
+    }
+
+    /**
+     * If all columns in all row groups are compressed this event will have no "extra" recorded
+     * work and is a no-op.
+     */
+    GQE_CUDA_TRY(cudaStreamWaitEvent(stream.value(), ce_evt));
+    GQE_CUDA_TRY(cudaEventDestroy(ce_evt));
+  } else {
+    // For each table column, concatenate the row groups into a single cudf::column
+    for (auto const& idx : _column_indexes) {
+      auto [src_views, decompressed_columns] = collect_src_views(idx, stream);
+
+      std::unique_ptr<cudf::column> result_column = cudf::concatenate(src_views, stream, mr);
+      result_columns.emplace_back(std::move(result_column));
+    }
   }
-
   // Emit the result
-  auto new_table = std::make_unique<cudf::table>(std::move(result_columns));
-
+  result_table = std::make_unique<cudf::table>(std::move(result_columns));
   GQE_LOG_TRACE(
-    "Execute in-memory read task: task_id={}, stage_id={}, strategy=by_value, output_size={}.",
+    "Execute in-memory read task: task_id={}, stage_id={}, strategy=by_value, "
+    "output_size={}.",
     task_id(),
     stage_id(),
-    new_table->num_rows());
-  emit_result(std::move(new_table));
+    result_table->num_rows());
+  emit_result(std::move(result_table));
 }
 
 void in_memory_read_task::execute_read_by_reference()
@@ -395,7 +450,8 @@ void in_memory_read_task::execute_read_by_reference()
   auto result = cudf::table_view(std::move(result_columns));
 
   GQE_LOG_TRACE(
-    "Execute in-memory read task: task_id={}, stage_id={}, strategy=by_reference, output_size={}.",
+    "Execute in-memory read task: task_id={}, stage_id={}, strategy=by_reference, "
+    "output_size={}.",
     task_id(),
     stage_id(),
     result.num_rows());

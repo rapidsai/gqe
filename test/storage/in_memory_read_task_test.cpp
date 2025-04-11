@@ -34,13 +34,18 @@
 #include <memory>
 
 struct test_parameters {
-  test_parameters(bool read_zero_copy_enable, gqe::compression_format comp_format)
-    : read_zero_copy_enable(read_zero_copy_enable), comp_format(comp_format)
+  test_parameters(bool read_zero_copy_enable,
+                  gqe::compression_format comp_format,
+                  bool use_overlap_mtx = false)
+    : read_zero_copy_enable(read_zero_copy_enable),
+      comp_format(comp_format),
+      use_overlap_mtx(use_overlap_mtx)
   {
   }
 
   bool read_zero_copy_enable;
   gqe::compression_format comp_format;
+  bool use_overlap_mtx;
 };
 
 class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
@@ -53,6 +58,7 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
     gqe::optimization_parameters opms(true);
     opms.read_zero_copy_enable              = params.read_zero_copy_enable;
     opms.in_memory_table_compression_format = params.comp_format;
+    opms.use_overlap_mtx                    = params.use_overlap_mtx;
 
     query_ctx        = std::make_unique<gqe::query_context>(opms);
     task_manager_ctx = std::make_unique<gqe::task_manager_context>();
@@ -231,4 +237,6 @@ INSTANTIATE_TEST_SUITE_P(
                   test_parameters{false, gqe::compression_format::zstd},
                   test_parameters{false, gqe::compression_format::bitcomp},
                   test_parameters{false, gqe::compression_format::best_compression_ratio},
-                  test_parameters{false, gqe::compression_format::best_decompression_speed}));
+                  test_parameters{false, gqe::compression_format::best_decompression_speed},
+                  test_parameters{false, gqe::compression_format::ans, true},
+                  test_parameters{false, gqe::compression_format::none, true}));

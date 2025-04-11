@@ -65,6 +65,7 @@ gqe::optimization_parameters to_gqe(cxx_gqe::optimization_parameters const& p)
   n.io_engine                          = p.io_engine;
   n.io_pipelining                      = p.io_pipelining;
   n.io_alignment                       = p.io_alignment;
+  n.use_overlap_mtx                    = p.use_overlap_mtx;
 
   return n;
 }

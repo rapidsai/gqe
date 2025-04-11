@@ -238,6 +238,8 @@ optimization_parameters::optimization_parameters(bool only_defaults)
     io_pipelining = parse_env_variable("GQE_IO_PIPELINING_ENABLE", io_pipelining);
 
     io_alignment = parse_env_variable("GQE_IO_ALIGNMENT", io_alignment);
+
+    use_overlap_mtx = parse_env_variable("GQE_USE_OVERLAP_MTX", use_overlap_mtx);
   }
 }
 

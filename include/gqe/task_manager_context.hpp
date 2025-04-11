@@ -16,9 +16,24 @@
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <memory>
+#include <mutex>
 #include <rmm/cuda_device.hpp>
+#include <rmm/cuda_stream.hpp>
+#include <rmm/cuda_stream_view.hpp>
+#include <sstream>
+#include <stdexcept>
+#include <vector>
 
 namespace gqe {
+
+/**
+ * @brief Implements an wrapper around rmm::cuda_stream to allow for cooperative stream sharing
+ * among multiple threads.
+ */
+struct shared_stream {
+  std::mutex mtx;
+  rmm::cuda_stream stream;
+};
 
 /**
  * @brief Task manager context for query execution
@@ -36,5 +51,7 @@ struct task_manager_context {
   task_manager_context& operator=(task_manager_context&&) = default;
 
   device_properties _device_properties;
+  shared_stream copy_engine_stream;
 };
+
 }  // namespace gqe

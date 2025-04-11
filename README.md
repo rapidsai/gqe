@@ -103,5 +103,6 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | GQE_IO_ENGINE | IO_URING | The I/O engine used by the customized Parquet reader. Supported values are `IO_URING`, `PSYNC` and `AUTO`. |
 | GQE_IO_PIPELINING_ENABLE | true | Enable pipelining disk read and H2D when using customized Parquet reader. |
 | GQE_IO_ALIGNMENT | 4096 | The alignment of the memory buffer used by the customized Parquet reader. |
+| GQE_USE_OVERLAP_MTX | true | Improve overlap and pipelining by using locks in memory read task. Keeping this option enabled when running with compressed columns is not optimal. |
 
 Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-24.12/CONTRIBUTING.md#build-cudf-from-source).

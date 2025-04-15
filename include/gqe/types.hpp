@@ -36,6 +36,16 @@ enum class io_engine_type { automatic, io_uring, psync };
 enum class join_type_type { inner, left, left_semi, left_anti, full, single };
 
 /**
+ * @brief Enum to specify policy for enabling the unique keys optimization for inner hash join.
+ */
+enum class unique_keys_policy : int {
+  none,   ///< Disable the unique keys optimization.
+  right,  ///< Build on right side, and assume keys are unique.
+  left,   ///< Build on left side, and assume keys are unique.
+  either  ///< Build on either left or right side, and assume keys are unique.
+};
+
+/**
  * @brief Representation of a set of CPUs.
  *
  * C++ wrapper class for the Linux `CPU_SET` type. It can also be used to represent other resource

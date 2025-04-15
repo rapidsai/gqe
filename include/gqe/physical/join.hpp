@@ -106,6 +106,7 @@ class broadcast_join_relation : public join_relation_base {
    * @param[in] projection_indices Column indices to materialize after the join. The rest of columns
    * are discarded.
    * @param[in] policy Whether to broadcast the right relation or the left relation.
+   * @param[in] unique_keys_pol Whether to enable the unique keys optimization.
    */
   broadcast_join_relation(std::shared_ptr<relation> left,
                           std::shared_ptr<relation> right,
@@ -113,14 +114,16 @@ class broadcast_join_relation : public join_relation_base {
                           join_type_type join_type,
                           std::unique_ptr<expression> condition,
                           std::vector<cudf::size_type> projection_indices,
-                          broadcast_policy policy)
+                          broadcast_policy policy,
+                          gqe::unique_keys_policy unique_keys_pol = gqe::unique_keys_policy::none)
     : join_relation_base(std::move(left),
                          std::move(right),
                          std::move(subquery_relations),
                          join_type,
                          std::move(condition),
                          std::move(projection_indices)),
-      _policy(policy)
+      _policy(policy),
+      _unique_keys_policy(unique_keys_pol)
   {
   }
 
@@ -131,12 +134,22 @@ class broadcast_join_relation : public join_relation_base {
   [[nodiscard]] broadcast_policy policy() const noexcept { return _policy; }
 
   /**
+   * @brief Return a unique_keys_policy indicating whether the unique keys optimization can
+   * be enabled with building on the right or left.
+   */
+  [[nodiscard]] gqe::unique_keys_policy unique_keys_policy() const noexcept
+  {
+    return _unique_keys_policy;
+  }
+
+  /**
    * @copydoc gqe::physical::relation::accept(relation_visitor&)
    */
   void accept(relation_visitor& visitor) override { visitor.visit(this); }
 
  private:
   broadcast_policy _policy;
+  gqe::unique_keys_policy _unique_keys_policy;
 };
 
 }  // namespace physical

@@ -10,16 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/catalog.hpp>
 #include <gqe/utility/tpcds.hpp>
+
+using col_prop = gqe::column_traits::column_property;
 
 namespace gqe::utility {
 
 namespace tpcds {
 
-std::unordered_map<std::string, std::vector<column_definition_type>> const&
-table_definitions() noexcept
+std::unordered_map<std::string, std::vector<gqe::column_traits>> const& table_definitions() noexcept
 {
-  static const std::unordered_map<std::string, std::vector<column_definition_type>> definitions = {
+  static const std::unordered_map<std::string, std::vector<gqe::column_traits>> definitions = {
     {"store_sales",
      {{"ss_sold_date_sk", identifier_type},
       {"ss_sold_time_sk", identifier_type},
@@ -195,7 +197,7 @@ table_definitions() noexcept
       {"inv_quantity_on_hand", integer_type}}},
     {"store",
      {
-       {"s_store_sk", identifier_type},
+       {"s_store_sk", identifier_type, {col_prop::unique}},
        {"s_store_id", string_type},  // char(16)
        {"s_rec_start_date", date_type},
        {"s_rec_end_date", date_type},
@@ -228,7 +230,7 @@ table_definitions() noexcept
                        // https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/merge_requests/114#note_16418623
      }},
     {"call_center",
-     {{"cc_call_center_sk", identifier_type},
+     {{"cc_call_center_sk", identifier_type, {col_prop::unique}},
       {"cc_call_center_id", string_type},  // char(16)
       {"cc_rec_start_date", date_type},
       {"cc_rec_end_date", date_type},
@@ -260,7 +262,7 @@ table_definitions() noexcept
       {"cc_gmt_offset", decimal_type},
       {"cc_tax_percentage", decimal_type}}},
     {"catalog_page",
-     {{"cp_catalog_page_sk", identifier_type},
+     {{"cp_catalog_page_sk", identifier_type, {col_prop::unique}},
       {"cp_catalog_page_id", string_type},  // char(16)
       {"cp_start_date_sk", identifier_type},
       {"cp_end_date_sk", identifier_type},
@@ -270,7 +272,7 @@ table_definitions() noexcept
       {"cp_description", string_type},  // varchar(100)
       {"cp_type", string_type}}},       // varchar(100)
     {"web_site",
-     {{"web_site_sk", identifier_type},
+     {{"web_site_sk", identifier_type, {col_prop::unique}},
       {"web_site_id", string_type},
       {"web_rec_start_date", date_type},
       {"web_rec_end_date", date_type},
@@ -297,7 +299,7 @@ table_definitions() noexcept
       {"web_gmt_offset", decimal_type},
       {"web_tax_percentage", decimal_type}}},
     {"web_page",
-     {{"wp_web_page_sk", identifier_type},
+     {{"wp_web_page_sk", identifier_type, {col_prop::unique}},
       {"wp_web_page_id", string_type},
       {"wp_rec_start_date", date_type},
       {"wp_rec_end_date", date_type},
@@ -312,7 +314,7 @@ table_definitions() noexcept
       {"wp_image_count", integer_type},
       {"wp_max_ad_count", integer_type}}},
     {"warehouse",
-     {{"w_warehouse_sk", identifier_type},
+     {{"w_warehouse_sk", identifier_type, {col_prop::unique}},
       {"w_warehouse_id", string_type},
       {"w_warehouse_name", string_type},
       {"w_warehouse_sq_ft", integer_type},
@@ -327,7 +329,7 @@ table_definitions() noexcept
       {"w_country", string_type},
       {"w_gmt_offset", decimal_type}}},
     {"customer",
-     {{"c_customer_sk", identifier_type},
+     {{"c_customer_sk", identifier_type, {col_prop::unique}},
       {"c_customer_id", string_type},
       {"c_current_cdemo_sk", identifier_type},
       {"c_current_hdemo_sk", identifier_type},
@@ -347,7 +349,7 @@ table_definitions() noexcept
       // {"c_last_review_date_sk", identifier_type},
       {"c_last_review_date_sk", string_type}}},  // FIXME
     {"customer_address",
-     {{"ca_address_sk", identifier_type},
+     {{"ca_address_sk", identifier_type, {col_prop::unique}},
       {"ca_address_id", string_type},
       {"ca_street_number", string_type},
       {"ca_street_name", string_type},
@@ -361,7 +363,7 @@ table_definitions() noexcept
       {"ca_gmt_offset", decimal_type},
       {"ca_location_type", string_type}}},
     {"customer_demographics",
-     {{"cd_demo_sk", identifier_type},
+     {{"cd_demo_sk", identifier_type, {col_prop::unique}},
       {"cd_gender", string_type},
       {"cd_marital_status", string_type},
       {"cd_education_status", string_type},
@@ -371,7 +373,7 @@ table_definitions() noexcept
       {"cd_dep_employed_count", integer_type},
       {"cd_dep_college_count", integer_type}}},
     {"date_dim",
-     {{"d_date_sk", identifier_type},
+     {{"d_date_sk", identifier_type, {col_prop::unique}},
       {"d_date_id", string_type},
       {"d_date", date_type},
       {"d_month_seq", integer_type},
@@ -400,28 +402,40 @@ table_definitions() noexcept
       {"d_current_quarter", string_type},
       {"d_current_year", string_type}}},
     {"household_demographics",
-     {{"hd_demo_sk", identifier_type},
+     {{"hd_demo_sk", identifier_type, {col_prop::unique}},
       {"hd_income_band_sk", identifier_type},
       {"hd_buy_potential", string_type},
       {"hd_dep_count", integer_type},
       {"hd_vehicle_count", integer_type}}},
-    {"item", {{"i_item_sk", identifier_type},     {"i_item_id", string_type},
-              {"i_rec_start_date", date_type},    {"i_rec_end_date", date_type},
-              {"i_item_desc", string_type},       {"i_current_price", decimal_type},
-              {"i_wholesale_cost", decimal_type}, {"i_brand_id", integer_type},
-              {"i_brand", string_type},           {"i_class_id", integer_type},
-              {"i_class", string_type},           {"i_category_id", integer_type},
-              {"i_category", string_type},        {"i_manufact_id", integer_type},
-              {"i_manufact", string_type},        {"i_size", string_type},
-              {"i_formulation", string_type},     {"i_color", string_type},
-              {"i_units", string_type},           {"i_container", string_type},
-              {"i_manager_id", integer_type},     {"i_product_name", string_type}}},
+    {"item",
+     {{"i_item_sk", identifier_type, {col_prop::unique}},
+      {"i_item_id", string_type},
+      {"i_rec_start_date", date_type},
+      {"i_rec_end_date", date_type},
+      {"i_item_desc", string_type},
+      {"i_current_price", decimal_type},
+      {"i_wholesale_cost", decimal_type},
+      {"i_brand_id", integer_type},
+      {"i_brand", string_type},
+      {"i_class_id", integer_type},
+      {"i_class", string_type},
+      {"i_category_id", integer_type},
+      {"i_category", string_type},
+      {"i_manufact_id", integer_type},
+      {"i_manufact", string_type},
+      {"i_size", string_type},
+      {"i_formulation", string_type},
+      {"i_color", string_type},
+      {"i_units", string_type},
+      {"i_container", string_type},
+      {"i_manager_id", integer_type},
+      {"i_product_name", string_type}}},
     {"income_band",
-     {{"ib_income_band_sk", identifier_type},
+     {{"ib_income_band_sk", identifier_type, {col_prop::unique}},
       {"ib_lower_bound", integer_type},
       {"ib_upper_bound", integer_type}}},
     {"promotion",
-     {{"p_promo_sk", identifier_type},
+     {{"p_promo_sk", identifier_type, {col_prop::unique}},
       {"p_promo_id", string_type},
       {"p_start_date_sk", identifier_type},
       {"p_end_date_sk", identifier_type},
@@ -441,18 +455,18 @@ table_definitions() noexcept
       {"p_purpose", string_type},
       {"p_discount_active", string_type}}},
     {"reason",
-     {{"r_reason_sk", identifier_type},
+     {{"r_reason_sk", identifier_type, {col_prop::unique}},
       {"r_reason_id", string_type},
       {"r_reason_desc", string_type}}},
     {"ship_mode",
-     {{"sm_ship_mode_sk", identifier_type},
+     {{"sm_ship_mode_sk", identifier_type, {col_prop::unique}},
       {"sm_ship_mode_id", string_type},
       {"sm_type", string_type},
       {"sm_code", string_type},
       {"sm_carrier", string_type},
       {"sm_contract", string_type}}},
     {"time_dim",
-     {{"t_time_sk", identifier_type},
+     {{"t_time_sk", identifier_type, {col_prop::unique}},
       {"t_time_id", string_type},
       {"t_time", integer_type},
       {"t_hour", integer_type},

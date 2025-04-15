@@ -12,6 +12,7 @@
 
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/join.hpp>
+#include <gqe/executor/unique_key_inner_join.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/literal.hpp>
@@ -59,13 +60,15 @@ join_task::join_task(context_reference ctx_ref,
                      std::unique_ptr<expression> condition,
                      std::vector<cudf::size_type> projection_indices,
                      std::shared_ptr<join_hash_map_cache> hash_map_cache,
-                     bool materialize_output)
+                     bool materialize_output,
+                     gqe::unique_keys_policy unique_keys_pol)
   : task(ctx_ref, task_id, stage_id, {std::move(left), std::move(right)}, {}),
     _join_type(join_type),
     _condition(std::move(condition)),
     _projection_indices(std::move(projection_indices)),
     _hash_map_cache(std::move(hash_map_cache)),
-    _materialize_output(materialize_output)
+    _materialize_output(materialize_output),
+    _unique_keys_policy(unique_keys_pol)
 {
 }
 
@@ -486,12 +489,15 @@ void join_task::execute()
 
     switch (_join_type) {
       case join_type_type::inner:
+        GQE_LOG_TRACE("Join implementation: cudf::hash_join::inner_join.");
         std::tie(probe_indices, build_indices) = hash_map->inner_join(probe_keys);
         break;
       case join_type_type::left:
+        GQE_LOG_TRACE("Join implementation: cudf::hash_join::left_join.");
         std::tie(probe_indices, build_indices) = hash_map->left_join(probe_keys);
         break;
       case join_type_type::full:
+        GQE_LOG_TRACE("Join implementation: cudf::hash_join::full_join.");
         std::tie(probe_indices, build_indices) = hash_map->full_join(probe_keys);
         break;
       default: throw std::logic_error("Unsupported join type for the cached hash map");
@@ -514,20 +520,41 @@ void join_task::execute()
       auto const compare_nulls = join_keys.compare_nulls();
       switch (_join_type) {
         case join_type_type::inner:
-          std::tie(left_indices, right_indices) =
-            cudf::inner_join(left_keys, right_keys, compare_nulls);
+          switch (_unique_keys_policy) {
+            case gqe::unique_keys_policy::left: {
+              GQE_LOG_TRACE("Join implementation: unique_key_inner_join.");
+              std::tie(left_indices, right_indices) =
+                unique_key_inner_join(left_keys, right_keys, compare_nulls);
+              break;
+            }
+            case gqe::unique_keys_policy::right: {
+              GQE_LOG_TRACE("Join implementation: unique_key_inner_join.");
+              std::tie(right_indices, left_indices) =
+                unique_key_inner_join(right_keys, left_keys, compare_nulls);
+              break;
+            }
+            default: {
+              GQE_LOG_TRACE("Join implementation: cudf::inner_join.");
+              std::tie(left_indices, right_indices) =
+                cudf::inner_join(left_keys, right_keys, compare_nulls);
+            }
+          }
           break;
         case join_type_type::left:
+          GQE_LOG_TRACE("Join implementation: cudf::left_join.");
           std::tie(left_indices, right_indices) =
             cudf::left_join(left_keys, right_keys, compare_nulls);
           break;
         case join_type_type::left_semi:
+          GQE_LOG_TRACE("Join implementation: cudf::left_semi_join.");
           left_indices = cudf::left_semi_join(left_keys, right_keys, compare_nulls);
           break;
         case join_type_type::left_anti:
+          GQE_LOG_TRACE("Join implementation: cudf::left_anti_join.");
           left_indices = cudf::left_anti_join(left_keys, right_keys, compare_nulls);
           break;
         case join_type_type::full:
+          GQE_LOG_TRACE("Join implementation: cudf::full_join.");
           std::tie(left_indices, right_indices) =
             cudf::full_join(left_keys, right_keys, compare_nulls);
           break;
@@ -555,22 +582,27 @@ void join_task::execute()
         auto const compare_nulls = join_keys.compare_nulls();
         switch (_join_type) {
           case join_type_type::inner:
+            GQE_LOG_TRACE("Join implementation: cudf::mixed_inner_join.");
             std::tie(left_indices, right_indices) = cudf::mixed_inner_join(
               left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
             break;
           case join_type_type::left:
+            GQE_LOG_TRACE("Join implementation: cudf::mixed_left_join.");
             std::tie(left_indices, right_indices) = cudf::mixed_left_join(
               left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
             break;
           case join_type_type::left_semi:
+            GQE_LOG_TRACE("Join implementation: cudf::mixed_left_semi_join.");
             left_indices = cudf::mixed_left_semi_join(
               left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
             break;
           case join_type_type::left_anti:
+            GQE_LOG_TRACE("Join implementation: cudf::mixed_left_anti_join.");
             left_indices = cudf::mixed_left_anti_join(
               left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
             break;
           case join_type_type::full:
+            GQE_LOG_TRACE("Join implementation: cudf::mixed_full_join.");
             std::tie(left_indices, right_indices) = cudf::mixed_full_join(
               left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
             break;
@@ -580,20 +612,25 @@ void join_task::execute()
         // Only have non-equality join conditions
         switch (_join_type) {
           case join_type_type::inner:
+            GQE_LOG_TRACE("Join implementation: cudf::conditional_inner_join.");
             std::tie(left_indices, right_indices) =
               cudf::conditional_inner_join(left_view, right_view, predicate_ast);
             break;
           case join_type_type::left:
+            GQE_LOG_TRACE("Join implementation: cudf::conditional_left_join.");
             std::tie(left_indices, right_indices) =
               cudf::conditional_left_join(left_view, right_view, predicate_ast);
             break;
           case join_type_type::left_semi:
+            GQE_LOG_TRACE("Join implementation: cudf::conditional_left_semi_join.");
             left_indices = cudf::conditional_left_semi_join(left_view, right_view, predicate_ast);
             break;
           case join_type_type::left_anti:
+            GQE_LOG_TRACE("Join implementation: cudf::conditional_left_anti_join.");
             left_indices = cudf::conditional_left_anti_join(left_view, right_view, predicate_ast);
             break;
           case join_type_type::full:
+            GQE_LOG_TRACE("Join implementation: cudf::conditional_full_join.");
             std::tie(left_indices, right_indices) =
               cudf::conditional_full_join(left_view, right_view, predicate_ast);
             break;

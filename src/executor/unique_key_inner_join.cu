@@ -528,6 +528,7 @@ unique_key_inner_join(cudf::table_view build_keys,
                       rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
                       rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
 {
+  utility::nvtx_scoped_range unique_key_inner_join_range("unique_key_inner_join");
   return compute_unique_key_inner_join(
     build_keys, probe_keys, compare_nulls, load_factor, stream, mr);
 }

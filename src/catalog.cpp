@@ -30,24 +30,12 @@ namespace gqe {
 
 column_traits::column_traits(std::string const& name_,
                              cudf::data_type const& data_type_,
-                             std::initializer_list<column_property> props)
+                             std::vector<column_property> const& props)
   : name(name_), data_type(data_type_)
 {
   for (auto prop : props) {
     if (prop == column_property::unique) is_unique = true;
   }
-}
-
-void catalog::register_table(std::string const& table_name,
-                             std::vector<std::pair<std::string, cudf::data_type>> const& columns,
-                             storage_kind::type storage,
-                             partitioning_schema_kind::type partitioning_schema)
-{
-  std::vector<column_traits> new_columns;
-  for (auto column : columns) {
-    new_columns.push_back({column.first, column.second, {}});  // no column properties by default
-  }
-  register_table(table_name, new_columns, storage, partitioning_schema);
 }
 
 void catalog::register_table(std::string const& table_name,

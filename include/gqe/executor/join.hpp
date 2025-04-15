@@ -112,6 +112,8 @@ class join_task : public task {
    * cache instead of reconstructed.
    * @param[in] materialize_output If `true`, emit the materialized table with the same number of
    * columns as the size of `projection_indices`. If `false`, emit the position lists.
+   * @param[in] build_unique_keys_pol If `build_unique_keys_policy::right`, build on right side and
+   * assume unique keys. Similarly if `build_unique_keys_policy::left`.
    */
   join_task(context_reference ctx_ref,
             int32_t task_id,
@@ -122,12 +124,22 @@ class join_task : public task {
             std::unique_ptr<expression> condition,
             std::vector<cudf::size_type> projection_indices,
             std::shared_ptr<join_hash_map_cache> hash_map_cache = nullptr,
-            bool materialize_output                             = true);
+            bool materialize_output                             = true,
+            gqe::unique_keys_policy unique_keys_pol             = gqe::unique_keys_policy::none);
 
   /**
    * @copydoc gqe::task::execute()
    */
   void execute() override;
+
+  /**
+   * @brief Return a unique_keys_policy indicating whether the unique keys optimization can
+   * be enabled with building on the right or left.
+   */
+  [[nodiscard]] gqe::unique_keys_policy unique_keys_policy() const noexcept
+  {
+    return _unique_keys_policy;
+  }
 
  private:
   join_type_type _join_type;
@@ -135,6 +147,7 @@ class join_task : public task {
   std::vector<cudf::size_type> _projection_indices;
   std::shared_ptr<join_hash_map_cache> _hash_map_cache;
   bool _materialize_output;
+  gqe::unique_keys_policy _unique_keys_policy;
 };
 
 namespace detail {

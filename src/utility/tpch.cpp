@@ -10,19 +10,22 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/catalog.hpp>
 #include <gqe/utility/tpch.hpp>
+
+using col_prop = gqe::column_traits::column_property;
 
 namespace gqe::utility {
 
 namespace tpch {
 
-std::unordered_map<std::string, std::vector<column_definition_type>> const& table_definitions(
+std::unordered_map<std::string, std::vector<gqe::column_traits>> const& table_definitions(
   bool use_opt_type_for_single_char_col) noexcept
 {
-  static const std::unordered_map<std::string, std::vector<column_definition_type>> definitions = {
+  static const std::unordered_map<std::string, std::vector<gqe::column_traits>> definitions = {
     {"part",
      {
-       {"p_partkey", identifier_type},  // primary key
+       {"p_partkey", identifier_type, {col_prop::unique}},  // primary key
        {"p_name", string_type},
        {"p_mfgr", string_type},
        {"p_brand", string_type},
@@ -33,7 +36,7 @@ std::unordered_map<std::string, std::vector<column_definition_type>> const& tabl
        // {"p_comment", string_type}
      }},
     {"supplier",
-     {{"s_suppkey", identifier_type},  // primary key
+     {{"s_suppkey", identifier_type, {col_prop::unique}},  // primary key
       {"s_name", string_type},
       {"s_address", string_type},
       {"s_nationkey", identifier_type},
@@ -49,7 +52,7 @@ std::unordered_map<std::string, std::vector<column_definition_type>> const& tabl
        // {"ps_comment", string_type}
      }},
     {"customer",
-     {{"c_custkey", identifier_type},  // primary key
+     {{"c_custkey", identifier_type, {col_prop::unique}},  // primary key
       {"c_name", string_type},
       {"c_address", string_type},
       {"c_nationkey", identifier_type},
@@ -58,7 +61,7 @@ std::unordered_map<std::string, std::vector<column_definition_type>> const& tabl
       {"c_mktsegment", string_type},
       {"c_comment", string_type}}},
     {"orders",
-     {{"o_orderkey", identifier_type},  // primary key
+     {{"o_orderkey", identifier_type, {col_prop::unique}},  // primary key
       {"o_custkey", identifier_type},
       {"o_orderstatus", use_opt_type_for_single_char_col ? char_type : string_type},
       {"o_totalprice", decimal_type},
@@ -88,14 +91,14 @@ std::unordered_map<std::string, std::vector<column_definition_type>> const& tabl
      }},
     {"nation",
      {
-       {"n_nationkey", identifier_type},  // primary key
+       {"n_nationkey", identifier_type, {col_prop::unique}},  // primary key
        {"n_name", string_type},
        {"n_regionkey", identifier_type},
        // {"n_comment", string_type}
      }},
     {"region",
      {
-       {"r_regionkey", identifier_type},  // primary key
+       {"r_regionkey", identifier_type, {col_prop::unique}},  // primary key
        {"r_name", string_type},
        // {"r_comment", string_type}
      }}};

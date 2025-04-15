@@ -42,7 +42,7 @@ class relation_traits {
   /**
    * @brief Return relation properties
    */
-  relation_properties properties() const { return _properties; }
+  relation_properties const& properties() const { return _properties; }
 
   bool operator==(const relation_traits& other) const { return _properties == other._properties; }
 

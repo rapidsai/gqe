@@ -21,6 +21,13 @@
 #include <unordered_map>
 #include <vector>
 
+namespace gqe {
+/**
+ * @brief Forward declaration
+ */
+struct column_traits;
+}  // namespace gqe
+
 namespace gqe::utility {
 namespace tpch {
 
@@ -35,11 +42,6 @@ constexpr auto char_type       = cudf::data_type(cudf::type_id::INT8);
 constexpr auto date_type       = cudf::data_type(cudf::type_id::TIMESTAMP_DAYS);
 
 /**
- * @brief Helper type to map column names to data types
- */
-using column_definition_type = std::pair<std::string, cudf::data_type>;
-
-/**
  * @brief Map of the TPC-H DDL
  *
  * @details See the [TPC-H
@@ -49,7 +51,7 @@ using column_definition_type = std::pair<std::string, cudf::data_type>;
  * for single-character columns
  * @return A map, which associates table names to column definition vectors
  */
-std::unordered_map<std::string, std::vector<column_definition_type>> const& table_definitions(
+std::unordered_map<std::string, std::vector<gqe::column_traits>> const& table_definitions(
   bool use_opt_type_for_single_char_col = true) noexcept;
 
 }  // namespace tpch

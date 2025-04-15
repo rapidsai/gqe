@@ -20,6 +20,7 @@
 #include <gqe/logical/window.hpp>
 #include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/rules/join_children_swap.hpp>
+#include <gqe/optimizer/rules/join_unique_keys.hpp>
 #include <gqe/optimizer/rules/not_not.hpp>
 #include <gqe/optimizer/rules/projection_pushdown.hpp>
 #include <gqe/optimizer/rules/string_to_int_literal.hpp>
@@ -114,6 +115,8 @@ std::unique_ptr<gqe::optimizer::optimization_rule> gqe::optimizer::logical_optim
       return std::make_unique<projection_pushdown>(cat);
     case logical_optimization_rule_type::uniqueness_propagation:
       return std::make_unique<uniqueness_propagation>(cat);
+    case logical_optimization_rule_type::join_unique_keys:
+      return std::make_unique<join_unique_keys>(cat);
     default:
       throw std::runtime_error("Logical Optimizer: logical_optimization_rule_type " +
                                std::to_string(static_cast<size_t>(rule_type)) + " not supported");

@@ -203,7 +203,7 @@ class query_result_writer {
   {
     const auto data_types = plan->data_types();
 
-    std::vector<std::pair<std::string, cudf::data_type>> column_definitions;
+    std::vector<gqe::column_traits> column_definitions;
     std::vector<std::string> column_names;
     column_definitions.reserve(data_types.size());
     column_names.reserve(data_types.size());
@@ -242,7 +242,7 @@ class query_result_writer {
   gqe::context_reference _ctx_ref;
   gqe::catalog* _catalog;
   std::string _result_table_name;
-  std::vector<std::pair<std::string, cudf::data_type>> _column_definitions;
+  std::vector<gqe::column_traits> _column_definitions;
 };
 
 int main(int argc, char* argv[])
@@ -354,7 +354,9 @@ int main(int argc, char* argv[])
 
     gqe::optimizer::optimization_configuration logical_rule_config(
       {gqe::optimizer::logical_optimization_rule_type::projection_pushdown,
-       gqe::optimizer::logical_optimization_rule_type::string_to_int_literal},
+       gqe::optimizer::logical_optimization_rule_type::string_to_int_literal,
+       gqe::optimizer::logical_optimization_rule_type::uniqueness_propagation,
+       gqe::optimizer::logical_optimization_rule_type::join_unique_keys},
       {});
     gqe::optimizer::logical_optimizer optimizer(&logical_rule_config, &catalog);
     auto opt_logical_plan = optimizer.optimize(logical_plan[0]);

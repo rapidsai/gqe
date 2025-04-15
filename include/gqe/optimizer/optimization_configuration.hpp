@@ -25,6 +25,7 @@ enum class logical_optimization_rule_type {
   uniqueness_propagation,
   projection_pushdown,
   string_to_int_literal,
+  join_unique_keys,
   num_rules
 };
 

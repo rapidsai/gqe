@@ -150,7 +150,7 @@ class relation {
   /**
    * @brief Return relation traits associated with this relation
    */
-  [[nodiscard]] optimizer::relation_traits relation_traits() const noexcept;
+  [[nodiscard]] optimizer::relation_traits const& relation_traits() const noexcept;
 
   /**
    * @brief Set relation traits associated with this relation

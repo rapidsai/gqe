@@ -43,7 +43,7 @@ struct column_traits {
    */
   column_traits(std::string const& name_,
                 cudf::data_type const& data_type_,
-                std::initializer_list<column_property> props);
+                std::vector<column_property> const& props = {});
 
   std::string name;           // name of the column
   cudf::data_type data_type;  // data type of the column's elements
@@ -59,21 +59,6 @@ struct column_traits {
  */
 class catalog {
  public:
-  /**
-   * @brief Register a new table into the catalog.
-   *
-   * @throw std::logic_error if `table_name` is already registered.
-   *
-   * @param[in] table_name Name of the table to create.
-   * @param[in] columns A collection of (column name, column data type) pairs.
-   * @param[in] storage Storage hint to phyiscally store the table's data.
-   * @param[in] partitioning_schema Partitioning schema with which the table's data are divided.
-   */
-  void register_table(std::string const& table_name,
-                      std::vector<std::pair<std::string, cudf::data_type>> const& columns,
-                      storage_kind::type storage,
-                      partitioning_schema_kind::type partitioning_schema);
-
   /**
    * @brief Register a new table into the catalog.
    *

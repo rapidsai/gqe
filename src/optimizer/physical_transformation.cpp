@@ -119,6 +119,20 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
         if (left_num_rows < right_num_rows) policy = physical::broadcast_policy::left;
       }
 
+      // If possible, enable unique keys join when building on broadcast side.
+      gqe::unique_keys_policy unique_keys_pol = gqe::unique_keys_policy::none;
+      if (policy == physical::broadcast_policy::right) {
+        if (logical_join_relation->unique_keys_policy() == gqe::unique_keys_policy::right ||
+            logical_join_relation->unique_keys_policy() == gqe::unique_keys_policy::either)
+          unique_keys_pol = gqe::unique_keys_policy::right;
+      } else {
+        if (logical_join_relation->unique_keys_policy() == gqe::unique_keys_policy::left ||
+            logical_join_relation->unique_keys_policy() == gqe::unique_keys_policy::either)
+          unique_keys_pol = gqe::unique_keys_policy::left;
+      }
+      // Build side for unique keys join should have been determined by this point
+      assert(unique_keys_pol != gqe::unique_keys_policy::either);
+
       out_physical_relation = std::make_shared<physical::broadcast_join_relation>(
         std::move(children_physical[0]),
         std::move(children_physical[1]),
@@ -126,7 +140,8 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
         logical_join_relation->join_type(),
         logical_join_relation->condition()->clone(),
         logical_join_relation->projection_indices(),
-        policy);
+        policy,
+        unique_keys_pol);
       break;
     }
     case logical::relation::relation_type::project: {

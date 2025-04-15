@@ -50,7 +50,7 @@ relation::relation(std::vector<std::shared_ptr<relation>> children,
 
 [[nodiscard]] std::size_t relation::subqueries_size() const noexcept { return _subqueries.size(); }
 
-[[nodiscard]] optimizer::relation_traits relation::relation_traits() const noexcept
+[[nodiscard]] optimizer::relation_traits const& relation::relation_traits() const noexcept
 {
   return *_relation_traits;
 }

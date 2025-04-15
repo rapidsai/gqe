@@ -72,6 +72,7 @@ add_library(
     optimizer/relation_properties.cpp
     optimizer/rules/projection_pushdown.cpp
     optimizer/rules/join_children_swap.cpp
+    optimizer/rules/join_unique_keys.cpp
     optimizer/rules/not_not.cpp
     optimizer/rules/uniqueness_propagation.cpp
     optimizer/rules/string_to_int_literal.cpp

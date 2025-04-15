@@ -94,10 +94,27 @@ class join_relation : public relation {
    */
   bool operator==(const relation& other) const override;
 
+  /**
+   * @brief Return a unique_keys_policy indicating whether the unique keys optimization can
+   * be enabled with building on the right, left or either side.
+   */
+  [[nodiscard]] gqe::unique_keys_policy unique_keys_policy() const noexcept
+  {
+    return _unique_keys_policy;
+  }
+
+  /**
+   * @brief Set policy for enabling the unique keys optimization for inner hash join
+   *
+   * @param policy The policy to be set to
+   */
+  void set_unique_keys_policy(gqe::unique_keys_policy policy) { _unique_keys_policy = policy; };
+
  private:
   std::unique_ptr<expression> _condition;
   join_type_type _join_type;
   std::vector<cudf::size_type> _projection_indices;
+  gqe::unique_keys_policy _unique_keys_policy = gqe::unique_keys_policy::none;
 };
 
 }  // namespace logical

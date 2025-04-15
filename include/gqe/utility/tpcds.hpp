@@ -21,6 +21,13 @@
 #include <unordered_map>
 #include <vector>
 
+namespace gqe {
+/**
+ * @brief Forward declaration
+ */
+struct column_traits;
+}  // namespace gqe
+
 namespace gqe::utility {
 namespace tpcds {
 
@@ -34,11 +41,6 @@ constexpr auto string_type     = cudf::data_type(cudf::type_id::STRING);
 constexpr auto date_type       = cudf::data_type(cudf::type_id::TIMESTAMP_DAYS);
 
 /**
- * @brief Helper type to map column names to data types
- */
-using column_definition_type = std::pair<std::string, cudf::data_type>;
-
-/**
  * @brief Map of the TPC-DS DDL
  *
  * @details See the [TPC-DS
@@ -46,7 +48,7 @@ using column_definition_type = std::pair<std::string, cudf::data_type>;
  *
  * @return A map, which associates table names to column definition vectors
  */
-std::unordered_map<std::string, std::vector<column_definition_type>> const&
+std::unordered_map<std::string, std::vector<gqe::column_traits>> const&
 table_definitions() noexcept;
 
 }  // namespace tpcds

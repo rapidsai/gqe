@@ -12,6 +12,7 @@
 
 #include <gqe/catalog.hpp>
 #include <gqe/context_reference.hpp>
+#include <gqe/executor/join.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/expression/binary_op.hpp>
@@ -22,6 +23,7 @@
 #include <gqe/logical/join.hpp>
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/window.hpp>
+#include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
@@ -450,4 +452,168 @@ TEST_F(LogicalToExecution, WindowWithOrderBy)
 
   CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(*execute_result, ref_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*execute_result, ref_table->view());
+}
+
+TEST_F(LogicalToExecution, UniqueKeyJoin)
+{
+  /**
+   * Hand-code logical plan and generate task graph. The test then inspects the
+   * `_unique_keys_policy` enum flag of the root tasks of the task graph to check that unique
+   * key join will be invoked.
+   */
+
+  // Write two test Parquet files to the disk
+  cudf::test::fixed_width_column_wrapper<int64_t> table_0_col_0({0, 1, 2, 3, 2, 0, 1});
+  cudf::test::fixed_width_column_wrapper<int64_t> table_0_col_1({2, 2, 1, 3, 0, 3, 1});
+
+  std::vector<std::unique_ptr<cudf::column>> table_0_columns;
+  table_0_columns.push_back(table_0_col_0.release());
+  table_0_columns.push_back(table_0_col_1.release());
+  auto table_0 = std::make_unique<cudf::table>(std::move(table_0_columns));
+
+  cudf::io::table_input_metadata table_0_metadata(table_0->view());
+  table_0_metadata.column_metadata[0].set_name("table_0_col_0");
+  table_0_metadata.column_metadata[1].set_name("table_0_col_1");
+
+  auto table_0_filepath = temp_env->get_temp_filepath("table_0.parquet");
+  auto table_0_options  = cudf::io::parquet_writer_options::builder(
+    cudf::io::sink_info(table_0_filepath), table_0->view());
+  table_0_options.metadata(table_0_metadata);
+  cudf::io::write_parquet(table_0_options);
+
+  cudf::test::strings_column_wrapper table_1_col_0({"apple", "cat", "duck", "orange"});
+  cudf::test::fixed_width_column_wrapper<int64_t> table_1_col_1({0, 1, 2, 3});
+
+  std::vector<std::unique_ptr<cudf::column>> table_1_columns;
+  table_1_columns.push_back(table_1_col_0.release());
+  table_1_columns.push_back(table_1_col_1.release());
+  auto table_1 = std::make_unique<cudf::table>(std::move(table_1_columns));
+
+  cudf::io::table_input_metadata table_1_metadata(table_1->view());
+  table_1_metadata.column_metadata[0].set_name("table_1_col_0");
+  table_1_metadata.column_metadata[1].set_name("table_1_col_1");
+
+  auto table_1_filepath = temp_env->get_temp_filepath("table_1.parquet");
+  auto table_1_options  = cudf::io::parquet_writer_options::builder(
+    cudf::io::sink_info(table_1_filepath), table_1->view());
+  table_1_options.metadata(table_1_metadata);
+  cudf::io::write_parquet(table_1_options);
+
+  // Register the input tables
+  gqe::catalog catalog;
+  catalog.register_table(
+    "table_0",
+    {gqe::column_traits{"table_0_col_0", cudf::data_type(cudf::type_id::INT64), {}},
+     gqe::column_traits{"table_0_col_1", cudf::data_type(cudf::type_id::INT64), {}}},
+    gqe::storage_kind::parquet_file{{table_0_filepath}},
+    gqe::partitioning_schema_kind::automatic{});
+  catalog.register_table(
+    "table_1",
+    {gqe::column_traits{"table_1_col_0", cudf::data_type(cudf::type_id::STRING), {}},
+     gqe::column_traits{"table_1_col_1",
+                        cudf::data_type(cudf::type_id::INT64),
+                        {gqe::column_traits::column_property::unique}}},
+    gqe::storage_kind::parquet_file{{table_1_filepath}},
+    gqe::partitioning_schema_kind::automatic{});
+
+  // Hand-code the logical plan
+  auto read_relation_0 = std::make_shared<gqe::logical::read_relation>(
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
+    std::vector<std::string>({"table_0_col_0", "table_0_col_1"}),
+    std::vector<cudf::data_type>(
+      {cudf::data_type(cudf::type_id::STRING), cudf::data_type(cudf::type_id::INT64)}),
+    "table_0",
+    nullptr);  // partial_filter
+
+  auto read_relation_1 = std::make_shared<gqe::logical::read_relation>(
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
+    std::vector<std::string>({"table_1_col_0", "table_1_col_1"}),
+    std::vector<cudf::data_type>(
+      {cudf::data_type(cudf::type_id::STRING), cudf::data_type(cudf::type_id::INT64)}),
+    "table_1",
+    nullptr);  // partial_filter
+
+  auto join_condition_part_1 =
+    std::make_shared<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(0),
+                                            std::make_shared<gqe::column_reference_expression>(3));
+  auto join_condition_part_2 =
+    std::make_shared<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(1),
+                                            std::make_shared<gqe::column_reference_expression>(3));
+  auto join_condition =
+    std::make_unique<gqe::logical_and_expression>(join_condition_part_1, join_condition_part_2);
+  auto join_relation = std::make_shared<gqe::logical::join_relation>(
+    read_relation_0,
+    read_relation_1,
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),  // subquery_relations
+    std::move(join_condition),
+    gqe::join_type_type::inner,
+    std::vector<cudf::size_type>({2}));
+
+  // optimize logical plan
+  gqe::optimizer::optimization_configuration logical_rule_config(
+    {gqe::optimizer::logical_optimization_rule_type::uniqueness_propagation,
+     gqe::optimizer::logical_optimization_rule_type::join_unique_keys},
+    {});
+  gqe::optimizer::logical_optimizer optimizer(&logical_rule_config, &catalog);
+  auto opt_logical_plan = optimizer.optimize(join_relation);
+
+  // transform to physical plan
+  gqe::physical_plan_builder plan_builder(&catalog);
+  auto physical_plan = plan_builder.build(opt_logical_plan.get());
+
+  gqe::task_manager_context task_manager_ctx{};
+  gqe::optimization_parameters opt_params;
+  opt_params.join_use_unique_keys = true;
+  gqe::query_context query_ctx(opt_params);
+  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
+
+  // Generate the task graph
+  gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
+  auto task_graph = graph_builder.build(physical_plan.get());
+
+  // inspect _unique_keys_policy of join task
+  int unique_keys_left{}, unique_keys_right{}, unique_keys_none{};
+  for (auto curr_task : task_graph->root_tasks) {
+    gqe::join_task* curr_join_task = dynamic_cast<gqe::join_task*>(curr_task.get());
+    if (curr_join_task) {
+      switch (curr_join_task->unique_keys_policy()) {
+        case gqe::unique_keys_policy::left: {
+          ++unique_keys_left;
+          break;
+        }
+        case gqe::unique_keys_policy::right: {
+          ++unique_keys_right;
+          break;
+        }
+        case gqe::unique_keys_policy::none: {
+          ++unique_keys_none;
+          break;
+        }
+        default: break;
+      }
+    }
+  }
+
+  ASSERT_EQ(unique_keys_left, 0);
+  ASSERT_EQ(unique_keys_right, 1);
+  ASSERT_EQ(unique_keys_none, 0);
+
+  // Execute on a single GPU
+  gqe::execute_task_graph_single_gpu(ctx_ref, task_graph.get());
+
+  // Verify the execution result
+  cudf::test::strings_column_wrapper ref_col_0({"cat", "orange"});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_columns;
+  ref_columns.push_back(ref_col_0.release());
+
+  auto ref_table = std::make_unique<cudf::table>(std::move(ref_columns));
+
+  ASSERT_EQ(task_graph->root_tasks.size(), 1);
+  auto execute_result = task_graph->root_tasks[0]->result();
+  ASSERT_EQ(execute_result.has_value(), true);
+  auto execute_result_sorted = cudf::sort(*execute_result);
+
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(execute_result_sorted->view(), ref_table->view());
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(execute_result_sorted->view(), ref_table->view());
 }

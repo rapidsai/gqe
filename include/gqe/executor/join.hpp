@@ -156,6 +156,7 @@ namespace detail {
  * @brief Set the boolean mask at specific indices to true.
  *
  * Requires the indices to be unique. Otherwise, the behavior is undefined.
+ * Does nothing, if indices is empty.
  *
  * @param[in] boolean_mask Boolean mask column to be set. The column must have type `BOOL8`.
  * @param[in] indices Row indices at which the boolean mask is set to true.
@@ -166,6 +167,7 @@ void set_boolean_mask(cudf::mutable_column_view boolean_mask, cudf::column_view 
  * @brief Increment the counts column at specific indices by 1.
  *
  * Requires the indices to be unique. Otherwise, the behavior is undefined.
+ * Does nothing, if indices is empty.
  *
  * @param[in] counts Counts column to be incremented. The column must have type `INT32`.
  * @param[in] indices Row indices at which the counts are incremented by 1.

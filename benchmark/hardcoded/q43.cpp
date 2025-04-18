@@ -27,6 +27,7 @@
 #include <gqe/logical/project.hpp>
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/sort.hpp>
+#include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
@@ -43,6 +44,8 @@
 #include <iostream>
 #include <memory>
 #include <string>
+
+using col_prop = gqe::column_traits::column_property;
 
 /* TPC-DS Q43
 select s_store_name, s_store_id,
@@ -110,13 +113,14 @@ int main(int argc, char* argv[])
 
   // Register the input tables
   gqe::catalog tpcds_catalog;
-  tpcds_catalog.register_table("date_dim",
-                               {{"d_date_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"d_day_name", cudf::data_type(cudf::type_id::STRING)},
-                                {"d_year", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::storage_kind::parquet_file{
-                                 gqe::utility::get_parquet_files(dataset_location + "/date_dim")},
-                               gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table(
+    "date_dim",
+    {{"d_date_sk", cudf::data_type(cudf::type_id::INT64), {col_prop::unique}},
+     {"d_day_name", cudf::data_type(cudf::type_id::STRING)},
+     {"d_year", cudf::data_type(cudf::type_id::INT64)}},
+    gqe::storage_kind::parquet_file{
+      gqe::utility::get_parquet_files(dataset_location + "/date_dim")},
+    gqe::partitioning_schema_kind::automatic{});
   tpcds_catalog.register_table("store_sales",
                                {{"ss_sold_date_sk", cudf::data_type(cudf::type_id::INT64)},
                                 {"ss_store_sk", cudf::data_type(cudf::type_id::INT64)},
@@ -126,7 +130,7 @@ int main(int argc, char* argv[])
                                gqe::partitioning_schema_kind::automatic{});
   tpcds_catalog.register_table(
     "store",
-    {{"s_store_sk", cudf::data_type(cudf::type_id::INT64)},
+    {{"s_store_sk", cudf::data_type(cudf::type_id::INT64), {col_prop::unique}},
      {"s_store_id", cudf::data_type(cudf::type_id::STRING)},
      {"s_store_name", cudf::data_type(cudf::type_id::STRING)},
      {"s_gmt_offset", cudf::data_type(cudf::type_id::FLOAT64)}},
@@ -243,7 +247,14 @@ int main(int argc, char* argv[])
     std::make_shared<gqe::logical::fetch_relation>(std::move(store_sales_table), 0, 100);
 
   // Execution
-  auto logical_plan = std::move(store_sales_table);
+  auto logical_plan_handcoded = std::move(store_sales_table);
+
+  gqe::optimizer::optimization_configuration logical_rule_config(
+    {gqe::optimizer::logical_optimization_rule_type::uniqueness_propagation,
+     gqe::optimizer::logical_optimization_rule_type::join_unique_keys},
+    {});
+  gqe::optimizer::logical_optimizer optimizer(&logical_rule_config, &tpcds_catalog);
+  auto logical_plan = optimizer.optimize(logical_plan_handcoded);
 
   gqe::physical_plan_builder plan_builder(&tpcds_catalog);
   auto physical_plan = plan_builder.build(logical_plan.get());

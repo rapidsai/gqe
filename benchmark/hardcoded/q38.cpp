@@ -24,6 +24,7 @@
 #include <gqe/logical/join.hpp>
 #include <gqe/logical/project.hpp>
 #include <gqe/logical/read.hpp>
+#include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
@@ -39,6 +40,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+using col_prop = gqe::column_traits::column_property;
 
 constexpr int64_t DMS = 1200;  // Default to the qualification substitution parameters
 
@@ -198,21 +201,23 @@ int main(int argc, char* argv[])
                                  gqe::utility::get_parquet_files(dataset_location + "/web_sales")},
                                gqe::partitioning_schema_kind::automatic{});
 
-  tpcds_catalog.register_table("date_dim",
-                               {{"d_date_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"d_month_seq", cudf::data_type(cudf::type_id::INT64)},
-                                {"d_date", cudf::data_type(cudf::type_id::TIMESTAMP_DAYS)}},
-                               gqe::storage_kind::parquet_file{
-                                 gqe::utility::get_parquet_files(dataset_location + "/date_dim")},
-                               gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table(
+    "date_dim",
+    {{"d_date_sk", cudf::data_type(cudf::type_id::INT64), {col_prop::unique}},
+     {"d_month_seq", cudf::data_type(cudf::type_id::INT64)},
+     {"d_date", cudf::data_type(cudf::type_id::TIMESTAMP_DAYS)}},
+    gqe::storage_kind::parquet_file{
+      gqe::utility::get_parquet_files(dataset_location + "/date_dim")},
+    gqe::partitioning_schema_kind::automatic{});
 
-  tpcds_catalog.register_table("customer",
-                               {{"c_customer_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"c_last_name", cudf::data_type(cudf::type_id::STRING)},
-                                {"c_first_name", cudf::data_type(cudf::type_id::STRING)}},
-                               gqe::storage_kind::parquet_file{
-                                 gqe::utility::get_parquet_files(dataset_location + "/customer")},
-                               gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table(
+    "customer",
+    {{"c_customer_sk", cudf::data_type(cudf::type_id::INT64), {col_prop::unique}},
+     {"c_last_name", cudf::data_type(cudf::type_id::STRING)},
+     {"c_first_name", cudf::data_type(cudf::type_id::STRING)}},
+    gqe::storage_kind::parquet_file{
+      gqe::utility::get_parquet_files(dataset_location + "/customer")},
+    gqe::partitioning_schema_kind::automatic{});
 
   // Hand-code the logical plan
 
@@ -277,13 +282,20 @@ int main(int argc, char* argv[])
     gqe::join_type_type::inner,
     std::vector<cudf::size_type>({0, 1, 2}));
 
-  auto logical_plan = std::make_shared<gqe::logical::join_relation>(
+  auto logical_plan_handcoded = std::make_shared<gqe::logical::join_relation>(
     std::move(store_sales_table),
     std::move(catalog_web_intersection),
     std::vector<std::shared_ptr<gqe::logical::relation>>(),
     intersect_condition->clone(),
     gqe::join_type_type::inner,
     std::vector<cudf::size_type>({0, 1, 2}));
+
+  gqe::optimizer::optimization_configuration logical_rule_config(
+    {gqe::optimizer::logical_optimization_rule_type::uniqueness_propagation,
+     gqe::optimizer::logical_optimization_rule_type::join_unique_keys},
+    {});
+  gqe::optimizer::logical_optimizer optimizer(&logical_rule_config, &tpcds_catalog);
+  auto logical_plan = optimizer.optimize(logical_plan_handcoded);
 
   gqe::physical_plan_builder plan_builder(&tpcds_catalog);
   auto physical_plan = plan_builder.build(logical_plan.get());

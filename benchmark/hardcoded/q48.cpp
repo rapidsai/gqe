@@ -349,7 +349,9 @@ int main(int argc, char* argv[])
   auto logical_plan_handcoded = std::move(store_sales_table);
 
   gqe::optimizer::optimization_configuration logical_rule_config(
-    {gqe::optimizer::logical_optimization_rule_type::uniqueness_propagation}, {});
+    {gqe::optimizer::logical_optimization_rule_type::uniqueness_propagation,
+     gqe::optimizer::logical_optimization_rule_type::join_unique_keys},
+    {});
   gqe::optimizer::logical_optimizer optimizer(&logical_rule_config, &tpcds_catalog);
   auto logical_plan = optimizer.optimize(logical_plan_handcoded);
 

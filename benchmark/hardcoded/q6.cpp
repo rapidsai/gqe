@@ -27,6 +27,7 @@
 #include <gqe/logical/project.hpp>
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/sort.hpp>
+#include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/utility/helpers.hpp>
@@ -41,6 +42,8 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+
+using col_prop = gqe::column_traits::column_property;
 
 constexpr int64_t YEAR  = 2001;  // Default to the qualification substitution parameters
 constexpr int64_t MONTH = 1;
@@ -98,33 +101,36 @@ int main(int argc, char* argv[])
                                gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(
                                  dataset_location + "/store_sales")},
                                gqe::partitioning_schema_kind::automatic{});
-  tpcds_catalog.register_table("date_dim",
-                               {{"d_date_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"d_year", cudf::data_type(cudf::type_id::INT64)},
-                                {"d_moy", cudf::data_type(cudf::type_id::INT64)},
-                                {"d_month_seq", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::storage_kind::parquet_file{
-                                 gqe::utility::get_parquet_files(dataset_location + "/date_dim")},
-                               gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table(
+    "date_dim",
+    {{"d_date_sk", cudf::data_type(cudf::type_id::INT64), {col_prop::unique}},
+     {"d_year", cudf::data_type(cudf::type_id::INT64)},
+     {"d_moy", cudf::data_type(cudf::type_id::INT64)},
+     {"d_month_seq", cudf::data_type(cudf::type_id::INT64)}},
+    gqe::storage_kind::parquet_file{
+      gqe::utility::get_parquet_files(dataset_location + "/date_dim")},
+    gqe::partitioning_schema_kind::automatic{});
   tpcds_catalog.register_table(
     "item",
-    {{"i_item_sk", cudf::data_type(cudf::type_id::INT64)},
+    {{"i_item_sk", cudf::data_type(cudf::type_id::INT64), {col_prop::unique}},
      {"i_current_price", cudf::data_type(cudf::type_id::FLOAT64)},
      {"i_category", cudf::data_type(cudf::type_id::STRING)}},
     gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(dataset_location + "/item")},
     gqe::partitioning_schema_kind::automatic{});
-  tpcds_catalog.register_table("customer",
-                               {{"c_customer_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"c_current_addr_sk", cudf::data_type(cudf::type_id::INT64)}},
-                               gqe::storage_kind::parquet_file{
-                                 gqe::utility::get_parquet_files(dataset_location + "/customer")},
-                               gqe::partitioning_schema_kind::automatic{});
-  tpcds_catalog.register_table("customer_address",
-                               {{"ca_address_sk", cudf::data_type(cudf::type_id::INT64)},
-                                {"ca_state", cudf::data_type(cudf::type_id::STRING)}},
-                               gqe::storage_kind::parquet_file{gqe::utility::get_parquet_files(
-                                 dataset_location + "/customer_address")},
-                               gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table(
+    "customer",
+    {{"c_customer_sk", cudf::data_type(cudf::type_id::INT64), {col_prop::unique}},
+     {"c_current_addr_sk", cudf::data_type(cudf::type_id::INT64)}},
+    gqe::storage_kind::parquet_file{
+      gqe::utility::get_parquet_files(dataset_location + "/customer")},
+    gqe::partitioning_schema_kind::automatic{});
+  tpcds_catalog.register_table(
+    "customer_address",
+    {{"ca_address_sk", cudf::data_type(cudf::type_id::INT64), {col_prop::unique}},
+     {"ca_state", cudf::data_type(cudf::type_id::STRING)}},
+    gqe::storage_kind::parquet_file{
+      gqe::utility::get_parquet_files(dataset_location + "/customer_address")},
+    gqe::partitioning_schema_kind::automatic{});
 
   // Hand-code the logical plan
   std::shared_ptr<gqe::logical::relation> date_dim_table =
@@ -312,7 +318,14 @@ int main(int argc, char* argv[])
     std::make_shared<gqe::logical::fetch_relation>(std::move(store_sales_table), 0, 100);
 
   // Execution
-  auto logical_plan = std::move(store_sales_table);
+  auto logical_plan_handcoded = std::move(store_sales_table);
+
+  gqe::optimizer::optimization_configuration logical_rule_config(
+    {gqe::optimizer::logical_optimization_rule_type::uniqueness_propagation,
+     gqe::optimizer::logical_optimization_rule_type::join_unique_keys},
+    {});
+  gqe::optimizer::logical_optimizer optimizer(&logical_rule_config, &tpcds_catalog);
+  auto logical_plan = optimizer.optimize(logical_plan_handcoded);
 
   gqe::physical_plan_builder plan_builder(&tpcds_catalog);
   auto physical_plan = plan_builder.build(logical_plan.get());

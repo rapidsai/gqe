@@ -46,9 +46,9 @@ std::string read_relation::to_string() const
     partial_filter_unsafe() ? partial_filter_unsafe()->to_string() : "NULL";
   read_relation_str += "\t\"partial filter\" : \"" + partial_filter_str + "\",\n";
   // Children
-  read_relation_str += "\t\"children\" : " + utility::list_to_string(children_unsafe()) + "\n";
+  read_relation_str += "\t\"children\" : " + utility::list_to_string(children_unsafe()) + ",\n";
   // Relation traits
-  read_relation_str += "\t\"traits\" : \"" + relation_traits().to_string() + "\"\n";
+  read_relation_str += "\t\"traits\" : {" + relation_traits().to_string() + "}\n";
   read_relation_str += "}}";
   return read_relation_str;
 }

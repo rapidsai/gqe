@@ -46,7 +46,7 @@ class relation_traits {
 
   bool operator==(const relation_traits& other) const { return _properties == other._properties; }
 
-  std::string to_string() const { return "properties:\n" + _properties.to_string(); }
+  std::string to_string() const { return "\"properties\":\n" + _properties.to_string(); }
 
  private:
   relation_properties _properties;

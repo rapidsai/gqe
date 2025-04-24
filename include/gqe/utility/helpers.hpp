@@ -18,11 +18,12 @@
 #define GQE_HOST_DEVICE
 #endif
 
-#include <gqe/utility/logger.hpp>
-
 #include <cassert>
 #include <chrono>
 #include <filesystem>
+#include <gqe/utility/error.hpp>
+#include <gqe/utility/logger.hpp>
+#include <rmm/cuda_device.hpp>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -148,5 +149,7 @@ struct make_unsigned<double> {
 
 template <typename T>
 using make_unsigned_t = typename make_unsigned<T>::type;
+
+inline size_t default_device_memory_pool_size() { return rmm::percent_of_free_device_memory(90); }
 
 }  // namespace gqe::utility

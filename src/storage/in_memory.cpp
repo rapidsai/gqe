@@ -466,7 +466,7 @@ void in_memory_read_task::execute()
 
   // Check if zero-copy is legal.
   auto ctx_ref             = get_context_reference();
-  auto& device_prop        = ctx_ref._task_manager_context->_device_properties;
+  auto const& device_prop  = ctx_ref._task_manager_context->get_device_properties();
   bool is_gpu_accessible   = memory_kind::is_gpu_accessible(device_prop, _memory_kind);
   bool is_single_row_group = _row_groups.size() <= 1;
   bool is_compressed =

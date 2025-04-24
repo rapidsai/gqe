@@ -40,6 +40,7 @@ add_library(
     memory_resource/numa_memory_resource.cpp
     memory_resource/pinned_memory_resource.cpp
     memory_resource/system_memory_resource.cpp
+    memory_resource/pgas_memory_resource.cpp
     executor/groupby/groupby.cu
     executor/aggregate.cpp
     executor/concatenate.cpp
@@ -91,6 +92,7 @@ add_library(
     utility/tpch.cpp
     catalog.cpp
     query_context.cpp
+    task_manager_context.cpp
     device_properties.cpp
     types.cpp
 )
@@ -105,7 +107,8 @@ target_link_libraries(gqe PUBLIC substrait)
 target_link_libraries(gqe PRIVATE Threads::Threads)
 target_link_libraries(gqe PRIVATE nvcomp::nvcomp)
 target_link_libraries(gqe PUBLIC uring)
-
+target_link_libraries(gqe PUBLIC MPI::MPI_CXX)
+target_link_libraries(gqe PUBLIC nvshmem::nvshmem_host)
 
 # Download and configure Parquet format
 if(GQE_ENABLE_CUSTOMIZED_PARQUET)

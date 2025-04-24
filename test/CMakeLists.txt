@@ -215,3 +215,10 @@ target_include_directories(task_graph_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..
 target_link_libraries(task_graph_test PUBLIC gqe)
 target_link_libraries(task_graph_test PUBLIC GTest::gtest_main GTest::gmock)
 add_test(NAME task_graph_test COMMAND task_graph_test)
+
+add_executable(multi_process multiprocess/execution.cpp)
+target_include_directories(multi_process PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(multi_process PUBLIC gqe)
+target_link_libraries(multi_process PUBLIC GTest::gtest_main GTest::gmock)
+target_link_libraries(multi_process PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
+add_test(NAME multi_process COMMAND multi_process)

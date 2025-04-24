@@ -561,12 +561,6 @@ TEST_F(LogicalToExecution, UniqueKeyJoin)
   gqe::physical_plan_builder plan_builder(&catalog);
   auto physical_plan = plan_builder.build(opt_logical_plan.get());
 
-  gqe::task_manager_context task_manager_ctx{};
-  gqe::optimization_parameters opt_params;
-  opt_params.join_use_unique_keys = true;
-  gqe::query_context query_ctx(opt_params);
-  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-
   // Generate the task graph
   gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
   auto task_graph = graph_builder.build(physical_plan.get());

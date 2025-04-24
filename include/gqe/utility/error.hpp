@@ -37,6 +37,25 @@ struct cuda_error : public std::runtime_error {
   cuda_error(std::string const& message) : cuda_error{message.c_str()} {}
 };
 
+/**
+ * @brief Exception thrown when a MPI error is encountered.
+ */
+struct mpi_error : public std::runtime_error {
+  /**
+   * @brief Constructs a `mpi_error` object with the given `message`.
+   *
+   * @param message The error char array used to construct `mpi_error`
+   */
+  mpi_error(const char* message) : std::runtime_error(message) {}
+
+  /**
+   * @brief Constructs a `mpi_error` object with the given `message` string.
+   *
+   * @param message The `std::string` used to construct `mpi_error`
+   */
+  mpi_error(std::string const& message) : mpi_error{message.c_str()} {}
+};
+
 }  // namespace gqe
 
 #define GQE_STRINGIFY_DETAIL(x) #x
@@ -56,6 +75,23 @@ struct cuda_error : public std::runtime_error {
     }                                                                                             \
   } while (0);
 #define GQE_CUDA_TRY_1(_call) GQE_CUDA_TRY_2(_call, gqe::cuda_error)
+
+#define GQE_MPI_TRY(...)                                           \
+  GET_GQE_MPI_TRY_MACRO(__VA_ARGS__, GQE_MPI_TRY_2, GQE_MPI_TRY_1) \
+  (__VA_ARGS__)
+#define GET_GQE_MPI_TRY_MACRO(_1, _2, NAME, ...) NAME
+#define GQE_MPI_TRY_2(_call, _exception_type)                                                    \
+  do {                                                                                           \
+    int const status = (_call);                                                                  \
+    if (MPI_SUCCESS != status) {                                                                 \
+      int len;                                                                                   \
+      char estring[MPI_MAX_ERROR_STRING];                                                        \
+      MPI_Error_string(status, estring, &len);                                                   \
+      throw _exception_type{std::string{"MPI error at: "} + __FILE__ + GQE_STRINGIFY(__LINE__) + \
+                            ": " + estring + "(" + std::to_string(status) + ")"};                \
+    }                                                                                            \
+  } while (0);
+#define GQE_MPI_TRY_1(_call) GQE_MPI_TRY_2(_call, gqe::mpi_error)
 
 // Adapted from cudf/utilities/error.hpp
 /**

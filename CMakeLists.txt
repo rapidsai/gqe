@@ -97,8 +97,10 @@ if(PROJECT_IS_TOP_LEVEL)
 endif()
 
 rapids_find_package(cudf CONFIG REQUIRED COMPONENTS testing)
-rapids_find_package(Threads REQUIRED)
+rapids_find_package(MPI REQUIRED) 
 rapids_find_package(nvcomp CONFIG REQUIRED)
+rapids_find_package(NVSHMEM REQUIRED)
+rapids_find_package(Threads REQUIRED)
 
 # Prefer to use the config mode for Protobuf, but if the config file is not present, we fallback to
 # use the module mode.

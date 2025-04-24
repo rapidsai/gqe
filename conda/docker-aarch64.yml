@@ -31,3 +31,5 @@ dependencies:
   - zlib  # libthrift checks zlib during CMake configuration, but conda-forge doesn't install it automatically
   - nvcomp=4.1.0
   - liburing
+  - openmpi
+  - libnvshmem-static==3.2.5

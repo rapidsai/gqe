@@ -651,13 +651,16 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   first_aggregation_tasks.reserve(input_tasks.size());
 
   for (auto& input_task : input_tasks) {
+    auto condition = relation->condition_unsafe() ? relation->condition_unsafe()->clone()
+                                                  : std::unique_ptr<expression>();
     first_aggregation_tasks.push_back(
       std::make_shared<aggregate_task>(_builder->_ctx_ref,
                                        _builder->_current_task_id,
                                        _builder->_current_stage_id,
                                        std::move(input_task),
                                        clone_aggregation_keys(first_aggregation_keys),
-                                       clone_aggregation_values(first_aggregation_values)));
+                                       clone_aggregation_values(first_aggregation_values),
+                                       std::move(condition)));
     _builder->_current_task_id++;
   }
 

@@ -41,15 +41,19 @@ class aggregate_relation_base : public relation {
    * rows belong to the same group (reductions).
    * @param[in] values List of `(op, expr)` pairs such that each `expr` will be evaluated on `input`
    * and then rows of the evaluated results in the same group will be combined together using `op`.
+   * @param[in] condition An optional boolean expression evaluated on `input` to represent the
+   * filter condition. Note: That this is currently not supported for pure reductions
    */
   aggregate_relation_base(
     std::shared_ptr<relation> input,
     std::vector<std::shared_ptr<relation>> subquery_relations,
     std::vector<std::unique_ptr<expression>> keys,
-    std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values)
+    std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values,
+    std::unique_ptr<expression> condition = nullptr)
     : relation({std::move(input)}, std::move(subquery_relations)),
       _keys(std::move(keys)),
-      _values(std::move(values))
+      _values(std::move(values)),
+      _condition(std::move(condition))
   {
   }
 
@@ -57,6 +61,11 @@ class aggregate_relation_base : public relation {
    * @brief Return the grouping keys.
    */
   std::vector<expression*> keys_unsafe() { return utility::to_raw_ptrs(_keys); }
+
+  /**
+   * @brief Returns the filter condition.
+   */
+  expression* condition_unsafe() { return _condition.get(); }
 
   /**
    * @brief Return the values to be aggregated on.
@@ -72,6 +81,7 @@ class aggregate_relation_base : public relation {
  private:
   std::vector<std::unique_ptr<expression>> _keys;
   std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> _values;
+  std::unique_ptr<expression> _condition;
 };
 
 /**

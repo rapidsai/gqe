@@ -41,7 +41,8 @@ class HandCodedValuesAggregationTest : public ::testing::Test {
 
   void construct_aggregate_task(
     std::vector<std::unique_ptr<gqe::expression>> keys,
-    std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<gqe::expression>>> values)
+    std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<gqe::expression>>> values,
+    std::unique_ptr<gqe::expression> condition = nullptr)
   {
     constexpr int32_t stage_id          = 0;
     constexpr int32_t input_task_id     = 0;
@@ -53,11 +54,13 @@ class HandCodedValuesAggregationTest : public ::testing::Test {
     cudf::test::fixed_width_column_wrapper<int32_t> input_col_1({0, 1, 0, 1, 1, 0, 1, 1});
     cudf::test::fixed_width_column_wrapper<int64_t> input_col_2(
       {0, 1, 2, 4, 8, 16, 32, 64}, {true, true, false, true, true, true, true, true});
+    cudf::test::fixed_width_column_wrapper<bool> input_col_3({1, 0, 1, 1, 1, 1, 1, 0});
 
     std::vector<std::unique_ptr<cudf::column>> input_columns;
     input_columns.push_back(input_col_0.release());
     input_columns.push_back(input_col_1.release());
     input_columns.push_back(input_col_2.release());
+    input_columns.push_back(input_col_3.release());
 
     auto input_task = std::make_shared<gqe::test::executed_task>(
       ctx_ref, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
@@ -67,7 +70,8 @@ class HandCodedValuesAggregationTest : public ::testing::Test {
                                                            stage_id,
                                                            std::move(input_task),
                                                            std::move(keys),
-                                                           std::move(values));
+                                                           std::move(values),
+                                                           std::move(condition));
   }
 
   gqe::task_manager_context task_manager_ctx;
@@ -114,14 +118,16 @@ TEST_F(HandCodedValuesAggregationTest, Groupby)
   values.emplace_back(cudf::aggregation::SUM,
                       std::make_unique<gqe::column_reference_expression>(2));
 
-  construct_aggregate_task(std::move(keys), std::move(values));
+  std::unique_ptr<gqe::expression> condition{std::make_unique<gqe::column_reference_expression>(3)};
+
+  construct_aggregate_task(std::move(keys), std::move(values), std::move(condition));
   aggregate_task->execute();
   auto aggregate_result_sorted = cudf::sort(aggregate_task->result().value());
 
   cudf::test::strings_column_wrapper ref_col_0({"", "apple", "apple", "orange", "orange"},
                                                {false, true, true, true, true});
   cudf::test::fixed_width_column_wrapper<int32_t> ref_col_1({1, 0, 1, 0, 1});
-  cudf::test::fixed_width_column_wrapper<int64_t> ref_col_2({9, 0, 68, 16, 32});
+  cudf::test::fixed_width_column_wrapper<int64_t> ref_col_2({8, 0, 4, 16, 32});
 
   std::vector<std::unique_ptr<cudf::column>> ref_columns;
   ref_columns.push_back(ref_col_0.release());

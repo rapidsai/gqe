@@ -71,6 +71,7 @@ class groupby {
    *
    * @param requests The set of columns to aggregate and the aggregations to
    * perform
+   * @param active_mask A boolean mask that represents which rows are active
    * @param mr Device memory resource used to allocate the returned table and columns' device memory
    * @return Pair containing the table with each group's unique key and
    * a vector of aggregation_results for each request in the same order as
@@ -78,6 +79,7 @@ class groupby {
    */
   std::pair<std::unique_ptr<cudf::table>, std::vector<cudf::groupby::aggregation_result>> aggregate(
     cudf::host_span<cudf::groupby::aggregation_request const> requests,
+    cudf::column_view const& active_mask,
     rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
   /**
@@ -88,6 +90,7 @@ class groupby {
    */
   std::pair<std::unique_ptr<cudf::table>, std::vector<cudf::groupby::aggregation_result>> aggregate(
     cudf::host_span<cudf::groupby::aggregation_request const> requests,
+    cudf::column_view const& active_mask,
     rmm::cuda_stream_view stream,
     rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

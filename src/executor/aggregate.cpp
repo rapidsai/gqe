@@ -96,10 +96,12 @@ aggregate_task::aggregate_task(
   int32_t stage_id,
   std::shared_ptr<task> input,
   std::vector<std::unique_ptr<expression>> keys,
-  std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values)
+  std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values,
+  std::unique_ptr<expression> condition)
   : task(ctx_ref, task_id, stage_id, {std::move(input)}, {}),
     _keys(std::move(keys)),
-    _values(std::move(values))
+    _values(std::move(values)),
+    _condition(std::move(condition))
 {
 }
 
@@ -122,11 +124,24 @@ void aggregate_task::execute()
     operations.push_back(kind);
   }
   auto [value_columns, value_columns_cache] = evaluate_expressions(input_table, value_exprs);
+
+  std::pair<std::vector<cudf::column_view>, std::vector<std::unique_ptr<cudf::column>>> eval_output;
+
+  cudf::column_view active_mask;
+  if (_condition != nullptr) {
+    std::vector<expression const*> condition_expr{_condition.get()};
+    eval_output = evaluate_expressions(input_table, condition_expr);
+    active_mask = (eval_output.first)[0];
+  }
+
   assert(value_columns.size() == operations.size());
 
   std::vector<std::unique_ptr<cudf::column>> result_columns;
 
   if (_keys.size() == 0) {
+    if (!active_mask.is_empty()) {
+      throw std::logic_error("Using mask is not supported by cudf::reduce");
+    }
     std::transform(value_columns.begin(),
                    value_columns.end(),
                    operations.begin(),
@@ -161,10 +176,10 @@ void aggregate_task::execute()
     auto [key_columns, key_columns_cache] =
       evaluate_expressions(input_table, utility::to_const_raw_ptrs(_keys));
 
-    // In SQL standard, two NULL values are not equal, but for the purpose of grouping, two or more
-    // values with NULL should be grouped together.
+    // In SQL standard, two NULL values are not equal, but for the purpose of grouping, two or
+    // more values with NULL should be grouped together.
     gqe::groupby::groupby groupby_obj{cudf::table_view(key_columns)};
-    auto [key_outputs, agg_results] = groupby_obj.aggregate(agg_requests);
+    auto [key_outputs, agg_results] = groupby_obj.aggregate(agg_requests, active_mask);
     result_columns                  = key_outputs->release();
 
     for (auto& agg_result : agg_results) {

@@ -160,8 +160,9 @@ TYPED_TEST(groupby_min_floating_point_test, values_with_nan)
   // Without properly handling NaN, this will hang forever in hash-based aggregate (which is the
   // default back-end for min/max in groupby context).
   // This test is just to verify that the aggregate operation does not hang.
-  auto gb_obj       = gqe::groupby::groupby(cudf::table_view({keys}));
-  auto const result = gb_obj.aggregate(requests);
+  auto gb_obj = gqe::groupby::groupby(cudf::table_view({keys}));
+  cudf::column_view active_mask;
+  auto const result = gb_obj.aggregate(requests, active_mask);
 
   EXPECT_EQ(result.first->num_rows(), 1);
 }

@@ -80,7 +80,7 @@ TEST(StressTest, Groupby)
   auto [expected_agg_keys, expected_agg_results] = cudf_groupby_obj.aggregate(reqs);
 
   gqe::groupby::groupby gqe_groupby_obj(cudf::table_view(std::vector({keys_column_view})));
-  auto [actual_agg_keys, actual_agg_results] = gqe_groupby_obj.aggregate(reqs);
+  auto [actual_agg_keys, actual_agg_results] = gqe_groupby_obj.aggregate(reqs, {});
 
   auto expected_result =
     get_output_table(std::move(expected_agg_keys), std::move(expected_agg_results));

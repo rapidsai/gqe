@@ -44,6 +44,9 @@ class aggregate_task : public task {
    * rows belong to the same group (reductions).
    * @param[in] values List of `(op, expr)` pairs such that each `expr` will be evaluated on `input`
    * and then rows of the evaluated result in the same group will be combined together using `op`.
+   * @param[in] condition An optional boolean expression evaluated on `input` to filter rows before
+   * performing aggregation. Note: That this is currently only supported for groupby and not for
+   * pure reductions
    */
   aggregate_task(
     context_reference ctx_ref,
@@ -51,7 +54,8 @@ class aggregate_task : public task {
     int32_t stage_id,
     std::shared_ptr<task> input,
     std::vector<std::unique_ptr<expression>> keys,
-    std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values);
+    std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values,
+    std::unique_ptr<expression> condition = nullptr);
 
   /**
    * @copydoc gqe::task::execute()
@@ -61,6 +65,7 @@ class aggregate_task : public task {
  private:
   std::vector<std::unique_ptr<expression>> _keys;
   std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> _values;
+  std::unique_ptr<expression> _condition;
 };
 
 }  // namespace gqe

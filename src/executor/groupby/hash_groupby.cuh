@@ -22,9 +22,12 @@
 
 #include <cudf/detail/aggregation/device_aggregators.cuh>
 
+#include <cudf/reduction.hpp>
+
 #include <rmm/device_scalar.hpp>
 
 #include <thrust/iterator/counting_iterator.h>
+#include <thrust/optional.h>
 
 #include <cmath>
 #include <cooperative_groups.h>
@@ -55,15 +58,18 @@ __device__ void find_local_mapping(cudf::size_type cur_idx,
                                    cudf::size_type* cardinality,
                                    SetType shared_set,
                                    cudf::size_type* local_mapping_index,
-                                   cudf::size_type* shared_set_indices)
+                                   cudf::size_type* shared_set_indices,
+                                   thrust::optional<cudf::column_device_view> active_mask)
 {
   cudf::size_type result_idx;
-  bool inserted;
+  bool row_inserted = false;
+  bool row_valid    = (cur_idx < num_input_rows);
+  bool row_active   = active_mask ? active_mask->element<bool>(cur_idx) : true;
 
-  if (cur_idx < num_input_rows) {
+  if (row_valid && row_active) {
     auto const result = shared_set.insert_and_find(cur_idx);
     result_idx        = *result.first;
-    inserted          = result.second;
+    row_inserted      = result.second;
 
     // inserted a new element
     if (result.second) {
@@ -73,13 +79,17 @@ __device__ void find_local_mapping(cudf::size_type cur_idx,
     }
   }
 
-  // Syncing the thread block is needed so that updates in `local_mapping_index` are visible to
-  // all threads in the thread block.
+  else if (row_valid && !row_active) {
+    local_mapping_index[cur_idx] = -1;
+  }
+
+  // Syncing the thread block is needed so that updates in `local_mapping_index` are visible to all
+  // threads in the thread block.
   __syncthreads();
 
-  if (cur_idx < num_input_rows) {
+  if (row_valid && row_active && !row_inserted) {
     // element was already in set
-    if (!inserted) { local_mapping_index[cur_idx] = local_mapping_index[result_idx]; }
+    local_mapping_index[cur_idx] = local_mapping_index[result_idx];
   }
 }
 
@@ -119,7 +129,8 @@ __global__ void compute_mapping_indices(GlobalSetType global_set,
                                         cudf::size_type* local_mapping_index,
                                         cudf::size_type* global_mapping_index,
                                         cudf::size_type* block_cardinality,
-                                        bool* direct_aggregations)
+                                        bool* direct_aggregations,
+                                        thrust::optional<cudf::column_device_view> active_mask)
 {
   __shared__ cudf::size_type shared_set_indices[shared_set_num_elements];
 
@@ -151,7 +162,8 @@ __global__ void compute_mapping_indices(GlobalSetType global_set,
                        &cardinality,
                        shared_insert_ref,
                        local_mapping_index,
-                       shared_set_indices);
+                       shared_set_indices,
+                       active_mask);
 
     __syncthreads();
 
@@ -235,8 +247,16 @@ __device__ void compute_pre_aggregrates(int col_start,
                                         cudf::aggregation::Kind const* aggs,
                                         cudf::size_type agg_location_offset)
 {
-  for (auto cur_idx = blockDim.x * blockIdx.x + threadIdx.x; cur_idx < num_input_rows;
-       cur_idx += blockDim.x * gridDim.x) {
+  for (cudf::size_type block_start_idx = blockDim.x * blockIdx.x; block_start_idx < num_input_rows;
+       block_start_idx += blockDim.x * gridDim.x) {
+    auto cur_idx = block_start_idx + threadIdx.x;
+
+    // Synchronization is necessary to ensure coalesced global memory accesses
+    __syncthreads();
+
+    if (cur_idx >= num_input_rows) { continue; }
+    if (local_mapping_index[cur_idx] == -1) { continue; }
+
     auto map_idx = agg_location_offset + local_mapping_index[cur_idx];
 
     for (auto col_idx = col_start; col_idx < col_end; col_idx++) {
@@ -382,6 +402,7 @@ struct compute_direct_aggregates {
   int stride;
   int block_size;
   cudf::size_type cardinality_threshold;
+  thrust::optional<cudf::column_device_view> active_mask;
 
   compute_direct_aggregates(SetType set,
                             cudf::table_device_view input_values,
@@ -390,7 +411,8 @@ struct compute_direct_aggregates {
                             cudf::size_type* block_cardinality,
                             int stride,
                             int block_size,
-                            cudf::size_type cardinality_threshold)
+                            cudf::size_type cardinality_threshold,
+                            thrust::optional<cudf::column_device_view> active_mask)
     : set(set),
       input_values(input_values),
       output_values(output_values),
@@ -398,14 +420,16 @@ struct compute_direct_aggregates {
       block_cardinality(block_cardinality),
       stride(stride),
       block_size(block_size),
-      cardinality_threshold(cardinality_threshold)
+      cardinality_threshold(cardinality_threshold),
+      active_mask(active_mask)
   {
   }
 
   __device__ void operator()(cudf::size_type i)
   {
-    int block_id = (i % stride) / block_size;
-    if (block_cardinality[block_id] >= cardinality_threshold) {
+    int block_id    = (i % stride) / block_size;
+    bool row_active = !active_mask || active_mask->element<bool>(i);
+    if (row_active && (block_cardinality[block_id] >= cardinality_threshold)) {
       auto const result = set.insert_and_find(i);
       cudf::detail::aggregate_row(output_values, *result.first, input_values, i, aggs);
     }
@@ -599,7 +623,8 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
   rmm::cuda_stream_view stream,
   cuco::empty_key<cudf::size_type> empty_key_sentinel,
   KeyEqual d_key_equal,
-  RowHasher d_row_hash)
+  RowHasher d_row_hash,
+  cudf::column_view const& active_mask)
 {
   auto const [flattened_values, agg_kinds, aggs] = gqe::flatten_single_pass_aggs(requests);
 
@@ -658,6 +683,11 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
 
   rmm::device_scalar<bool> direct_aggregations(false, stream);
 
+  thrust::optional<cudf::column_device_view> active_mask_device_view =
+    active_mask.is_empty()
+      ? thrust::nullopt
+      : thrust::optional<cudf::column_device_view>(*cudf::column_device_view::create(active_mask));
+
   compute_mapping_indices<shared_set_ref_type, shared_set_num_elements, cardinality_threshold>
     <<<grid_size, block_size, 0, stream>>>(global_set_ref,
                                            num_input_rows,
@@ -668,7 +698,8 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
                                            local_mapping_index.data(),
                                            global_mapping_index.data(),
                                            block_cardinality.data(),
-                                           direct_aggregations.data());
+                                           direct_aggregations.data(),
+                                           active_mask_device_view);
 
   stream.synchronize();
 
@@ -710,7 +741,8 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
                                                  block_cardinality.data(),
                                                  stride,
                                                  block_size,
-                                                 cardinality_threshold});
+                                                 cardinality_threshold,
+                                                 active_mask_device_view});
     extract_populated_keys(global_set, populated_keys, stream);
   }
 
@@ -724,14 +756,28 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
   return populated_keys;
 }
 
+int64_t get_num_active_keys(cudf::table_view const& keys, cudf::column_view const& active_mask)
+{
+  if (!active_mask.is_empty()) {
+    auto total_active_keys = cudf::reduce(active_mask,
+                                          *cudf::make_sum_aggregation<cudf::reduce_aggregation>(),
+                                          cudf::data_type{cudf::type_id::INT64});
+
+    return static_cast<cudf::numeric_scalar<int64_t>*>(total_active_keys.get())->value();
+  } else {
+    auto const num_keys = keys.num_rows();
+    return static_cast<int64_t>(num_keys);
+  }
+}
+
 rmm::device_uvector<cudf::size_type> groupby(
   cudf::detail::result_cache* dense_results,
   cudf::table_view const& keys,
   cudf::host_span<cudf::groupby::aggregation_request const> requests,
+  cudf::column_view const& active_mask,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  auto const num_keys            = keys.num_rows();
   auto const null_keys_are_equal = cudf::null_equality::EQUAL;
   auto const has_null            = cudf::nullate::DYNAMIC{cudf::has_nested_nulls(keys)};
 
@@ -750,10 +796,10 @@ rmm::device_uvector<cudf::size_type> groupby(
 
   cudf::size_type constexpr key_sentinel = -1;  ///< Sentinel value indicating an empty slot
   auto empty_key_sentinel                = cuco::empty_key{key_sentinel};
+  double load_factor                     = 0.5;
 
-  auto const set_num_keys = static_cast<int64_t>(num_keys) * 2;
-
-  auto const global_agg_set = cuco::static_set{set_num_keys,
+  auto const global_agg_set = cuco::static_set{get_num_active_keys(keys, active_mask),
+                                               load_factor,
                                                empty_key_sentinel,
                                                d_key_equal,
                                                probing_scheme_type{d_row_hash},
@@ -770,7 +816,8 @@ rmm::device_uvector<cudf::size_type> groupby(
                                                  stream,
                                                  empty_key_sentinel,
                                                  d_key_equal,
-                                                 d_row_hash);
+                                                 d_row_hash,
+                                                 active_mask);
 
   gqe::sparse_to_dense_results(keys,
                                requests,
@@ -788,12 +835,13 @@ rmm::device_uvector<cudf::size_type> groupby(
 std::pair<std::unique_ptr<cudf::table>, std::vector<cudf::groupby::aggregation_result>> groupby(
   cudf::table_view const& keys,
   cudf::host_span<cudf::groupby::aggregation_request const> requests,
+  cudf::column_view const& active_mask,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
   cudf::detail::result_cache dense_results(requests.size());
 
-  auto gather_map = groupby(&dense_results, keys, requests, stream, mr);
+  auto gather_map = groupby(&dense_results, keys, requests, active_mask, stream, mr);
 
   auto unique_keys = cudf::detail::gather(keys,
                                           gather_map,

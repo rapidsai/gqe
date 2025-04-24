@@ -71,7 +71,8 @@ void test_single_agg(cudf::column_view const& keys,
                             : null_precedence;
 
   gqe::groupby::groupby groupby_obj{cudf::table_view({keys})};
-  auto result = groupby_obj.aggregate(requests, cudf::test::get_default_stream());
+  cudf::column_view active_mask;
+  auto result = groupby_obj.aggregate(requests, active_mask, cudf::test::get_default_stream());
 
   auto const sort_order  = cudf::sorted_order(result.first->view(), column_order, precedence);
   auto const sorted_keys = cudf::gather(result.first->view(), *sort_order);

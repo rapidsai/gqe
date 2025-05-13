@@ -45,6 +45,8 @@ class unary_op_expression;
  * A concrete visitor needs to override these methods to customize the behavior.
  */
 struct expression_visitor {
+  virtual ~expression_visitor() = default;
+
   virtual void visit(column_reference_expression const* expression)
   {
     throw std::logic_error("Visiting column_reference_expression is not implemented");

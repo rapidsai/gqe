@@ -66,6 +66,7 @@ add_library(
     expression/subquery.cpp
     expression/unary_op.cpp
     expression/is_null.cpp
+    expression/json_formatter.cpp
     optimizer/estimator.cpp
     optimizer/logical_optimization.cpp
     optimizer/optimization_configuration.cpp

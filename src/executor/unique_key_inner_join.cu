@@ -375,8 +375,6 @@ cudf::size_type perform_join(cudf::table_view build_keys,
                              float load_factor            = 0.5,
                              rmm::cuda_stream_view stream = rmm::cuda_stream_default)
 {
-  std::size_t const set_capacity = std::ceil(build_keys.num_rows() / load_factor);
-
   int constexpr cg_size = 1;
   using probing_scheme_type =
     cuco::linear_probing<cg_size, hasher_adapter<thrust::identity<cudf::hash_value_type>>>;

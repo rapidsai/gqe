@@ -131,7 +131,7 @@ std::vector<cudf::size_type> get_updated_projection_indices(
 
 }  // namespace
 
-template <typename T, typename = std::enable_if_t<gqe::optimizer::optimizable_child_relation<T>()>>
+template <typename T, typename>
 void gqe::optimizer::projection_pushdown::rewrite_child_relation(
   std::shared_ptr<T> child_relation, std::vector<cudf::size_type> const& required_cr_indices) const
 {
@@ -166,7 +166,7 @@ void gqe::optimizer::projection_pushdown::rewrite_project_relation(
   rewrite_relation_expressions(project.get(), expr_modifier, transform_direction::DOWN);
 }
 
-template <typename T, typename = std::enable_if_t<gqe::optimizer::optimizable_child_relation<T>()>>
+template <typename T, typename>
 std::shared_ptr<gqe::logical::relation> gqe::optimizer::projection_pushdown::try_pushdown(
   std::shared_ptr<gqe::logical::project_relation> project,
   std::shared_ptr<gqe::logical::relation> child,

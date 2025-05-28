@@ -3,6 +3,13 @@ FROM $BASE_IMAGE
 ARG DEBIAN_FRONTEND=noninteractive
 WORKDIR /
 
+# Set visible devices and mount NVIDIA driver binary utilities inside the
+# container
+#
+# See: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/docker-specialized.html#dockerfiles
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
 # Install common packages for development
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
     build-essential \

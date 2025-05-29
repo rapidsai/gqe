@@ -92,6 +92,13 @@ class catalog {
   cudf::data_type column_type(std::string const& table_name, std::string const& column_name) const;
 
   /**
+   * @brief Return the data types of all columns of a table.
+   * @param table_name A name of a table in the catalog.
+   * @return A vector with the data types of the columns in the order of the column names.
+   */
+  std::vector<cudf::data_type> column_types(std::string const& table_name) const;
+
+  /**
    * @brief Returns whether the specified column in the specified table is unique
    *
    * @param table_name Name of the table to check uniqueness

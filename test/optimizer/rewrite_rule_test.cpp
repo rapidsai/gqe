@@ -44,10 +44,23 @@ using relation_t = gqe::logical::relation::relation_type;
 
 class RewriteRuleTest : public testing::TestWithParam<relation_t> {
  protected:
-  void initialize_optimizer(gqe::optimizer::optimization_configuration rule_config)
+  RewriteRuleTest()
   {
-    gqe::catalog catalog;
-    optimizer = std::make_unique<gqe::optimizer::logical_optimizer>(&rule_config, &catalog);
+    // Register the test table in the catalog
+    _catalog                    = std::make_unique<gqe::catalog>();
+    _test_table_name            = "test_table";
+    std::string column_name     = "a";
+    cudf::data_type column_type = cudf::data_type(cudf::type_id::INT32);
+    _catalog->register_table(_test_table_name,
+                             {{column_name, column_type}},
+                             gqe::storage_kind::system_memory{},
+                             gqe::partitioning_schema_kind::none{});
+
+    // Initialize the optimizer
+    gqe::optimizer::optimization_configuration logical_rule_config(
+      {gqe::optimizer::logical_optimization_rule_type::not_not_rewrite}, {});
+    optimizer =
+      std::make_unique<gqe::optimizer::logical_optimizer>(&logical_rule_config, _catalog.get());
   }
 
   void construct_test_plan(relation_t rel_type) { test_plan = _construct_plan(false, rel_type); }
@@ -225,15 +238,13 @@ class RewriteRuleTest : public testing::TestWithParam<relation_t> {
 
     return join_2;
   }
+
+  std::string _test_table_name;
+  std::unique_ptr<gqe::catalog> _catalog;
 };
 
 TEST_P(RewriteRuleTest, TestTypes)
 {
-  // Initialize and create optimizer
-  gqe::optimizer::optimization_configuration logical_rule_config(
-    {gqe::optimizer::logical_optimization_rule_type::not_not_rewrite}, {});
-  initialize_optimizer(logical_rule_config);
-
   // Construct test and ref plans
   relation_t rel_type = GetParam();
   construct_test_plan(rel_type);
@@ -259,11 +270,6 @@ INSTANTIATE_TEST_SUITE_P(NotNotRelations,
 
 TEST_F(RewriteRuleTest, NotNotGeneral)
 {
-  // Initialize and create optimizer
-  gqe::optimizer::optimization_configuration logical_rule_config(
-    {gqe::optimizer::logical_optimization_rule_type::not_not_rewrite}, {});
-  initialize_optimizer(logical_rule_config);
-
   // Construct test and ref plans
   construct_test_plan();
   construct_ref_plan();

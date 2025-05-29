@@ -133,6 +133,26 @@ cudf::data_type catalog::column_type(std::string const& table_name,
   return column_type_iter->second;
 }
 
+std::vector<cudf::data_type> catalog::column_types(std::string const& table_name) const
+{
+  auto const table_info_iter = _table_entries.find(table_name);
+
+  if (table_info_iter == _table_entries.end())
+    throw std::logic_error("cannot find table \"" + table_name + "\" in the catalog");
+
+  // Maybe it would be better to store the data types when registering the table or use a dedicated
+  // column type.
+  auto const& column_names        = table_info_iter->second.info._column_names;
+  auto const& column_name_to_type = table_info_iter->second.info._column_name_to_type;
+  std::vector<cudf::data_type> column_types;
+  column_types.reserve(column_names.size());
+  std::for_each(column_names.begin(), column_names.end(), [&](std::string const& column_name) {
+    const auto& column_type = column_name_to_type.at(column_name);
+    column_types.push_back(column_type);
+  });
+  return column_types;
+}
+
 bool catalog::column_is_unique(std::string const& table_name, std::string const& column_name) const
 {
   auto const table_info_iter = _table_entries.find(table_name);

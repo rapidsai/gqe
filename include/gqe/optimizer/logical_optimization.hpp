@@ -105,9 +105,9 @@ class optimization_rule {
    * @param f Functor defining how to rewrite each expression
    * @param direction In case of a nested expressions, how to traverse the expression tree
    */
-  static void rewrite_relation_expressions(logical::relation* relation,
-                                           expression_modifier_functor f,
-                                           transform_direction direction);
+  void rewrite_relation_expressions(logical::relation* relation,
+                                    expression_modifier_functor f,
+                                    transform_direction direction) const;
 
   /**
    * @brief Add column property to specified column index in the input relation

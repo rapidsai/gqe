@@ -43,10 +43,23 @@
 using relation_t = gqe::logical::relation::relation_type;
 class StringToIntLiteralTest : public testing::TestWithParam<relation_t> {
  protected:
-  void initialize_optimizer(gqe::optimizer::optimization_configuration rule_config)
+  StringToIntLiteralTest()
   {
-    gqe::catalog catalog;
-    optimizer = std::make_unique<gqe::optimizer::logical_optimizer>(&rule_config, &catalog);
+    // Register the test table in the catalog
+    _catalog                    = std::make_unique<gqe::catalog>();
+    _test_table_name            = "test_table";
+    std::string column_name     = "a";
+    cudf::data_type column_type = cudf::data_type(cudf::type_id::INT8);
+    _catalog->register_table(_test_table_name,
+                             {{column_name, column_type}},
+                             gqe::storage_kind::system_memory{},
+                             gqe::partitioning_schema_kind::none{});
+
+    // Initialize the optimizer
+    gqe::optimizer::optimization_configuration logical_rule_config(
+      {gqe::optimizer::logical_optimization_rule_type::string_to_int_literal}, {});
+    optimizer =
+      std::make_unique<gqe::optimizer::logical_optimizer>(&logical_rule_config, _catalog.get());
   }
 
   void construct_test_plan(relation_t rel_type) { test_plan = _construct_plan(false, rel_type); }
@@ -75,12 +88,12 @@ class StringToIntLiteralTest : public testing::TestWithParam<relation_t> {
       inner_expr =
         std::make_unique<gqe::equal_expression>(column_reference_expr, literal_string_expr);
     }
-    std::vector<std::string> column_names = {"a"};
-    auto column_types                     = {cudf::data_type(cudf::type_id::INT8)};
-    std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
 
+    std::vector<std::string> column_names     = {"a"};
+    std::vector<cudf::data_type> column_types = {cudf::data_type(cudf::type_id::INT8)};
+    std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
     auto read_rel = std::make_shared<gqe::logical::read_relation>(
-      subquery_relations, column_names, column_types, "test_table", nullptr);
+      subquery_relations, column_names, column_types, _test_table_name, nullptr);
 
     switch (rel_type) {
       case relation_t::aggregate: {
@@ -161,15 +174,13 @@ class StringToIntLiteralTest : public testing::TestWithParam<relation_t> {
       default: throw std::runtime_error("unsupported relation type");
     }
   }
+
+  std::string _test_table_name;
+  std::unique_ptr<gqe::catalog> _catalog;
 };
 
 TEST_P(StringToIntLiteralTest, TestTypes)
 {
-  // Initialize and create optimizer
-  gqe::optimizer::optimization_configuration logical_rule_config(
-    {gqe::optimizer::logical_optimization_rule_type::string_to_int_literal}, {});
-  initialize_optimizer(logical_rule_config);
-
   // Construct test and ref plans
   relation_t rel_type = GetParam();
   construct_test_plan(rel_type);
@@ -192,3 +203,58 @@ INSTANTIATE_TEST_SUITE_P(Relations,
                                          relation_t::read,
                                          relation_t::sort,
                                          relation_t::window));
+
+// Test that the partial filter of a read relation is evaluated on the base table schema and not the
+// projected columns. Construct a read relation with the following properties:
+// - Schema of base table has 3 columns with indexes 0, 1, 2 (counting from zero).
+// - The read relation projects a single column
+// - The partial filter is evaluated on column 2 (counting from zero).
+// This ensures that the column index of the partial filter is bigger than the number of
+// projected columns (2 > 1).
+TEST(StringToIntLiteralTest, transformPartialFilterInReadRelation)
+{
+  gqe::optimizer::optimization_configuration logical_rule_config(
+    {gqe::optimizer::logical_optimization_rule_type::string_to_int_literal}, {});
+  gqe::catalog catalog;
+  auto optimizer =
+    std::make_unique<gqe::optimizer::logical_optimizer>(&logical_rule_config, &catalog);
+
+  // Input expression has a single-char string literal
+  constexpr cudf::size_type column_idx = 2;
+  const std::string stringLiteral      = "R";
+  constexpr int8_t int8Literal         = 82;  // Corresponds to "R"
+  auto partial_filter                  = std::make_unique<gqe::equal_expression>(
+    std::make_shared<gqe::column_reference_expression>(column_idx),
+    std::make_shared<gqe::literal_expression<std::string>>(stringLiteral));
+
+  // Expected expression replaces single-char string literal with int8
+  auto expected = std::make_unique<gqe::equal_expression>(
+    std::make_shared<gqe::column_reference_expression>(column_idx),
+    std::make_shared<gqe::literal_expression<std::int8_t>>(int8Literal));
+
+  // Register the base table
+  const std::string table_name                  = "table";
+  const std::vector<gqe::column_traits> columns = {{"col1", cudf::data_type(cudf::type_id::INT8)},
+                                                   {"col2", cudf::data_type(cudf::type_id::INT8)},
+                                                   {"col3", cudf::data_type(cudf::type_id::INT8)}};
+  catalog.register_table(
+    table_name, columns, gqe::storage_kind::system_memory{}, gqe::partitioning_schema_kind::none{});
+
+  // Create read relation
+  std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
+  std::vector<std::string> projected_column_names     = {"a"};
+  std::vector<cudf::data_type> projected_column_types = {cudf::data_type(cudf::type_id::INT8)};
+  auto read_relation = std::make_shared<gqe::logical::read_relation>(subquery_relations,
+                                                                     projected_column_names,
+                                                                     projected_column_types,
+                                                                     table_name,
+                                                                     std::move(partial_filter));
+
+  // Optimize the read relation
+  auto optimized_relation =
+    dynamic_cast<gqe::logical::read_relation*>(optimizer->optimize(read_relation).get());
+
+  // Check that partial filter has been replaced
+  auto actual = optimized_relation->partial_filter_unsafe();
+  EXPECT_EQ(*expected, *actual);
+}

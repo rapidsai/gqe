@@ -136,9 +136,8 @@ void traverse_expression_list(
 }
 }  // namespace
 
-void gqe::optimizer::optimization_rule::rewrite_relation_expressions(logical::relation* relation,
-                                                                     expression_modifier_functor f,
-                                                                     transform_direction direction)
+void gqe::optimizer::optimization_rule::rewrite_relation_expressions(
+  logical::relation* relation, expression_modifier_functor f, transform_direction direction) const
 {
   if (!relation) return;
 
@@ -207,7 +206,8 @@ void gqe::optimizer::optimization_rule::rewrite_relation_expressions(logical::re
       // Apply to partial filter
       auto partial_filter = read->partial_filter_unsafe();
       if (partial_filter) {
-        auto new_partial_filter = traverse(partial_filter, read->data_types());
+        auto new_partial_filter =
+          traverse(partial_filter, _catalog->column_types(read->table_name()));
         if (new_partial_filter) { read->_partial_filter = std::move(new_partial_filter); }
       }
       break;

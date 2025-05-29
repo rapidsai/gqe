@@ -371,7 +371,7 @@ name_to_fkind_map() noexcept
     {"ilike", gqe::scalar_function_expression::function_kind::like},
     {"like", gqe::scalar_function_expression::function_kind::like},
     {"round", gqe::scalar_function_expression::function_kind::round},
-    {"substr", gqe::scalar_function_expression::function_kind::substr}};
+    {"substring", gqe::scalar_function_expression::function_kind::substr}};
   return map;
 }
 
@@ -804,8 +804,10 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_aggregate_r
   if (aggregate_relation.groupings_size() > 1)
     throw std::runtime_error("Does not support groupby with multiple keys");
 
-  auto grouping = aggregate_relation.groupings(0);
-  for (auto& key_expression : grouping.grouping_expressions()) {
+  auto grouping            = aggregate_relation.groupings(0);
+  auto groupingExpressions = aggregate_relation.grouping_expressions();
+  for (const auto expression_reference : grouping.expression_references()) {
+    auto key_expression = groupingExpressions.at(expression_reference);
     keys.push_back(parse_expression(key_expression, subquery_relations));
   }
 
@@ -827,8 +829,41 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_fetch_relat
 {
   auto input_relation = parse_relation(fetch_relation.input());
 
-  return std::make_unique<gqe::logical::fetch_relation>(
-    std::move(input_relation), fetch_relation.offset(), fetch_relation.count());
+  // Helper to retrieve the integer value from an OFFSET or LIMIT expression
+  auto fold_expression = [this](const substrait::Expression& expression) -> int64_t {
+    auto subquery_relations      = std::vector<std::shared_ptr<gqe::logical::relation>>{};
+    const auto parsed_expression = parse_expression(expression, subquery_relations);
+    if (const auto integer_literal_expression =
+          dynamic_cast<gqe::literal_expression<int64_t>*>(parsed_expression.get())) {
+      return integer_literal_expression->value();
+    }
+    throw std::runtime_error(
+      "FetchRel.offset_expr/FetchRel.count_expr is only supported for literal expressions");
+  };
+
+  int64_t offset = 0;   // Unset is treated as 0
+  int64_t count  = -1;  // Unset is treated as ALL
+  switch (fetch_relation.offset_mode_case()) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    case substrait::FetchRel::kOffset: offset = fetch_relation.offset(); break;
+#pragma GCC diagnostic pop
+    case substrait::FetchRel::kOffsetExpr:
+      offset = fold_expression(fetch_relation.offset_expr());
+      break;
+    case substrait::FetchRel::OFFSET_MODE_NOT_SET: break;  // Use default
+  }
+  switch (fetch_relation.count_mode_case()) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    case substrait::FetchRel::kCount: count = fetch_relation.count(); break;
+#pragma GCC diagnostic pop
+    case substrait::FetchRel::kCountExpr:
+      count = fold_expression(fetch_relation.count_expr());
+      break;
+    case substrait::FetchRel::COUNT_MODE_NOT_SET: break;  // Use default
+  }
+  return std::make_unique<gqe::logical::fetch_relation>(std::move(input_relation), offset, count);
 }
 
 std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_sort_relation(
@@ -927,13 +962,13 @@ std::unique_ptr<gqe::logical::relation> gqe::substrait_parser::parse_join_relati
     case substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT:
       join_type = join_type_type::left;
       break;
-    case substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_SINGLE:
+    case substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT_SINGLE:
       join_type = join_type_type::single;
       break;
-    case substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_SEMI:
+    case substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT_SEMI:
       join_type = join_type_type::left_semi;
       break;
-    case substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_ANTI:
+    case substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT_ANTI:
       join_type = join_type_type::left_anti;
       break;
     default:

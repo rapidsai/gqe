@@ -219,23 +219,16 @@ parquet_read_task::partial_filter_info parquet_read_task::parse_partial_filter()
 {
   parquet_read_task::partial_filter_info info;
 
-  if (!_partial_filter) {
+  if (!_partial_filter || _partial_filter->type() != expression::expression_type::subquery ||
+      static_cast<subquery_expression const*>(_partial_filter.get())->subquery_type() !=
+        subquery_expression::subquery_type_type::in_predicate) {
     info.non_partitioned_files.resize(_file_paths.size());
     std::iota(info.non_partitioned_files.begin(), info.non_partitioned_files.end(), 0);
     return info;
   }
 
-  // FIXME: Only support in_predicate_expression
-  if (_partial_filter->type() != expression::expression_type::subquery) {
-    throw std::runtime_error("Partial filter expression must be a subquery expression");
-  }
   auto const partial_filter_subquery =
-    dynamic_cast<subquery_expression const*>(_partial_filter.get());
-  if (partial_filter_subquery->subquery_type() !=
-      subquery_expression::subquery_type_type::in_predicate) {
-    throw std::runtime_error("Partial filter expression must be a in-predicate expression");
-  }
-
+    static_cast<subquery_expression const*>(_partial_filter.get());
   auto const expressions = partial_filter_subquery->children();
 
   // FIXME: Assuming there is one child expressions

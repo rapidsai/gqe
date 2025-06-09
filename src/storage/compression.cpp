@@ -62,6 +62,7 @@ std::unique_ptr<rmm::device_buffer> compression_manager::do_compress(
   compression_ratio = static_cast<float>(uncompressed->size()) / comp_size;
 
   compressed_buffer->resize(comp_size, supplied_stream);
+  compressed_buffer->shrink_to_fit(supplied_stream);
   manager->deallocate_gpu_mem();
 
   if (comp_size > uncompressed->size()) {

@@ -84,7 +84,7 @@ class join_relation : public relation {
    *
    * @return List of projection indices
    */
-  [[nodiscard]] std::vector<cudf::size_type> projection_indices() const noexcept
+  [[nodiscard]] const std::vector<cudf::size_type>& projection_indices() const noexcept
   {
     return _projection_indices;
   }

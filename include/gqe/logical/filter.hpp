@@ -68,7 +68,7 @@ class filter_relation : public relation {
   /**
    * @brief Return the column indices to materialize after the filter.
    */
-  [[nodiscard]] std::vector<cudf::size_type> projection_indices() const noexcept
+  [[nodiscard]] const std::vector<cudf::size_type>& projection_indices() const noexcept
   {
     return _projection_indices;
   }

@@ -132,14 +132,74 @@ class UniquenessPropagationTest : public ::testing::Test {
     return agg_rel;
   }
 
-  std::unique_ptr<gqe::logical::relation> construct_plan_join(bool optimized)
+  std::unique_ptr<gqe::logical::relation> construct_plan_join_unique_RHS(bool optimized)
   {
     auto read_rel_0 = construct_read_one_unique(optimized);
     auto read_rel_1 = construct_read_all_unique(optimized);
 
-    auto col_0 = std::make_shared<gqe::column_reference_expression>(0);
-    auto col_2 = std::make_shared<gqe::column_reference_expression>(2);
-    auto cond  = std::make_unique<gqe::equal_expression>(col_0, col_2);
+    auto col_1 = std::make_shared<gqe::column_reference_expression>(1);  // not unique
+    auto col_2 = std::make_shared<gqe::column_reference_expression>(2);  // unique if optimized
+    auto cond  = std::make_unique<gqe::equal_expression>(col_1, col_2);  // unique RHS if optimized
+    std::vector<cudf::size_type> projection_indices = {0, 1, 2, 3};
+
+    auto join_rel = std::make_unique<gqe::logical::join_relation>(std::move(read_rel_0),
+                                                                  std::move(read_rel_1),
+                                                                  empty_relations(),
+                                                                  std::move(cond),
+                                                                  gqe::join_type_type::inner,
+                                                                  projection_indices);
+
+    if (optimized) {
+      // Optimized plan should have uniqueness info in the plan
+      // LHS columns get to keep their uniqueness
+      _add_column_uniqueness(join_rel.get(), {0});
+    }
+
+    return join_rel;
+  }
+
+  std::unique_ptr<gqe::logical::relation> construct_plan_join_compound_condition(bool optimized)
+  {
+    auto read_rel_0 = construct_read_one_unique(optimized);
+    auto read_rel_1 = construct_read_all_unique(optimized);
+
+    auto col_0  = std::make_shared<gqe::column_reference_expression>(0);  // unique if optimized
+    auto col_1  = std::make_shared<gqe::column_reference_expression>(1);  // not unique
+    auto col_2  = std::make_shared<gqe::column_reference_expression>(2);  // unique if optimized
+    auto col_3  = std::make_shared<gqe::column_reference_expression>(3);  // unique if optimized
+    auto cond_0 = std::make_shared<gqe::equal_expression>(col_1, col_2);  // unique RHS if optimized
+    auto cond_1 = std::make_shared<gqe::equal_expression>(col_1, col_3);  // unique RHS if optimized
+    auto cond_0_and_1 = std::make_shared<gqe::logical_and_expression>(cond_0, cond_1);
+    auto cond_2 =
+      std::make_shared<gqe::equal_expression>(col_0, col_2);  // unique LHS & RHS if optimized
+    auto cond_0_and_1_or_2 = std::make_unique<gqe::logical_or_expression>(cond_0_and_1, cond_2);
+    std::vector<cudf::size_type> projection_indices = {0, 1, 2, 3};
+
+    auto join_rel = std::make_unique<gqe::logical::join_relation>(std::move(read_rel_0),
+                                                                  std::move(read_rel_1),
+                                                                  empty_relations(),
+                                                                  std::move(cond_0_and_1_or_2),
+                                                                  gqe::join_type_type::inner,
+                                                                  projection_indices);
+
+    if (optimized) {
+      // Optimized plan should have uniqueness info in the plan
+      // LHS columns get to keep their uniqueness
+      _add_column_uniqueness(join_rel.get(), {0});
+    }
+
+    return join_rel;
+  }
+
+  std::unique_ptr<gqe::logical::relation> construct_plan_join_unique_LHS_RHS(bool optimized)
+  {
+    auto read_rel_0 = construct_read_one_unique(optimized);
+    auto read_rel_1 = construct_read_all_unique(optimized);
+
+    auto col_0 = std::make_shared<gqe::column_reference_expression>(0);  // unique if optimized
+    auto col_2 = std::make_shared<gqe::column_reference_expression>(2);  // unique if optimized
+    auto cond =
+      std::make_unique<gqe::equal_expression>(col_0, col_2);  // unique LHS & RHS if optimized
     std::vector<cudf::size_type> projection_indices = {0, 1, 2, 3};
 
     auto join_rel = std::make_unique<gqe::logical::join_relation>(std::move(read_rel_0),
@@ -382,14 +442,48 @@ TEST_F(UniquenessPropagationTest, SimpleAgg)
   EXPECT_EQ(*ref_plan, *optimized_plan);
 }
 
-TEST_F(UniquenessPropagationTest, SimpleJoin)
+TEST_F(UniquenessPropagationTest, SimpleJoinUniqueRHS)
 {
   // Initialize and create optimizer
   initialize_optimizer();
 
   // Construct test and ref plans
-  test_plan = construct_plan_join(false);
-  ref_plan  = construct_plan_join(true);
+  test_plan = construct_plan_join_unique_RHS(false);
+  ref_plan  = construct_plan_join_unique_RHS(true);
+
+  // Optimize
+  assert(optimizer);
+  auto optimized_plan = optimizer->optimize(test_plan);
+
+  // Test
+  EXPECT_EQ(*ref_plan, *optimized_plan);
+}
+
+TEST_F(UniquenessPropagationTest, SimpleJoinUniqueLhsRhs)
+{
+  // Initialize and create optimizer
+  initialize_optimizer();
+
+  // Construct test and ref plans
+  test_plan = construct_plan_join_unique_LHS_RHS(false);
+  ref_plan  = construct_plan_join_unique_LHS_RHS(true);
+
+  // Optimize
+  assert(optimizer);
+  auto optimized_plan = optimizer->optimize(test_plan);
+
+  // Test
+  EXPECT_EQ(*ref_plan, *optimized_plan);
+}
+
+TEST_F(UniquenessPropagationTest, CompoundConditionJoin)
+{
+  // Initialize and create optimizer
+  initialize_optimizer();
+
+  // Construct test and ref plans
+  test_plan = construct_plan_join_compound_condition(false);
+  ref_plan  = construct_plan_join_compound_condition(true);
 
   // Optimize
   assert(optimizer);

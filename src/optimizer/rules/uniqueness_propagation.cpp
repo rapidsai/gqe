@@ -23,6 +23,7 @@
 #include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/relation_properties.hpp>
 #include <gqe/optimizer/rules/uniqueness_propagation.hpp>
+#include <gqe/utility/logger.hpp>
 
 #include <cudf/binaryop.hpp>
 #include <cudf/types.hpp>
@@ -88,57 +89,87 @@ bool is_unique_expression(gqe::expression* expr,
 }
 
 /**
- * @brief Determine whether the join keys get to keep their uniqueness based on the join condition
+ * @brief Determine whether input columns should propagate their uniqueness properties to output
+ * columns based on the join condition
  *
- * @note For a equal expression, if both sides are unique, we either keep original row or discard.
- * This means no rows will be duplicated, thus all columns get to keep their uniqueness. For a
- * logical and expression, if both sides get to keep their uniqueness (both return `true`), then all
- * columns get to keep their uniqueness. For other types of expression, we do not know enough to
- * determine column uniqueness, thus, we drop all uniqueness since there is a possibility of row
- * duplication.
+ * @note For an EQUAL expression, if both child expressions are column references and one of them is
+ * unique, all columns on the other side of the join will not have their rows duplicated, thus the
+ * other side's columns get to keep their uniqueness. For a LOGICAL_AND expression, the function is
+ * called recursively on each child expression and either child expression allowing propagation for
+ * a particular side is sufficient for propagation of that side. For a LOGICAL_OR expression, the
+ * function is called recursively on each child expression and propagation for a particular side
+ * requires both child expressions to allow propagation for that side. For other types of
+ * expression, we do not know enough to determine column uniqueness, thus, we drop all uniqueness
+ * since there is a possibility of row duplication.
  *
- * @todo For a null equal expression, if the both keys are not nullable, then there is no
+ * @todo For a NULL_EQUALS expression, if the both keys are not nullable, then there is no
  * possibility of null matches so all columns get to keep their uniqueness.
  *
- * @param expr
- * @param unique_input_cols
- * @return true
- * @return false
+ * @param[in] expr the join condition or any of its sub-expression
+ * @param[in] unique_input_cols indices of input columns with uniqueness property
+ * @param[in] n_left_cols number of columns in the left child relation; used to determine if a
+ * column reference is from the left or right child relation
+ * @return pair of flags to propagate uniqueness properties of left/right columns
  */
-bool is_unique_join_condition(gqe::expression* expr,
-                              std::unordered_set<cudf::size_type> unique_input_cols)
+std::pair<bool, bool> check_join_condition_for_propagation(
+  gqe::expression* expr,
+  const std::unordered_set<cudf::size_type>& unique_input_cols,
+  const cudf::size_type n_left_cols)
 {
+  // default to false
+  bool propagate_left{false}, propagate_right{false};
+
   if (expr->type() == gqe::expression::expression_type::binary_op) {
-    auto bin_op   = dynamic_cast<gqe::binary_op_expression*>(expr);
+    auto bin_op   = static_cast<gqe::binary_op_expression*>(expr);
     auto children = bin_op->children();
     assert(children.size() == 2);
     if (bin_op->binary_operator() == cudf::binary_operator::EQUAL) {
-      // If both sides are unique, all columns get to keep their uniqueness
-      return is_unique_join_condition(children[0], unique_input_cols) &&
-             is_unique_join_condition(children[1], unique_input_cols);
-    } else if (bin_op->binary_operator() == cudf::binary_operator::NULL_EQUALS) {
-      // TODO: can return true if column is not nullable
-      return false;
+      // check operands of equality are both column refs
+      if (children[0]->type() == gqe::expression::expression_type::column_reference &&
+          children[1]->type() == gqe::expression::expression_type::column_reference) {
+        auto col_idx_0 = static_cast<gqe::column_reference_expression*>(children[0])->column_idx();
+        auto col_idx_1 = static_cast<gqe::column_reference_expression*>(children[1])->column_idx();
+        // warn if both child expressions are columns on the same side of the join relation
+        if ((col_idx_0 < n_left_cols) == (col_idx_1 < n_left_cols))
+          GQE_LOG_WARN(
+            "Join predicate (sub)expression comparing column references from same child of join "
+            "relation!");
+
+        // Propagate uniqueness if applicable
+        if (unique_input_cols.count(col_idx_0)) {
+          ((col_idx_0 < n_left_cols) ? propagate_right : propagate_left) = true;
+        }
+        if (unique_input_cols.count(col_idx_1)) {
+          ((col_idx_1 < n_left_cols) ? propagate_right : propagate_left) = true;
+        }
+      }
     } else if (bin_op->binary_operator() == cudf::binary_operator::LOGICAL_AND ||
                bin_op->binary_operator() == cudf::binary_operator::NULL_LOGICAL_AND) {
-      // Recursively check both sides
-      return is_unique_join_condition(children[0], unique_input_cols) &&
-             is_unique_join_condition(children[1], unique_input_cols);
-    } else {
-      return false;
+      // check child expressions: either side of AND operator can, on its own, allow propagation
+      std::tie(propagate_left, propagate_right) =
+        check_join_condition_for_propagation(children[0], unique_input_cols, n_left_cols);
+      if (!propagate_left || !propagate_right) {
+        auto [propagate_left_tmp, propagate_right_tmp] =
+          check_join_condition_for_propagation(children[1], unique_input_cols, n_left_cols);
+        propagate_left |= propagate_left_tmp;
+        propagate_right |= propagate_right_tmp;
+      }
+    } else if (bin_op->binary_operator() == cudf::binary_operator::LOGICAL_OR ||
+               bin_op->binary_operator() == cudf::binary_operator::NULL_LOGICAL_OR) {
+      // check child expressions: either side of OR operator can, on its own, forbid propagation
+      std::tie(propagate_left, propagate_right) =
+        check_join_condition_for_propagation(children[0], unique_input_cols, n_left_cols);
+      if (propagate_left || propagate_right) {
+        auto [propagate_left_tmp, propagate_right_tmp] =
+          check_join_condition_for_propagation(children[1], unique_input_cols, n_left_cols);
+        propagate_left &= propagate_left_tmp;
+        propagate_right &= propagate_right_tmp;
+      }
     }
-  } else if (expr->type() == gqe::expression::expression_type::column_reference) {
-    auto col_ref = dynamic_cast<gqe::column_reference_expression*>(expr);
-    auto col_idx = col_ref->column_idx();
-    if (unique_input_cols.count(col_idx)) {
-      // Column is unique
-      return true;
-    } else {
-      return false;
-    }
-  } else {
-    return false;
+    // TODO: can propagate uniqueness if operator is NULL_EQUALS and columns are not nullable
   }
+
+  return std::make_pair(propagate_left, propagate_right);
 }
 
 class uniqueness_propagation_helpers : public gqe::optimizer::uniqueness_propagation {
@@ -226,13 +257,40 @@ class uniqueness_propagation_helpers : public gqe::optimizer::uniqueness_propaga
            gqe::optimizer::column_property::property_id::unique)) {
       input_unique_cols.insert(ridx + n_left_cols);
     }
-    if (is_unique_join_condition(condition, input_unique_cols)) {
-      // If all columns get to keep their uniqueness, update this info in the current relation for
-      // projected columns
-      auto projection_indices = join->projection_indices();
-      for (uint32_t output_col_idx = 0; output_col_idx < projection_indices.size();
-           ++output_col_idx) {
-        if (input_unique_cols.count(projection_indices[output_col_idx])) {
+
+    bool propagate_left, propagate_right;
+    switch (join->join_type()) {
+      case gqe::join_type_type::inner: {
+        std::tie(propagate_left, propagate_right) =
+          check_join_condition_for_propagation(condition, input_unique_cols, n_left_cols);
+        break;
+      }
+      // the following join types do not duplicate rows in the LHS columns but should not
+      // propagate uniqueness for the RHS columns
+      case gqe::join_type_type::left_semi:  // RHS columns do not appear in output
+      case gqe::join_type_type::left_anti:  // RHS columns do not appear in output
+      case gqe::join_type_type::single: {   // see TODO item below regarding NULL values
+        propagate_left  = true;
+        propagate_right = false;
+        break;
+      }
+      // do not propagate column uniqueness for all other join types
+      default:
+        return;
+        // TODO: specify GQE's semantics regarding uniquness of NULL values (background on ambiguity
+        // in SQL standard: https://sqlite.org/nulls.html) to potentially allow propagation for
+        // outer (e.g. left, full) joins, as well as for RHS columns of single join
+    }
+
+    if (!propagate_left && !propagate_right) return;
+    // Propagate uniqueness to projected columns
+    auto projection_indices = join->projection_indices();
+    for (uint32_t output_col_idx = 0; output_col_idx < projection_indices.size();
+         ++output_col_idx) {
+      auto input_col_idx = projection_indices[output_col_idx];
+      if ((input_col_idx < n_left_cols && propagate_left) ||
+          (input_col_idx >= n_left_cols && propagate_right)) {
+        if (input_unique_cols.count(input_col_idx)) {
           gqe::optimizer::optimization_rule::set_relation_property(
             join, output_col_idx, gqe::optimizer::column_property::property_id::unique);
           rule_applied = true;

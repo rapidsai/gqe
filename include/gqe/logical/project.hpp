@@ -92,7 +92,7 @@ class project_relation : public relation {
    */
   void replace_expr_at(cudf::size_type idx, std::unique_ptr<expression> new_expr)
   {
-    assert(idx < _output_expressions.size());
+    assert(static_cast<std::size_t>(idx) < _output_expressions.size());
     _output_expressions[idx] = std::move(new_expr);
   }
 

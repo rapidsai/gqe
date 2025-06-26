@@ -21,7 +21,7 @@
 #include <optional>
 #include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream.hpp>
-#include <rmm/mr/device/cuda_memory_resource.hpp>
+#include <rmm/mr/device/cuda_async_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
 
@@ -46,12 +46,18 @@ struct shared_stream {
 struct task_manager_context {
   /**
    * @brief Constructs a task manager context.
-   * @note If no memory resource is supplied, then the manager context will use a
-   * rmm::pool_memory_resource reserving ~90% of current free memory on device.
+   * @warning Constructing an object of this type will set the current device resource to @param mr
    */
-  explicit task_manager_context(
-    device_properties device_prop                                      = device_properties(),
-    std::optional<std::unique_ptr<rmm::mr::device_memory_resource>> mr = std::nullopt);
+  explicit task_manager_context(std::unique_ptr<rmm::mr::device_memory_resource> mr =
+                                  std::make_unique<rmm::mr::cuda_async_memory_resource>(),
+                                device_properties device_prop = device_properties());
+
+  /**
+   * @brief Destructs a task manager context.
+   * @warning Destroying this object will reset the current device resource to the default memory
+   * resource provided by RMM
+   */
+  ~task_manager_context();
   task_manager_context(const task_manager_context&) = delete;
   task_manager_context(task_manager_context&&)      = default;
   task_manager_context& operator=(const task_manager_context&) = delete;
@@ -61,10 +67,6 @@ struct task_manager_context {
  protected:
   device_properties _device_properties;
 
-  // we need to keep _upstream_mr alive for the memory pool. rmm does not provide a way to have an
-  // owned upstream resource. Shared semantics for memory resource will be supported in the future.
-  // Ref https://github.com/rapidsai/rmm/issues/1878
-  std::unique_ptr<rmm::mr::device_memory_resource> _upstream_mr;
   std::unique_ptr<rmm::mr::device_memory_resource> _mr;
 
  public:
@@ -73,8 +75,8 @@ struct task_manager_context {
 
 struct multi_process_task_manager_context : public task_manager_context {
   explicit multi_process_task_manager_context(
-    device_properties device_prop                                         = device_properties(),
-    std::optional<std::unique_ptr<gqe::pgas_memory_resource>> upstream_mr = std::nullopt);
+    std::optional<std::unique_ptr<gqe::pgas_memory_resource>> upstream_mr = std::nullopt,
+    device_properties device_prop                                         = device_properties());
   multi_process_task_manager_context(const multi_process_task_manager_context&) = delete;
   multi_process_task_manager_context(multi_process_task_manager_context&&)      = default;
   multi_process_task_manager_context& operator=(const multi_process_task_manager_context&) = delete;
@@ -117,6 +119,7 @@ struct multi_process_task_manager_context : public task_manager_context {
   int32_t _mpi_size;
   MPI_Comm _mpi_comm;
   std::vector<void*> _base_ptrs;
+  gqe::pgas_memory_resource* _upstream_pgas_mr;
 };
 
 }  // namespace gqe

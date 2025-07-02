@@ -52,7 +52,9 @@ void print_usage()
   std::cout << "Run TPC benchmark" << std::endl
             << "./tpc <{ds, h}> <path-to-substrait> <path-to-dataset> <storage-kind>" << std::endl
             << "<path-to-substrait> can be either a single Substrait file or a directory "
-               "containing substrait files"
+               "containing substrait files \n"
+               "Available storage kinds: system_memory, numa_memory, numa_pinned_memory, "
+               "pinned_memory, device_memory, managed_memory, parquet_file"
             << std::endl;
 }
 
@@ -68,6 +70,7 @@ gqe::storage_kind::type parse_storage_kind(const std::string& storage_kind_descr
   std::map<std::string, gqe::storage_kind::type> const storage_kinds{
     {"system_memory", gqe::storage_kind::system_memory{}},
     {"numa_memory", gqe::storage_kind::numa_memory{gqe::cpu_set(0)}},
+    {"numa_pinned_memory", gqe::storage_kind::numa_pinned_memory{gqe::cpu_set(0)}},
     {"pinned_memory", gqe::storage_kind::pinned_memory{}},
     {"device_memory", gqe::storage_kind::device_memory{rmm::cuda_device_id(0)}},
     {"managed_memory", gqe::storage_kind::managed_memory{}},
@@ -321,6 +324,7 @@ int main(int argc, char* argv[])
     std::visit(gqe::utility::overloaded{
                  [&](const gqe::storage_kind::system_memory) { register_and_copy(); },
                  [&](const gqe::storage_kind::numa_memory) { register_and_copy(); },
+                 [&](const gqe::storage_kind::numa_pinned_memory) { register_and_copy(); },
                  [&](const gqe::storage_kind::pinned_memory) { register_and_copy(); },
                  [&](const gqe::storage_kind::device_memory) { register_and_copy(); },
                  [&](const gqe::storage_kind::managed_memory) { register_and_copy(); },

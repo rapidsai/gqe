@@ -49,17 +49,22 @@ class numa_memory_resource : public rmm::mr::device_memory_resource {
    * @brief Create a NUMA memory resource on the default NUMA node.
    *
    * @param[in] page_kind The page kind. Defaults to the system default page kind.
+   * @param[in] pinned Whether to register the memory with CUDA for pinned access. Defaults to
+   * false.
    */
-  numa_memory_resource(page_kind::type page_kind = page_kind::system_default);
+  numa_memory_resource(page_kind::type page_kind = page_kind::system_default, bool pinned = false);
 
   /**
    * @brief Create a NUMA memory resource using the specified NUMA nodes.
    *
    * @param[in] numa_node_set The NUMA nodes the memory resource will consist of.
    * @param[in] page_kind The page kind. Defaults to the system default page kind.
+   * @param[in] pinned Whether to register the memory with CUDA for pinned access. Defaults to
+   * false.
    */
   numa_memory_resource(cpu_set numa_node_set,
-                       page_kind::type page_kind = page_kind::system_default);
+                       page_kind::type page_kind = page_kind::system_default,
+                       bool pinned               = false);
 
   ~numa_memory_resource() override = default;
 
@@ -71,6 +76,7 @@ class numa_memory_resource : public rmm::mr::device_memory_resource {
   cpu_set _numa_node_set; /**< The NUMA nodes on which memory will be allocated. */
   page_kind
     _page_kind; /**< The page type to allocate, e.g., 4 KB small pages or 2 MB huge pages. */
+  bool _pinned; /**< Whether the memory is registered with CUDA for pinned access. */
 };
 
 }  // namespace memory_resource

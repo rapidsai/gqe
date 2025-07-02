@@ -234,6 +234,10 @@ struct numa {
 struct pinned {
 };
 
+struct numa_pinned {
+  cpu_set numa_node_set; /**< NUMA node identifier hint. */
+  gqe::page_kind::type page_kind = gqe::page_kind::system_default; /**< Page kind hint */
+};
 /**
  * @brief CUDA device memory.
  */
@@ -253,6 +257,7 @@ struct managed {
 using type = std::variant<memory_kind::system,
                           memory_kind::numa,
                           memory_kind::pinned,
+                          memory_kind::numa_pinned,
                           memory_kind::device,
                           memory_kind::managed>;
 
@@ -291,6 +296,11 @@ using device_memory = memory_kind::device;
 using managed_memory = memory_kind::managed;
 
 /**
+ * @copydoc gqe::memory_kind::numa_pinned_memory
+ */
+using numa_pinned_memory = memory_kind::numa_pinned;
+
+/**
  * @brief Parquet file format, optionally Hive partitioned.
  */
 struct parquet_file {
@@ -310,6 +320,7 @@ using type = std::variant<storage_kind::system_memory,
                           storage_kind::pinned_memory,
                           storage_kind::device_memory,
                           storage_kind::managed_memory,
+                          storage_kind::numa_pinned_memory,
                           storage_kind::parquet_file>;
 
 }  // namespace storage_kind

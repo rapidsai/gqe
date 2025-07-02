@@ -87,6 +87,12 @@ void catalog::register_table(std::string const& table_name,
         return std::make_unique<storage::in_memory_table>(
           memory_kind::numa{memory.numa_node_set, memory.page_kind}, column_names, column_types);
       },
+      [&](storage_kind::numa_pinned_memory memory) -> std::unique_ptr<storage::table> {
+        return std::make_unique<storage::in_memory_table>(
+          memory_kind::numa_pinned{memory.numa_node_set, memory.page_kind},
+          column_names,
+          column_types);
+      },
       [&](storage_kind::pinned_memory memory) -> std::unique_ptr<storage::table> {
         return std::make_unique<storage::in_memory_table>(
           memory_kind::pinned{}, column_names, column_types);

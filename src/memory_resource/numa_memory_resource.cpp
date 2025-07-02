@@ -20,6 +20,7 @@
 #include <sstream>
 #include <string>
 
+#include <cuda_runtime_api.h>
 #include <linux/mman.h>
 #include <numaif.h>
 #include <sys/mman.h>
@@ -38,14 +39,19 @@ namespace gqe {
 
 namespace memory_resource {
 
-numa_memory_resource::numa_memory_resource(page_kind::type page_kind)
-  : rmm::mr::device_memory_resource(), _numa_node_set(), _page_kind(page_kind)
+numa_memory_resource::numa_memory_resource(page_kind::type page_kind, bool pinned)
+  : rmm::mr::device_memory_resource(), _numa_node_set(), _page_kind(page_kind), _pinned(pinned)
 {
   _numa_node_set.add(0);
 }
 
-numa_memory_resource::numa_memory_resource(cpu_set numa_node_set, page_kind::type page_kind)
-  : rmm::mr::device_memory_resource(), _numa_node_set(numa_node_set), _page_kind(page_kind)
+numa_memory_resource::numa_memory_resource(cpu_set numa_node_set,
+                                           page_kind::type page_kind,
+                                           bool pinned)
+  : rmm::mr::device_memory_resource(),
+    _numa_node_set(numa_node_set),
+    _page_kind(page_kind),
+    _pinned(pinned)
 {
 }
 
@@ -95,12 +101,30 @@ void* numa_memory_resource::do_allocate(std::size_t bytes, rmm::cuda_stream_view
     throw std::bad_alloc();
   }
 
+  if (_pinned) {
+    // Register the memory with CUDA for pinned access
+    auto status = cudaHostRegister(ptr, aligned_bytes, cudaHostRegisterDefault);
+    if (cudaSuccess != status) {
+      GQE_LOG_ERROR("cudaHostRegister failed with: ", cudaGetErrorString(status));
+      ::munmap(ptr, aligned_bytes);
+      throw std::bad_alloc();
+    }
+  }
+
   return ptr;
 }
 
 void numa_memory_resource::do_deallocate(void* ptr, std::size_t bytes, rmm::cuda_stream_view)
 {
   if (ptr == nullptr || bytes == 0) { return; }
+
+  if (_pinned) {
+    // Unregister the memory from CUDA
+    auto status = cudaHostUnregister(ptr);
+    if (cudaSuccess != status) {
+      GQE_LOG_ERROR("cudaHostUnregister failed with: ", cudaGetErrorString(status));
+    }
+  }
 
   // munmap sometimes fails if bytes aren't page aligned
   auto aligned_bytes = round_to_next_page(bytes, _page_kind.size());

@@ -232,8 +232,12 @@ in_memory_table::in_memory_table(memory_kind::type memory_kind,
         return std::make_unique<memory_resource::numa_memory_resource>(numa.numa_node_set,
                                                                        numa.page_kind);
       },
-      [](const memory_kind::pinned& numa) -> std::unique_ptr<rmm::mr::device_memory_resource> {
+      [](const memory_kind::pinned&) -> std::unique_ptr<rmm::mr::device_memory_resource> {
         return std::make_unique<memory_resource::pinned_memory_resource>();
+      },
+      [](const memory_kind::numa_pinned& numa) -> std::unique_ptr<rmm::mr::device_memory_resource> {
+        return std::make_unique<memory_resource::numa_memory_resource>(
+          numa.numa_node_set, numa.page_kind, true);
       },
       [](const memory_kind::device& device) -> std::unique_ptr<rmm::mr::device_memory_resource> {
         // FIXME: specify device instead of allocating on default CUDA device

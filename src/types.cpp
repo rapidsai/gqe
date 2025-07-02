@@ -147,6 +147,9 @@ bool memory_kind::is_gpu_accessible(const device_properties& device_prop, memory
                         [&](memory_kind::pinned) -> bool {
                           return device_prop.get<device_properties::property::unifiedAddressing>();
                         },
+                        [&](memory_kind::numa_pinned) -> bool {
+                          return device_prop.get<device_properties::property::unifiedAddressing>();
+                        },
                         [](memory_kind::device) { return true; },
                         [&](memory_kind::managed) -> bool {
                           return device_prop.get<device_properties::property::managedMemory>();

@@ -274,8 +274,8 @@ void custom_task::execute()
                                    empty_value_sentinel,
                                    thrust::equal_to<int64_t>{},
                                    cuco::linear_probing<1, cuco::default_hash_function<int64_t>>{},
-                                   {},
-                                   {},
+                                           {},
+                                           {},
                                    stream_alloc};
   auto i_item_sk_column = cudf::column_device_view::create(item_table.column(0));
 

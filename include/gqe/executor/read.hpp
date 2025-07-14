@@ -37,7 +37,7 @@ class read_task_base : public task {
                  int32_t stage_id,
                  std::vector<std::shared_ptr<task>> subquery_tasks);
 
-  read_task_base(const read_task_base&) = delete;
+  read_task_base(const read_task_base&)            = delete;
   read_task_base& operator=(const read_task_base&) = delete;
 };
 

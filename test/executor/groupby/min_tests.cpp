@@ -33,8 +33,7 @@
 using namespace cudf::test::iterators;
 
 template <typename V>
-struct groupby_min_test : public cudf::test::BaseFixture {
-};
+struct groupby_min_test : public cudf::test::BaseFixture {};
 
 TYPED_TEST_SUITE(groupby_min_test, cudf::test::FixedWidthTypesWithoutFixedPoint);
 
@@ -107,8 +106,7 @@ TYPED_TEST(groupby_min_test, null_keys_and_values)
 }
 
 template <typename T>
-struct GroupByMinFixedPointTest : public cudf::test::BaseFixture {
-};
+struct GroupByMinFixedPointTest : public cudf::test::BaseFixture {};
 
 TYPED_TEST_SUITE(GroupByMinFixedPointTest, PartialFixedPointTypes);
 
@@ -136,8 +134,7 @@ TYPED_TEST(GroupByMinFixedPointTest, GroupByHashMinDecimalAsValue)
 }
 
 template <typename V>
-struct groupby_min_floating_point_test : public cudf::test::BaseFixture {
-};
+struct groupby_min_floating_point_test : public cudf::test::BaseFixture {};
 
 TYPED_TEST_SUITE(groupby_min_floating_point_test, cudf::test::FloatingPointTypes);
 

@@ -115,7 +115,7 @@ class parquet_read_task : public read_task_base {
                     std::unique_ptr<gqe::expression> partial_filter   = nullptr,
                     std::vector<std::shared_ptr<task>> subquery_tasks = {});
 
-  parquet_read_task(const parquet_read_task&) = delete;
+  parquet_read_task(const parquet_read_task&)            = delete;
   parquet_read_task& operator=(const parquet_read_task&) = delete;
 
   /**
@@ -163,7 +163,7 @@ class parquet_write_task : public write_task_base {
                      std::vector<std::string> column_names,
                      std::vector<cudf::data_type> data_types);
 
-  parquet_write_task(const parquet_write_task&) = delete;
+  parquet_write_task(const parquet_write_task&)            = delete;
   parquet_write_task& operator=(const parquet_write_task&) = delete;
 
   /**

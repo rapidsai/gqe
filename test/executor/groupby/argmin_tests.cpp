@@ -28,8 +28,7 @@
 using namespace cudf::test::iterators;
 
 template <typename V>
-struct groupby_argmin_test : public cudf::test::BaseFixture {
-};
+struct groupby_argmin_test : public cudf::test::BaseFixture {};
 
 TYPED_TEST_SUITE(groupby_argmin_test, cudf::test::FixedWidthTypes);
 
@@ -91,8 +90,7 @@ TYPED_TEST(groupby_argmin_test, null_keys_and_values)
   test_single_agg(keys, vals, expect_keys, expect_vals, std::move(agg));
 }
 
-struct groupby_argmin_string_test : public cudf::test::BaseFixture {
-};
+struct groupby_argmin_string_test : public cudf::test::BaseFixture {};
 
 TEST_F(groupby_argmin_string_test, basic)
 {

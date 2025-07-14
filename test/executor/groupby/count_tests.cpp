@@ -26,8 +26,7 @@
 #include <gtest/gtest.h>
 
 template <typename V>
-struct groupby_count_test : public cudf::test::BaseFixture {
-};
+struct groupby_count_test : public cudf::test::BaseFixture {};
 
 TYPED_TEST_SUITE(groupby_count_test, cudf::test::AllTypes);
 
@@ -112,8 +111,7 @@ TYPED_TEST(groupby_count_test, null_keys_and_values)
   test_single_agg(keys, vals, expect_keys, expect_vals2, std::move(agg2));
 }
 
-struct groupby_count_string_test : public cudf::test::BaseFixture {
-};
+struct groupby_count_string_test : public cudf::test::BaseFixture {};
 
 TEST_F(groupby_count_string_test, basic)
 {
@@ -135,8 +133,7 @@ TEST_F(groupby_count_string_test, basic)
 // clang-format on
 
 template <typename T>
-struct GroupByCountFixedPointTest : public cudf::test::BaseFixture {
-};
+struct GroupByCountFixedPointTest : public cudf::test::BaseFixture {};
 
 TYPED_TEST_SUITE(GroupByCountFixedPointTest, cudf::test::FixedPointTypes);
 
@@ -165,8 +162,7 @@ TYPED_TEST(GroupByCountFixedPointTest, GroupByCount)
   test_single_agg(keys, vals, expect_keys, expect_vals, std::move(agg2));
 }
 
-struct groupby_dictionary_count_test : public cudf::test::BaseFixture {
-};
+struct groupby_dictionary_count_test : public cudf::test::BaseFixture {};
 
 TEST_F(groupby_dictionary_count_test, basic)
 {

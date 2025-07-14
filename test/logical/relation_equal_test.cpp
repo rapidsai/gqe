@@ -51,24 +51,24 @@ class RelationEqualTest : public ::testing::Test {
 
     std::vector<std::string> col_names_0 = {"a", "b"};
     auto col_types_0                     = {cudf::data_type(cudf::type_id::INT32),
-                        cudf::data_type(cudf::type_id::FLOAT32)};
+                                            cudf::data_type(cudf::type_id::FLOAT32)};
     read_rel_0                           = std::make_shared<gqe::logical::read_relation>(
       empty_relations(), std::move(col_names_0), std::move(col_types_0), "t0", nullptr);
     std::vector<std::string> col_names_0_dup = {"a", "b"};
     auto col_types_0_dup                     = {cudf::data_type(cudf::type_id::INT32),
-                            cudf::data_type(cudf::type_id::FLOAT32)};
+                                                cudf::data_type(cudf::type_id::FLOAT32)};
     read_rel_0_dup                           = std::make_shared<gqe::logical::read_relation>(
       empty_relations(), std::move(col_names_0_dup), std::move(col_types_0_dup), "t0", nullptr);
 
     std::vector<std::string> col_names_1 = {"a", "c"};
     auto col_types_1                     = {cudf::data_type(cudf::type_id::INT32),
-                        cudf::data_type(cudf::type_id::BOOL8)};
+                                            cudf::data_type(cudf::type_id::BOOL8)};
     read_rel_1                           = std::make_shared<gqe::logical::read_relation>(
       empty_relations(), std::move(col_names_1), std::move(col_types_1), "t1", nullptr);
 
     std::vector<std::string> col_names_2 = {"d", "e"};
     auto col_types_2                     = {cudf::data_type(cudf::type_id::INT32),
-                        cudf::data_type(cudf::type_id::FLOAT32)};
+                                            cudf::data_type(cudf::type_id::FLOAT32)};
     read_rel_2                           = std::make_shared<gqe::logical::read_relation>(
       empty_relations(), std::move(col_names_2), std::move(col_types_2), "t2", nullptr);
   }
@@ -524,7 +524,7 @@ TEST_F(RelationEqualTest, Write)
 {
   std::vector<std::string> col_names_0 = {"a", "b"};
   auto col_types_0                     = {cudf::data_type(cudf::type_id::INT32),
-                      cudf::data_type(cudf::type_id::FLOAT32)};
+                                          cudf::data_type(cudf::type_id::FLOAT32)};
   auto write_0                         = std::make_shared<gqe::logical::write_relation>(
     read_rel_0, std::move(col_names_0), std::move(col_types_0), "t0");
   std::vector<std::string> col_names_1 = {"a", "c"};
@@ -533,7 +533,7 @@ TEST_F(RelationEqualTest, Write)
     read_rel_1, std::move(col_names_1), std::move(col_types_1), "t0");
   std::vector<std::string> col_names_0_dup = {"a", "b"};
   auto col_types_0_dup                     = {cudf::data_type(cudf::type_id::INT32),
-                          cudf::data_type(cudf::type_id::FLOAT32)};
+                                              cudf::data_type(cudf::type_id::FLOAT32)};
   auto write_0_dup                         = std::make_shared<gqe::logical::write_relation>(
     read_rel_0, std::move(col_names_0_dup), std::move(col_types_0_dup), "t0");
   EXPECT_FALSE(*write_0 == *write_1);

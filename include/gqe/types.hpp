@@ -217,8 +217,7 @@ namespace memory_kind {
 /**
  * @brief System memory allocated with the default system allocator.
  */
-struct system {
-};
+struct system {};
 
 /**
  * @brief System memory allocated on a specific NUMA node.
@@ -231,8 +230,7 @@ struct numa {
 /**
  * @brief Pinned system memory allocated with `cudaMallocHost`.
  */
-struct pinned {
-};
+struct pinned {};
 
 struct numa_pinned {
   cpu_set numa_node_set; /**< NUMA node identifier hint. */
@@ -248,8 +246,7 @@ struct device {
 /**
  * @brief CUDA managed memory.
  */
-struct managed {
-};
+struct managed {};
 
 /**
  * @brief Memory kind of an in-memory table.
@@ -333,14 +330,12 @@ namespace partitioning_schema_kind {
  * Inferrence of the partitioning schema is only possible for files. In-memory
  * storage defaults to `none`.
  */
-struct automatic {
-};
+struct automatic {};
 
 /**
  * @brief Do not partition data.
  */
-struct none {
-};
+struct none {};
 
 /**
  * @brief Key-by partitioning schema.

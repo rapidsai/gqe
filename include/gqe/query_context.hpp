@@ -40,8 +40,8 @@ struct query_context {
                          optimizer::optimization_configuration logical_rule_config =
                            optimizer::optimization_configuration());
 
-  query_context()                     = delete;
-  query_context(query_context const&) = delete;
+  query_context()                                = delete;
+  query_context(query_context const&)            = delete;
   query_context& operator=(query_context const&) = delete;
 
   gqe::optimization_parameters parameters;

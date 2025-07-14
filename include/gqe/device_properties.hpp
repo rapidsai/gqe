@@ -41,10 +41,10 @@ struct device_properties {
   explicit device_properties(const std::vector<rmm::cuda_device_id>&
                                visible_devices);  // query and cache all visible device properties
   device_properties();                            // query and cache all visible device properties
-  device_properties(const device_properties&) = default;
-  device_properties(device_properties&&)      = default;
+  device_properties(const device_properties&)            = default;
+  device_properties(device_properties&&)                 = default;
   device_properties& operator=(const device_properties&) = default;
-  device_properties& operator=(device_properties&&) = default;
+  device_properties& operator=(device_properties&&)      = default;
 
   /**
    * @brief Get some property p for device.
@@ -60,8 +60,7 @@ struct device_properties {
   std::unordered_map<int, cudaDeviceProp> _device_properties_cache;
 
   template <property p>
-  struct dependent_false : std::false_type {
-  };
+  struct dependent_false : std::false_type {};
 };
 
 template <device_properties::property p>

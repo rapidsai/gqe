@@ -27,8 +27,7 @@
 using namespace cudf::test::iterators;
 
 template <typename V>
-struct groupby_sum_test : public cudf::test::BaseFixture {
-};
+struct groupby_sum_test : public cudf::test::BaseFixture {};
 
 using supported_types =
   cudf::test::Concat<cudf::test::Types<int8_t, int16_t, int32_t, int64_t, float, double>,
@@ -104,8 +103,7 @@ TYPED_TEST(groupby_sum_test, null_keys_and_values)
   test_single_agg(keys, vals, expect_keys, expect_vals, std::move(agg));
 }
 
-struct overflow_test : public cudf::test::BaseFixture {
-};
+struct overflow_test : public cudf::test::BaseFixture {};
 TEST_F(overflow_test, overflow_integer)
 {
   using int32_col = cudf::test::fixed_width_column_wrapper<int32_t>;
@@ -121,8 +119,7 @@ TEST_F(overflow_test, overflow_integer)
 }
 
 template <typename T>
-struct GroupBySumFixedPointTest : public cudf::test::BaseFixture {
-};
+struct GroupBySumFixedPointTest : public cudf::test::BaseFixture {};
 
 TYPED_TEST_SUITE(GroupBySumFixedPointTest, PartialFixedPointTypes);
 

@@ -65,8 +65,8 @@ class relation {
   relation(std::vector<std::shared_ptr<relation>> children,
            std::vector<std::shared_ptr<relation>> subqueries);
 
-  virtual ~relation()       = default;
-  relation(const relation&) = delete;
+  virtual ~relation()                  = default;
+  relation(const relation&)            = delete;
   relation& operator=(const relation&) = delete;
 
   /**

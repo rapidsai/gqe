@@ -38,7 +38,7 @@ class table {
    */
   table() = default;
 
-  table(const table&) = delete;
+  table(const table&)            = delete;
   table& operator=(const table&) = delete;
 
   virtual ~table() = default;

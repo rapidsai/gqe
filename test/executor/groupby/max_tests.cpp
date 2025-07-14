@@ -33,8 +33,7 @@
 using namespace cudf::test::iterators;
 
 template <typename V>
-struct groupby_max_test : public cudf::test::BaseFixture {
-};
+struct groupby_max_test : public cudf::test::BaseFixture {};
 
 TYPED_TEST_SUITE(groupby_max_test, cudf::test::FixedWidthTypesWithoutFixedPoint);
 
@@ -107,8 +106,7 @@ TYPED_TEST(groupby_max_test, null_keys_and_values)
 }
 
 template <typename T>
-struct GroupByMaxFixedPointTest : public cudf::test::BaseFixture {
-};
+struct GroupByMaxFixedPointTest : public cudf::test::BaseFixture {};
 
 TYPED_TEST_SUITE(GroupByMaxFixedPointTest, PartialFixedPointTypes);
 
@@ -156,8 +154,7 @@ TYPED_TEST(GroupByMaxFixedPointTest, GroupByHashMaxDecimalAsValue)
 }
 
 template <typename V>
-struct groupby_max_floating_point_test : public cudf::test::BaseFixture {
-};
+struct groupby_max_floating_point_test : public cudf::test::BaseFixture {};
 
 TYPED_TEST_SUITE(groupby_max_floating_point_test, cudf::test::FloatingPointTypes);
 

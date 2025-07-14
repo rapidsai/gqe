@@ -53,7 +53,7 @@ class column_base {
   column_base()          = default;
   virtual ~column_base() = default;
 
-  column_base(const column_base& other) = delete;
+  column_base(const column_base& other)      = delete;
   column_base& operator=(const column_base&) = delete;
 
   /**
@@ -75,7 +75,7 @@ class contiguous_column : public column_base {
   explicit contiguous_column(cudf::column&& cudf_column);
   ~contiguous_column() override = default;
 
-  contiguous_column(const contiguous_column&) = delete;
+  contiguous_column(const contiguous_column&)            = delete;
   contiguous_column& operator=(const contiguous_column&) = delete;
 
   /**
@@ -171,7 +171,7 @@ class compressed_column : public column_base {
 
   ~compressed_column() override = default;
 
-  compressed_column(const compressed_column&) = delete;
+  compressed_column(const compressed_column&)            = delete;
   compressed_column& operator=(const compressed_column&) = delete;
 
   /**
@@ -233,7 +233,7 @@ class row_group {
 
   explicit row_group(std::vector<std::unique_ptr<column_base>>&& columns);
 
-  row_group(const row_group& other) = delete;
+  row_group(const row_group& other)      = delete;
   row_group& operator=(const row_group&) = delete;
 
   virtual ~row_group() = default;
@@ -431,7 +431,7 @@ class in_memory_read_task : public read_task_base {
                       std::vector<std::shared_ptr<task>> subquery_tasks = {},
                       bool force_zero_copy_disable                      = false);
 
-  in_memory_read_task(const in_memory_read_task&) = delete;
+  in_memory_read_task(const in_memory_read_task&)            = delete;
   in_memory_read_task& operator=(const in_memory_read_task&) = delete;
 
   void execute() override;
@@ -479,7 +479,7 @@ class in_memory_write_task : public write_task_base {
                        std::vector<cudf::data_type> data_types,
                        table_statistics_manager* statistics);
 
-  in_memory_write_task(const in_memory_write_task&) = delete;
+  in_memory_write_task(const in_memory_write_task&)            = delete;
   in_memory_write_task& operator=(const in_memory_write_task&) = delete;
 
   void execute() override;

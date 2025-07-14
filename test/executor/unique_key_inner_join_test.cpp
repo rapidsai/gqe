@@ -150,8 +150,7 @@ void check_equality(rmm::device_uvector<cudf::size_type>* build_result_indices,
 }
 
 template <typename T>
-struct UniqueKeyInnerJoinTest : public cudf::test::BaseFixture {
-};
+struct UniqueKeyInnerJoinTest : public cudf::test::BaseFixture {};
 
 TYPED_TEST_SUITE(UniqueKeyInnerJoinTest, TestType);
 

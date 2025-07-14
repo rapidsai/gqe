@@ -70,8 +70,8 @@ class task {
        std::vector<std::shared_ptr<task>> dependencies,
        std::vector<std::shared_ptr<task>> subquery_tasks);
 
-  virtual ~task()   = default;
-  task(const task&) = delete;
+  virtual ~task()              = default;
+  task(const task&)            = delete;
   task& operator=(const task&) = delete;
 
   /**

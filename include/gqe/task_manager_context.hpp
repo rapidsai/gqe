@@ -58,10 +58,10 @@ struct task_manager_context {
    * resource provided by RMM
    */
   ~task_manager_context();
-  task_manager_context(const task_manager_context&) = delete;
-  task_manager_context(task_manager_context&&)      = default;
+  task_manager_context(const task_manager_context&)            = delete;
+  task_manager_context(task_manager_context&&)                 = default;
   task_manager_context& operator=(const task_manager_context&) = delete;
-  task_manager_context& operator=(task_manager_context&&) = default;
+  task_manager_context& operator=(task_manager_context&&)      = default;
   device_properties const& get_device_properties() const { return _device_properties; };
 
  protected:

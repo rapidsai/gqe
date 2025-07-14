@@ -113,8 +113,8 @@ class relation {
   {
   }
 
-  virtual ~relation()       = default;
-  relation(const relation&) = delete;
+  virtual ~relation()                  = default;
+  relation(const relation&)            = delete;
   relation& operator=(const relation&) = delete;
 
   /**

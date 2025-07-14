@@ -31,8 +31,7 @@
 using namespace cudf::test::iterators;
 
 template <typename V>
-struct groupby_keys_test : public cudf::test::BaseFixture {
-};
+struct groupby_keys_test : public cudf::test::BaseFixture {};
 
 using supported_types = cudf::test::
   Types<int8_t, int16_t, int32_t, int64_t, float, double, numeric::decimal32, numeric::decimal64>;
@@ -79,8 +78,7 @@ TYPED_TEST(groupby_keys_test, include_null_keys)
   test_single_agg(keys, vals, expect_keys, expect_vals, std::move(agg), cudf::null_policy::INCLUDE);
 }
 
-struct groupby_string_keys_test : public cudf::test::BaseFixture {
-};
+struct groupby_string_keys_test : public cudf::test::BaseFixture {};
 
 TEST_F(groupby_string_keys_test, basic)
 {
@@ -100,8 +98,7 @@ TEST_F(groupby_string_keys_test, basic)
 }
 // clang-format on
 
-struct groupby_dictionary_keys_test : public cudf::test::BaseFixture {
-};
+struct groupby_dictionary_keys_test : public cudf::test::BaseFixture {};
 
 TEST_F(groupby_dictionary_keys_test, basic)
 {

@@ -24,7 +24,7 @@ namespace gqe {
 class pgas_memory_resource : public rmm::mr::device_memory_resource {
  public:
   pgas_memory_resource(std::size_t bytes);
-  pgas_memory_resource(pgas_memory_resource const&) = delete;
+  pgas_memory_resource(pgas_memory_resource const&)            = delete;
   pgas_memory_resource& operator=(pgas_memory_resource const&) = delete;
   void* get_local_base_ptr() const { return _local_base_ptr; }
   std::size_t get_bytes() const { return _bytes; }

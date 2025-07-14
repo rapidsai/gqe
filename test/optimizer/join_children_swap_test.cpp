@@ -115,7 +115,7 @@ class JoinChildrenSwapTest : public ::testing::Test {
     // Hand coded logical plan for testing
     std::vector<std::string> column_names_small = {"column_0", "column_1"};
     auto column_types_small                     = {cudf::data_type(cudf::type_id::INT64),
-                               cudf::data_type(cudf::type_id::INT64)};
+                                                   cudf::data_type(cudf::type_id::INT64)};
     auto small_table                            = std::make_shared<gqe::logical::read_relation>(
       std::vector<std::shared_ptr<gqe::logical::relation>>(),
       column_names_small,
@@ -124,7 +124,7 @@ class JoinChildrenSwapTest : public ::testing::Test {
       nullptr);
     std::vector<std::string> column_names_large = {"column_0", "column_2"};
     auto data_types_large                       = {cudf::data_type(cudf::type_id::INT64),
-                             cudf::data_type(cudf::type_id::FLOAT64)};
+                                                   cudf::data_type(cudf::type_id::FLOAT64)};
     auto big_table                              = std::make_shared<gqe::logical::read_relation>(
       std::vector<std::shared_ptr<gqe::logical::relation>>(),
       column_names_large,

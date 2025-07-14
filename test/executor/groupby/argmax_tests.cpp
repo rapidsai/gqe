@@ -27,8 +27,7 @@
 #include <gtest/gtest.h>
 
 template <typename V>
-struct groupby_argmax_test : public cudf::test::BaseFixture {
-};
+struct groupby_argmax_test : public cudf::test::BaseFixture {};
 
 TYPED_TEST_SUITE(groupby_argmax_test, cudf::test::FixedWidthTypes);
 
@@ -90,8 +89,7 @@ TYPED_TEST(groupby_argmax_test, null_keys_and_values)
   test_single_agg(keys, vals, expect_keys, expect_vals, std::move(agg));
 }
 
-struct groupby_argmax_string_test : public cudf::test::BaseFixture {
-};
+struct groupby_argmax_string_test : public cudf::test::BaseFixture {};
 
 TEST_F(groupby_argmax_string_test, basic)
 {

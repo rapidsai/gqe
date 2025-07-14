@@ -37,12 +37,12 @@ namespace groupby {
  */
 class groupby {
  public:
-  groupby()               = delete;
-  ~groupby()              = default;
-  groupby(groupby const&) = delete;
-  groupby(groupby&&)      = delete;
+  groupby()                          = delete;
+  ~groupby()                         = default;
+  groupby(groupby const&)            = delete;
+  groupby(groupby&&)                 = delete;
   groupby& operator=(groupby const&) = delete;
-  groupby& operator=(groupby&&) = delete;
+  groupby& operator=(groupby&&)      = delete;
 
   /**
    * @brief Construct a groupby object with the specified `keys`

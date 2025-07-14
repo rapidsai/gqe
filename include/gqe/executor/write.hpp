@@ -27,7 +27,7 @@ class write_task_base : public task {
                   int32_t stage_id,
                   std::shared_ptr<task> input);
 
-  write_task_base(const write_task_base&) = delete;
+  write_task_base(const write_task_base&)            = delete;
   write_task_base& operator=(const write_task_base&) = delete;
 };
 

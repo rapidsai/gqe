@@ -26,7 +26,7 @@ class table_statistics_manager {
  public:
   table_statistics_manager(table_statistics statistics) : _statistics(statistics) {}
 
-  table_statistics_manager(const table_statistics_manager&) = delete;
+  table_statistics_manager(const table_statistics_manager&)            = delete;
   table_statistics_manager& operator=(const table_statistics_manager&) = delete;
 
   /**

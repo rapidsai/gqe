@@ -81,7 +81,7 @@ class UniquenessPropagationTest : public ::testing::Test {
     // Hand coded logical plan for testing
     std::vector<std::string> column_names = {"t1_c1_unique", "t1_c3"};
     auto column_types                     = {cudf::data_type(cudf::type_id::INT64),
-                         cudf::data_type(cudf::type_id::INT32)};
+                                             cudf::data_type(cudf::type_id::INT32)};
     std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
 
     auto read_rel = std::make_unique<gqe::logical::read_relation>(
@@ -99,7 +99,7 @@ class UniquenessPropagationTest : public ::testing::Test {
     // Hand coded logical plan for testing
     std::vector<std::string> column_names = {"t2_c1_unique", "t2_c2_unique"};
     auto column_types                     = {cudf::data_type(cudf::type_id::INT64),
-                         cudf::data_type(cudf::type_id::INT32)};
+                                             cudf::data_type(cudf::type_id::INT32)};
     std::vector<std::shared_ptr<gqe::logical::relation>> subquery_relations;
 
     auto read_rel = std::make_unique<gqe::logical::read_relation>(

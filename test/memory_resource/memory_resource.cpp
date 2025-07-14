@@ -27,7 +27,7 @@
 template <typename T>
 class MemoryResourceTest : public testing::Test {
  public:
-  MemoryResourceTest() : mr(std::make_unique<T>()){};
+  MemoryResourceTest() : mr(std::make_unique<T>()) {};
 
   std::unique_ptr<rmm::mr::device_memory_resource> mr;
 };

@@ -27,7 +27,7 @@ class bandwidth_timer {
   bandwidth_timer(bandwidth_timer&& other);
   bandwidth_timer& operator=(bandwidth_timer&& other);
 
-  bandwidth_timer(const bandwidth_timer&) = delete;
+  bandwidth_timer(const bandwidth_timer&)            = delete;
   bandwidth_timer& operator=(const bandwidth_timer&) = delete;
 
   void start();

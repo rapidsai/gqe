@@ -60,6 +60,7 @@ RUN git clone https://github.com/llvm/llvm-project.git \
     -DLLVM_TARGETS_TO_BUILD="Native;NVPTX" \
     -DLLVM_ENABLE_ASSERTIONS=ON \
     -DLLVM_USE_SPLIT_DWARF=ON \
+    -DLLVM_ENABLE_RTTI=ON \
     -DMLIR_ENABLE_CUDA_CONVERSIONS=ON \
     -DMLIR_ENABLE_CUDA_RUNNER=ON \
     && cmake --build . --target install \

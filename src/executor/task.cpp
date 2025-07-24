@@ -52,12 +52,14 @@ std::optional<cudf::table_view> task::result() const noexcept
 
 void task::emit_result(std::unique_ptr<cudf::table> new_result)
 {
+  cudf::get_default_stream().synchronize();
   _result = result_kind::owned{std::move(new_result)};
   _status = status_type::finished;
 }
 
 void task::emit_result(cudf::table_view new_result)
 {
+  cudf::get_default_stream().synchronize();
   _result = result_kind::borrowed{new_result};
   _status = status_type::finished;
 }

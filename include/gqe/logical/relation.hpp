@@ -60,7 +60,7 @@ class relation {
    * @brief Construct a relation node.
    *
    * @param[in] children Child nodes of the new relation node.
-   * @param[in] subqueries Subquery relations references by expressions own by this relation
+   * @param[in] subqueries Subquery relations references by expressions owned by this relation
    */
   relation(std::vector<std::shared_ptr<relation>> children,
            std::vector<std::shared_ptr<relation>> subqueries);

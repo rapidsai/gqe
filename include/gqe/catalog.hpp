@@ -79,7 +79,7 @@ class catalog {
    *
    * @throw std::logic_error if the table is not found in the catalog.
    */
-  std::vector<std::string> column_names(std::string const& table_name) const;
+  const std::vector<std::string>& column_names(std::string const& table_name) const;
 
   /**
    * @brief Return the data type of a column in the catalog.

@@ -112,7 +112,7 @@ void catalog::register_table(std::string const& table_name,
   _table_entries[table_name] = std::move(entry);
 }
 
-std::vector<std::string> catalog::column_names(std::string const& table_name) const
+const std::vector<std::string>& catalog::column_names(std::string const& table_name) const
 {
   auto const table_info_iter = _table_entries.find(table_name);
 

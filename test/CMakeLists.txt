@@ -222,3 +222,11 @@ target_link_libraries(multi_process PUBLIC gqe)
 target_link_libraries(multi_process PUBLIC GTest::gtest_main GTest::gmock)
 target_link_libraries(multi_process PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
 add_test(NAME multi_process COMMAND multi_process)
+
+add_executable(partial_filter_projection_test optimizer/fix_partial_filter_column_references_test.cpp)
+target_include_directories(partial_filter_projection_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(partial_filter_projection_test PUBLIC gqe)
+target_link_libraries(partial_filter_projection_test PUBLIC GTest::gtest_main GTest::gmock)
+target_link_libraries(partial_filter_projection_test PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
+add_test(NAME partial_filter_projection_test COMMAND partial_filter_projection_test)
+

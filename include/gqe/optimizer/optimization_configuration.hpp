@@ -26,6 +26,7 @@ enum class logical_optimization_rule_type {
   projection_pushdown,
   string_to_int_literal,
   join_unique_keys,
+  fix_partial_filter_column_references,
   num_rules
 };
 

@@ -360,7 +360,8 @@ int main(int argc, char* argv[])
       {gqe::optimizer::logical_optimization_rule_type::projection_pushdown,
        gqe::optimizer::logical_optimization_rule_type::string_to_int_literal,
        gqe::optimizer::logical_optimization_rule_type::uniqueness_propagation,
-       gqe::optimizer::logical_optimization_rule_type::join_unique_keys},
+       gqe::optimizer::logical_optimization_rule_type::join_unique_keys,
+       gqe::optimizer::logical_optimization_rule_type::fix_partial_filter_column_references},
       {});
     gqe::optimizer::logical_optimizer optimizer(&logical_rule_config, &catalog);
     auto opt_logical_plan = optimizer.optimize(logical_plan[0]);

@@ -30,6 +30,7 @@ class filter_relation : public relation {
    * @brief Construct a new filter relation object
    *
    * @param input_relation Input relation to apply filter on
+   * @param subquery_relations Subquery relations references by expressions owned by this relation
    * @param condition Filter expression to apply to the input
    * @param[in] projection_indices Column indices to materialize after the filter.
    */

@@ -64,14 +64,14 @@ class read_relation : public relation {
    *
    * @return Name of table to read from
    */
-  [[nodiscard]] std::string table_name() const { return _table_name; }
+  const std::string& table_name() const { return _table_name; }
 
   /**
    * @brief Return the names of the columns to read
    *
    * @return List of columns to read
    */
-  [[nodiscard]] std::vector<std::string> column_names() const { return _column_names; }
+  const std::vector<std::string>& column_names() const { return _column_names; }
 
   /**
    * @brief Return a raw pointer to partial filter

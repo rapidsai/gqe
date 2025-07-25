@@ -78,6 +78,7 @@ add_library(
     optimizer/rules/not_not.cpp
     optimizer/rules/uniqueness_propagation.cpp
     optimizer/rules/string_to_int_literal.cpp
+    optimizer/rules/fix_partial_filter_column_references.cpp
     optimizer/statistics.cpp
     storage/compression.cpp
     storage/in_memory.cpp

@@ -230,3 +230,10 @@ target_link_libraries(partial_filter_projection_test PUBLIC GTest::gtest_main GT
 target_link_libraries(partial_filter_projection_test PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
 add_test(NAME partial_filter_projection_test COMMAND partial_filter_projection_test)
 
+add_executable(zone_map_test storage/zone_map_test.cpp)
+target_include_directories(zone_map_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(zone_map_test PUBLIC gqe)
+target_link_libraries(zone_map_test PUBLIC GTest::gtest_main GTest::gmock)
+target_link_libraries(zone_map_test PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
+add_test(NAME zone_map_test COMMAND zone_map_test)
+

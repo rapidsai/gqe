@@ -49,6 +49,15 @@ std::optional<cudf::table_view> task::result() const noexcept
 
   return {view};
 }
+std::optional<bool> task::is_result_owned() const noexcept
+{
+  if (_status != status_type::finished) { return std::nullopt; }
+  auto owned = std::visit(utility::overloaded{[](const result_kind::owned&) { return true; },
+                                              [](const result_kind::borrowed&) { return false; }},
+                          _result);
+  GQE_LOG_DEBUG("task::is_result_owned() = {}", owned);
+  return {owned};
+}
 
 void task::emit_result(std::unique_ptr<cudf::table> new_result)
 {

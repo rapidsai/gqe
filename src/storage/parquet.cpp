@@ -49,6 +49,10 @@ namespace storage {
 parquet_table::parquet_table(std::vector<std::string> file_paths)
   : table(), _file_paths(std::make_shared<std::vector<std::string>>(std::move(file_paths)))
 {
+  // File paths need to be sorted to retain the existing clustering on disk. This assumes that the
+  // lexicographical sort order corresponds to the sort order of the rows in the table, which means
+  // that the row group numbers in the file names have to be padded with leading zeros.
+  std::sort(_file_paths->begin(), _file_paths->end());
 }
 
 bool parquet_table::is_readable() const { return true; }

@@ -77,6 +77,8 @@ struct optimization_parameters {
                                     ///< customized Parquet reader for io_uring.
   bool use_overlap_mtx =
     true;  ///< Enable better overlap and pipelining by using locks in memory read task
+  bool use_partition_pruning          = false;  ///< Enable partition pruning for in-memory tables.
+  std::size_t zone_map_partition_size = 100'000;  ///< Number of rows per zone map partition.
 };
 
 }  // namespace gqe

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -23,6 +23,7 @@
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
 
+#include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/concatenate.hpp>
 #include <cudf/copying.hpp>
@@ -43,7 +44,9 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cudf_test/default_stream.hpp>
 #include <deque>
+#include <gqe/expression/json_formatter.hpp>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -188,8 +191,14 @@ std::unique_ptr<cudf::column> compressed_column::decompress(rmm::cuda_stream_vie
                                         std::move(decompressed_children));
 }
 
+row_group::row_group(std::vector<std::unique_ptr<column_base>>&& columns,
+                     std::unique_ptr<gqe::zone_map> zone_map)
+  : _columns(std::move(columns)), _zone_map(std::move(zone_map))
+{
+}
+
 row_group::row_group(std::vector<std::unique_ptr<column_base>>&& columns)
-  : _columns(std::move(columns))
+  : row_group(std::move(columns), nullptr)
 {
 }
 
@@ -202,10 +211,14 @@ int64_t row_group::size() const
   }
 }
 
+int64_t row_group::num_columns() const { return _columns.size(); }
+
 column_base& row_group::get_column(cudf::size_type column_index) const
 {
   return *_columns.at(column_index);
 }
+
+const gqe::zone_map* row_group::zone_map() const { return _zone_map.get(); }
 
 in_memory_table::in_memory_table(memory_kind::type memory_kind,
                                  std::vector<std::string> const& column_names,
@@ -330,129 +343,208 @@ in_memory_read_task::in_memory_read_task(context_reference ctx_ref,
     _partial_filter(std::move(partial_filter)),
     _force_zero_copy_disable(force_zero_copy_disable)
 {
+  if (should_use_overlap_mtx()) {
+    GQE_LOG_DEBUG("Using overlap mutex for in_memory_read_task");
+    GQE_CUDA_TRY(cudaEventCreateWithFlags(&_ce_evt, cudaEventDisableTiming));
+    _ce_lock = std::unique_lock{
+      get_context_reference()._task_manager_context->copy_engine_stream.mtx, std::defer_lock};
+    _decompression_stream =
+      get_context_reference()._task_manager_context->copy_engine_stream.stream;
+  } else {
+    _decompression_stream = cudf::get_default_stream();
+  }
 }
 
-void in_memory_read_task::execute_read_by_value()
+bool in_memory_read_task::should_use_overlap_mtx() const
 {
-  auto mr     = rmm::mr::get_current_device_resource();
-  auto stream = cudf::get_default_stream();
+  return get_query_context()->parameters.use_overlap_mtx;
+}
 
-  std::unique_ptr<cudf::table> result_table;
-  std::vector<std::unique_ptr<cudf::column>> result_columns;
-  result_columns.reserve(_column_indexes.size());
-  bool use_overlap_mtx = get_query_context()->parameters.use_overlap_mtx;
+void in_memory_read_task::lock_shared_copy_engine()
+{
+  if (should_use_overlap_mtx()) { _ce_lock.lock(); }
+}
+void in_memory_read_task::wait_for_shared_copy_engine()
+{
+  if (should_use_overlap_mtx()) {
+    auto default_stream = cudf::get_default_stream().value();
+    auto shared_ce_stream =
+      get_context_reference()._task_manager_context->copy_engine_stream.stream.value();
+    GQE_CUDA_TRY(cudaEventRecord(_ce_evt, shared_ce_stream));
+    GQE_CUDA_TRY(cudaStreamWaitEvent(default_stream, _ce_evt));
+  }
+}
 
-  auto collect_src_views = [this](cudf::size_type idx, rmm::cuda_stream_view decompress_stream) {
-    std::vector<cudf::column_view> src_views;
-    src_views.reserve(_row_groups.size());
-    std::vector<std::unique_ptr<cudf::column>>
-      decompressed_columns;  // Needed for keeping the decompressed column alive
-    for (auto const& row_group : this->_row_groups) {
-      auto& current_column = row_group->get_column(idx);
+void in_memory_read_task::unlock_shared_copy_engine()
+{
+  if (should_use_overlap_mtx()) {
+    _ce_lock.unlock();
+    GQE_CUDA_TRY(cudaEventDestroy(_ce_evt));
+  }
+}
 
-      switch (current_column.type()) {
-        case in_memory_column_type::CONTIGUOUS: {
-          auto src_view = dynamic_cast<contiguous_column&>(current_column).view();
-          src_views.push_back(src_view);
-          break;
-        }
-        case in_memory_column_type::COMPRESSED: {
-          auto decompressed_column =
-            dynamic_cast<compressed_column&>(current_column).decompress(decompress_stream);
-          src_views.push_back(decompressed_column->view());
-          decompressed_columns.push_back(std::move(decompressed_column));
-          break;
-        }
-      }
+bool in_memory_read_task::can_prune_partitions() const
+{
+  if (!_partial_filter) { return false; }
+  if (get_query_context()->parameters.zone_map_partition_size == 0) { return false; }
+  return get_query_context()->parameters.use_partition_pruning;
+}
+
+std::vector<in_memory_read_task::row_group_with_partitions>
+in_memory_read_task::evaluate_partial_filter()
+{
+  std::vector<in_memory_read_task::row_group_with_partitions> row_groups_with_partitions;
+  std::for_each(_row_groups.begin(), _row_groups.end(), [&](const auto* rg) {
+    if (!rg->zone_map()) {
+      throw std::logic_error("Row group should have a zone map but none exists");
     }
-    return std::make_tuple(src_views, std::move(decompressed_columns));
-  };
-
-  if (use_overlap_mtx) {
-    GQE_LOG_TRACE("Using overlap mutex for in_memory_read_task");
-    auto& shared_ce_stream = get_context_reference()._task_manager_context->copy_engine_stream;
-    cudaEvent_t ce_evt;
-    GQE_CUDA_TRY(cudaEventCreateWithFlags(&ce_evt, cudaEventDisableTiming));
-    {
-      const std::lock_guard lock{shared_ce_stream.mtx};
-      // For each table column, concatenate the row groups into a single cudf::column
-      for (auto const& idx : _column_indexes) {
-        auto [src_views, decompressed_columns] = collect_src_views(idx, shared_ce_stream.stream);
-        std::unique_ptr<cudf::column> result_column;
-
-        /**
-         * If column chunks are compressed we need to wait on memcopy +
-         * decompression before we concatenate.
-         */
-        if (!decompressed_columns.empty()) {
-          GQE_CUDA_TRY(cudaEventRecord(ce_evt, shared_ce_stream.stream.value()));
-          GQE_CUDA_TRY(cudaStreamWaitEvent(stream.value(), ce_evt));
-        }
-
-        /**
-         * If the column is not compressed we do a CE copy in concatenate, we want this copy
-         * to be done on the shared CE stream to allow for pipelining.
-         *
-         * Otherwise, it is better to do this on the thread specific stream to avoid false
-         * dependence. Note: The shared CE stream guarantees serial execution, if more than one
-         * row group is compressed then the ce_evt will have overwrites. This is intended as we
-         * only need to wait on the "last" scheduled copy on the shared CE stream.
-         */
-        if (decompressed_columns.empty()) {
-          result_column = cudf::concatenate(src_views, shared_ce_stream.stream, mr);
-          GQE_CUDA_TRY(cudaEventRecord(ce_evt, shared_ce_stream.stream.value()));
-        } else {
-          result_column = cudf::concatenate(src_views, stream, mr);
-        }
-
-        result_columns.emplace_back(std::move(result_column));
-      }
+    const auto partitions = rg->zone_map()->evaluate(*_partial_filter);
+    const auto has_unpruned_partitions =
+      std::find_if(partitions.begin(), partitions.end(), [](const auto& partition) {
+        return !partition.pruned;
+      }) != partitions.end();
+    if (has_unpruned_partitions) {
+      const auto consolidated_partitions = gqe::zone_map::consolidate_partitions(partitions);
+      row_groups_with_partitions.push_back({rg, std::move(consolidated_partitions)});
     }
+  });
+  GQE_LOG_DEBUG("Row groups after pruning: {}", row_groups_with_partitions.size());
+  return row_groups_with_partitions;
+}
 
-    /**
-     * If all columns in all row groups are compressed this event will have no "extra" recorded
-     * work and is a no-op.
-     */
-    GQE_CUDA_TRY(cudaStreamWaitEvent(stream.value(), ce_evt));
-    GQE_CUDA_TRY(cudaEventDestroy(ce_evt));
-  } else {
-    // For each table column, concatenate the row groups into a single cudf::column
-    for (auto const& idx : _column_indexes) {
-      auto [src_views, decompressed_columns] = collect_src_views(idx, stream);
+std::vector<in_memory_read_task::row_group_with_partitions>
+in_memory_read_task::construct_fully_covering_partitions()
+{
+  GQE_LOG_DEBUG("No partial filter; processing all row groups");
+  std::vector<in_memory_read_task::row_group_with_partitions> row_groups_with_partitions;
+  row_groups_with_partitions.reserve(_row_groups.size());
+  std::transform(_row_groups.begin(),
+                 _row_groups.end(),
+                 std::back_inserter(row_groups_with_partitions),
+                 [&](const auto* rg) {
+                   std::vector<cudf::size_type> null_counts(rg->num_columns());
+                   std::for_each(_column_indexes.begin(), _column_indexes.end(), [&](const auto i) {
+                     const auto column_view = optionally_decompress_column(rg->get_column(i));
+                     null_counts[i]         = column_view.null_count();
+                   });
+                   const zone_map::partition partition{
+                     .pruned      = false,
+                     .start       = 0,
+                     .end         = static_cast<cudf::size_type>(rg->size()),
+                     .null_counts = null_counts};
+                   return in_memory_read_task::row_group_with_partitions{rg, {partition}};
+                 });
+  return row_groups_with_partitions;
+}
 
-      std::unique_ptr<cudf::column> result_column = cudf::concatenate(src_views, stream, mr);
-      result_columns.emplace_back(std::move(result_column));
+cudf::column_view in_memory_read_task::optionally_decompress_column(column_base& column)
+{
+  switch (column.type()) {
+    case in_memory_column_type::CONTIGUOUS: {
+      return dynamic_cast<contiguous_column&>(column).view();
+    }
+    case in_memory_column_type::COMPRESSED: {
+      auto stored_decompressed_column = _decompressed_columns.find(&column);
+      if (stored_decompressed_column != _decompressed_columns.end()) {
+        return stored_decompressed_column->second->view();
+      } else {
+        auto decompressed_column =
+          dynamic_cast<compressed_column&>(column).decompress(_decompression_stream);
+        const auto column_view = decompressed_column->view();
+        _decompressed_columns.emplace(&column, std::move(decompressed_column));
+        return column_view;
+      }
     }
   }
-  // Emit the result
-  result_table = std::make_unique<cudf::table>(std::move(result_columns));
+  // Compiler complains about reaching end of non-void function, even though all cases in the switch
+  // statement are specified and each case has a return statement.
+  throw std::logic_error("Unknown column type");
+}
+
+std::vector<cudf::table_view> in_memory_read_task::slice_row_groups(
+  const std::vector<row_group_with_partitions>& row_groups_with_partitions)
+{
+  std::vector<cudf::table_view> sliced_row_groups;
+  for (const auto& [row_group, partitions] : row_groups_with_partitions) {
+    for (const auto& partition : partitions) {
+      if (!partition.pruned) {
+        std::vector<cudf::column_view> result_columns;
+        result_columns.reserve(_column_indexes.size());
+        for (auto const& idx : _column_indexes) {
+          const auto full_column_view = optionally_decompress_column(row_group->get_column(idx));
+          const auto type             = full_column_view.type();
+          const auto size             = partition.end - partition.start;
+          const auto head             = full_column_view.head();
+          const auto null_mask        = full_column_view.null_mask();
+          const auto null_counts      = partition.null_counts[idx];
+          const auto offset           = partition.start;
+          const auto children = std::vector<cudf::column_view>(full_column_view.child_begin(),
+                                                               full_column_view.child_end());
+          const cudf::column_view column_slice_view{
+            type, size, head, null_mask, null_counts, offset, children};
+          result_columns.push_back(column_slice_view);
+        }
+        const cudf::table_view sliced_row_group = cudf::table_view(std::move(result_columns));
+        sliced_row_groups.push_back(sliced_row_group);
+      }
+    }
+  }
+  return sliced_row_groups;
+}
+
+bool in_memory_read_task::is_zero_copy_possible(
+  const std::vector<cudf::table_view>& sliced_row_groups) const
+{
+  if (!get_query_context()->parameters.read_zero_copy_enable) {
+    GQE_LOG_DEBUG("Zero-copy read is disabled by the query context parameters");
+    return false;
+  }
+  if (!memory_kind::is_gpu_accessible(
+        get_context_reference()._task_manager_context->get_device_properties(), _memory_kind)) {
+    GQE_LOG_WARN(
+      "Zero-copy read is not possible because the GPU cannot access pageable memory on this "
+      "system");
+    return false;
+  }
+  if (!_decompressed_columns.empty()) {
+    GQE_LOG_DEBUG("Zero-copy read is disabled because at least one column was decompressed");
+    return false;
+  }
+  if (sliced_row_groups.size() > 1) {
+    GQE_LOG_DEBUG("Zero-copy read is not possible because there are multiple partitions");
+    return false;
+  }
+  return true;
+}
+
+void in_memory_read_task::emit_empty_table()
+{
+  GQE_LOG_DEBUG("Returning empty table");
+  std::vector<std::unique_ptr<cudf::column>> empty_columns;
+  for (const auto& data_type : _data_types) {
+    // cudf::make_empty_column will fail for nested types, e.g., lists and structs. In this
+    // case, we have to use cudf::empty_like on an existing column, or reproduce it.
+    // TODO There is no test of the entire query execution pipeline when an empty table is returned
+    auto empty_column = cudf::make_empty_column(data_type);
+    empty_columns.push_back(std::move(empty_column));
+  }
+  auto empty_table = std::make_unique<cudf::table>(std::move(empty_columns));
   GQE_LOG_TRACE(
-    "Execute in-memory read task: task_id={}, stage_id={}, strategy=by_value, "
+    "Execute in-memory read task: task_id={}, stage_id={}, strategy=empty_table, "
     "output_size={}.",
     task_id(),
     stage_id(),
-    result_table->num_rows());
-  emit_result(std::move(result_table));
+    empty_table->num_rows());
+  emit_result(std::move(empty_table));
 }
 
-void in_memory_read_task::execute_read_by_reference()
+void in_memory_read_task::emit_single_partition(
+  const std::vector<cudf::table_view>& sliced_row_groups)
 {
-  if (_row_groups.size() > 1) {
-    throw std::logic_error(
-      "Zero-copy read is only possible if columns have a contiguous "
-      "memory layout. Cannot handle multiple row groups.");
-  }
-
-  std::vector<cudf::column_view> result_columns;
-  result_columns.reserve(_column_indexes.size());
-
-  for (auto const& idx : _column_indexes) {
-    auto view = dynamic_cast<contiguous_column&>(_row_groups.front()->get_column(idx)).view();
-    result_columns.push_back(view);
-  }
-
-  auto result = cudf::table_view(std::move(result_columns));
-
+  GQE_LOG_DEBUG("Performing zero-copy read");
+  // Must have exactly one sliced partition, otherwise zero-copy is not possible.
+  assert(sliced_row_groups.size() == 1);
+  cudf::table_view result = sliced_row_groups.front();
   GQE_LOG_TRACE(
     "Execute in-memory read task: task_id={}, stage_id={}, strategy=by_reference, "
     "output_size={}.",
@@ -462,42 +554,63 @@ void in_memory_read_task::execute_read_by_reference()
   emit_result(result);
 }
 
+void in_memory_read_task::emit_concatenated_partitions(
+  const std::vector<cudf::table_view>& sliced_row_groups)
+{
+  /*
+   * If the column is not compressed we do a CE copy in concatenate, we want this copy
+   * to be done on the shared CE stream to allow for pipelining.
+   *
+   * Otherwise, it is better to do this on the thread specific stream to avoid false
+   * dependence. Note: The shared CE stream guarantees serial execution, if more than one
+   * row group is compressed then the ce_evt will have overwrites. This is intended as we
+   * only need to wait on the "last" scheduled copy on the shared CE stream.
+   */
+  std::unique_ptr<cudf::table> result;
+  if (_decompressed_columns.empty() && should_use_overlap_mtx()) {
+    result = cudf::concatenate(
+      sliced_row_groups, _decompression_stream, rmm::mr::get_current_device_resource());
+    GQE_CUDA_TRY(cudaEventRecord(_ce_evt, _decompression_stream.value()));
+    GQE_CUDA_TRY(cudaStreamWaitEvent(cudf::get_default_stream().value(), _ce_evt));
+  } else {
+    result = cudf::concatenate(sliced_row_groups);
+  }
+  GQE_LOG_DEBUG("Concatenating {} partitions", sliced_row_groups.size());
+  GQE_LOG_TRACE(
+    "Execute in-memory read task: task_id={}, stage_id={}, strategy=by_value, output_size={}.",
+    task_id(),
+    stage_id(),
+    result->num_rows());
+  emit_result(std::move(result));
+}
+
 void in_memory_read_task::execute()
 {
   prepare_dependencies();
 
   utility::nvtx_scoped_range in_memory_read_task_range("in_memory_read_task");
 
-  // Check if zero-copy is legal.
-  auto ctx_ref             = get_context_reference();
-  auto const& device_prop  = ctx_ref._task_manager_context->get_device_properties();
-  bool is_gpu_accessible   = memory_kind::is_gpu_accessible(device_prop, _memory_kind);
-  bool is_single_row_group = _row_groups.size() <= 1;
-  bool is_compressed =
-    get_query_context()->parameters.in_memory_table_compression_format != compression_format::none;
+  lock_shared_copy_engine();
 
-  // Execute read.
-  if (get_query_context()->parameters.read_zero_copy_enable) {
-    if (_force_zero_copy_disable) {
-      GQE_LOG_INFO("Disabling zero-copy read due to override by the executor for performance.");
-      execute_read_by_value();
-    } else if (!is_gpu_accessible) {
-      GQE_LOG_WARN(
-        "Disabling zero-copy read because the GPU cannot access pageable memory on this "
-        "system.");
-      execute_read_by_value();
-    } else if (!is_single_row_group) {
-      GQE_LOG_WARN("Disabling zero-copy because cannot handle more than one row group per task.");
-      execute_read_by_value();
-    } else if (is_compressed) {
-      GQE_LOG_WARN("Disabling zero-copy because cannot handle compressed tables.");
-      execute_read_by_value();
-    } else {
-      GQE_LOG_DEBUG("Performing zero-copy read.");
-      execute_read_by_reference();
-    }
+  const std::vector<row_group_with_partitions> row_groups_with_partitions =
+    can_prune_partitions() ? evaluate_partial_filter() : construct_fully_covering_partitions();
+  const std::vector<cudf::table_view> sliced_row_groups =
+    slice_row_groups(row_groups_with_partitions);
+
+  if (!_decompressed_columns.empty()) { wait_for_shared_copy_engine(); }
+
+  // If there are multiple sliced row groups that have to be concatenated, the lock to the shared
+  // copy engine has to be held until after the concatenation. Otherwise the lock can be relased
+  // now.
+  if (sliced_row_groups.empty()) {
+    unlock_shared_copy_engine();
+    emit_empty_table();
+  } else if (is_zero_copy_possible(sliced_row_groups)) {
+    unlock_shared_copy_engine();
+    emit_single_partition(sliced_row_groups);
   } else {
-    execute_read_by_value();
+    emit_concatenated_partitions(sliced_row_groups);
+    unlock_shared_copy_engine();
   }
 
   remove_dependencies();
@@ -592,8 +705,13 @@ void in_memory_write_task::execute()
     }
   }
 
+  // Create zone map
+  const auto partition_size = get_query_context()->parameters.zone_map_partition_size;
+  std::unique_ptr<gqe::zone_map> zone_map =
+    partition_size > 0 ? std::make_unique<gqe::zone_map>(input_table, partition_size) : nullptr;
+
   // Create row group from columns
-  auto row_group = storage::row_group(std::move(new_columns));
+  auto row_group = storage::row_group(std::move(new_columns), std::move(zone_map));
 
   // Append row group to table
   _appender(std::move(row_group));
@@ -648,6 +766,11 @@ std::vector<std::unique_ptr<read_task_base>> in_memory_readable_view::get_read_t
 
   const auto max_nrow_groups_per_instance = utility::divide_round_up(nrow_groups, parallelism);
 
+  // Transform partial filter to zone map filter. Assumes that the partial filter is the same for
+  // all tasks.
+  const auto zone_map_filter =
+    transform_partial_filter(task_parameters.front().partial_filter.get());
+
   // Create tasks
   std::vector<std::unique_ptr<read_task_base>> read_tasks;
   read_tasks.reserve(task_parameters.size());
@@ -668,6 +791,8 @@ std::vector<std::unique_ptr<read_task_base>> in_memory_readable_view::get_read_t
                      std::back_inserter(row_groups_chunk),
                      [](const row_group& rg) { return &rg; });
 
+      auto zone_map_filter_copy = zone_map_filter ? zone_map_filter->clone() : nullptr;
+
       // Create a new read task
       auto read_task = std::make_unique<in_memory_read_task>(ctx_ref,
                                                              task->task_id,
@@ -676,7 +801,7 @@ std::vector<std::unique_ptr<read_task_base>> in_memory_readable_view::get_read_t
                                                              column_indexes,
                                                              data_types,
                                                              _non_owning_table->_memory_kind,
-                                                             std::move(task->partial_filter),
+                                                             std::move(zone_map_filter_copy),
                                                              std::move(task->subquery_tasks));
       read_tasks.push_back(std::move(read_task));
 
@@ -686,6 +811,20 @@ std::vector<std::unique_ptr<read_task_base>> in_memory_readable_view::get_read_t
   }
 
   return read_tasks;
+}
+
+std::unique_ptr<gqe::expression> in_memory_readable_view::transform_partial_filter(
+  gqe::expression* partial_filter)
+{
+  if (!partial_filter) { return nullptr; }
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  if (zone_map_filter) {
+    GQE_LOG_DEBUG(
+      "Using partial filter to prune results\nPartial filter:\n{}\nZone map filter:\n{}",
+      expression_json_formatter::to_json(*partial_filter),
+      expression_json_formatter::to_json(*zone_map_filter));
+  }
+  return zone_map_filter;
 }
 
 in_memory_writeable_view::in_memory_writeable_view(in_memory_table* non_owning_table)

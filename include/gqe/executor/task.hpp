@@ -94,6 +94,13 @@ class task {
   [[nodiscard]] std::optional<cudf::table_view> result() const noexcept;
 
   /**
+   * @brief Indicate whether the result of the task is owned or borrowed.
+   * @return True, if result is owned; false, if result is borrowed. std::nullopt if task has not
+   * finished.
+   */
+  [[nodiscard]] std::optional<bool> is_result_owned() const noexcept;
+
+  /**
    * @brief Return the task ID.
    *
    * @note Task ID is the globally unique identifier of the task.

@@ -97,6 +97,7 @@ add_library(
     task_manager_context.cpp
     device_properties.cpp
     types.cpp
+    storage/zone_map.cpp
 )
 
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)

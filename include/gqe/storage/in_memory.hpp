@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -20,6 +20,7 @@
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/table.hpp>
 #include <gqe/storage/writeable_view.hpp>
+#include <gqe/storage/zone_map.hpp>
 #include <gqe/types.hpp>
 
 #include <cudf/column/column.hpp>
@@ -232,6 +233,8 @@ class row_group {
   row_group(row_group&& other) = default;
 
   explicit row_group(std::vector<std::unique_ptr<column_base>>&& columns);
+  explicit row_group(std::vector<std::unique_ptr<column_base>>&& columns,
+                     std::unique_ptr<gqe::zone_map> zone_map);
 
   row_group(const row_group& other)      = delete;
   row_group& operator=(const row_group&) = delete;
@@ -243,13 +246,18 @@ class row_group {
    */
   [[nodiscard]] int64_t size() const;
 
+  [[nodiscard]] int64_t num_columns() const;
+
   /**
    * @brief Lookup a column by index.
    */
   [[nodiscard]] column_base& get_column(cudf::size_type column_index) const;
 
+  const gqe::zone_map* zone_map() const;
+
  private:
   std::vector<std::unique_ptr<column_base>> _columns;
+  std::unique_ptr<gqe::zone_map> _zone_map;
 };
 
 /**
@@ -264,7 +272,7 @@ class row_group {
  * per table attribute. The table does not define the column's memory layout,
  * this is defined by the concrete column type.
  *
- * Row groups are stored in a extensible data structure that maintains reference
+ * Row groups are stored in an extensible data structure that maintains reference
  * validity during append operations, e.g., a `std::deque`.
  *
  * == Memory Kinds ==
@@ -437,8 +445,60 @@ class in_memory_read_task : public read_task_base {
   void execute() override;
 
  private:
-  void execute_read_by_value();
-  void execute_read_by_reference();
+  /// Return true, if data transfers of read tasks (which use the copy engine) should be overlapped
+  /// with subsequent tasks from other workers.
+  bool should_use_overlap_mtx() const;
+
+  /// Lock the copy engine shared by read tasks. A no-op if read tasks are not overlapped.
+  void lock_shared_copy_engine();
+
+  /// Wait on the CUDF default stream until data transfers of the shared copy engine are finished. A
+  /// no-op if read tasks are not overlapped.
+  void wait_for_shared_copy_engine();
+
+  /// Unlock the copy engine shared by read tasks. A no-op if read tasks are not overlapped.
+  void unlock_shared_copy_engine();
+
+  /// Convenience type which pairs a row group with the partitions determined by evaluating a
+  /// partial filter on the row group's zone map.
+  using row_group_with_partitions = std::pair<const row_group*, std::vector<zone_map::partition>>;
+
+  /// Determine if partial pruning is supported. Returns true if partial pruning is enabled and a
+  /// partial filter exists.
+  bool can_prune_partitions() const;
+
+  /// Evaluate the partial filter on all row groups, and pair each row group with its qualifying
+  /// partitions. If a row group is completely pruned, it is removed from the result. Partitions are
+  /// maximally aggregated.
+  std::vector<row_group_with_partitions> evaluate_partial_filter();
+
+  /// Pair each row group with a "partition", which covers the entire row group. This makes the
+  /// remaining code independent of whether there is a partial filter or not. This operation
+  /// decompresses compressed columns.
+  std::vector<row_group_with_partitions> construct_fully_covering_partitions();
+
+  /// If column is an uncompressed column, return its cudf::column_view. Otherwise, decompress the
+  /// column before returning the cudf::column_view. Decompressed columns are stored in
+  /// _decompressed_columns to cache them and keep them valid through the lifetime of the read task.
+  cudf::column_view optionally_decompress_column(column_base& column);
+
+  /// For each row group and each of its partitions, slice the row group's columns and wrap them
+  /// inside a cudf::table_view. This operation decompresses compressed columns.
+  std::vector<cudf::table_view> slice_row_groups(
+    const std::vector<row_group_with_partitions>& row_groups_with_partitions);
+
+  /// Determine if a zero-copy read is possible, based on the number of row group partitions and
+  /// environment parameters.
+  bool is_zero_copy_possible(const std::vector<cudf::table_view>& sliced_row_groups) const;
+
+  /// Construct an empty table with the schema of the read task and emit it as an owned result.
+  void emit_empty_table();
+
+  /// Emit a single row group partition as a borrowed result.
+  void emit_single_partition(const std::vector<cudf::table_view>& sliced_row_groups);
+
+  /// Concatenate and emit one or more row group partitions as an owned result.
+  void emit_concatenated_partitions(const std::vector<cudf::table_view>& sliced_row_groups);
 
   std::vector<const row_group*>
     _row_groups; /**< Non-owning references to the row groups assigned to this task. */
@@ -447,6 +507,20 @@ class in_memory_read_task : public read_task_base {
   memory_kind::type _memory_kind;
   std::unique_ptr<gqe::expression> _partial_filter;
   bool _force_zero_copy_disable;
+
+  /// Decompressed columns need to be kept valid during the lifetime of the read task. This map also
+  /// serves as a cache for decompressed columns.
+  std::unordered_map<const column_base*, std::unique_ptr<cudf::column>> _decompressed_columns;
+
+  /// Event used to synchronize the CUDF default stream and the shared copy engine stream.
+  cudaEvent_t _ce_evt;
+
+  /// Lock on the shared copy engine stream.
+  std::unique_lock<std::mutex> _ce_lock;
+
+  /// The stream used to decompress columns. Either the shared copy engine stream if data transfers
+  /// are overlapped, or the CUDF default stream otherwise.
+  rmm::cuda_stream_view _decompression_stream;
 };
 
 /**
@@ -517,6 +591,12 @@ class in_memory_readable_view : public readable_view {
 
  private:
   in_memory_readable_view(in_memory_table* non_owning_table);
+
+  /// Transform a filter expression into an equivalent expression for the zone map.
+  /// Returns the transformed expression; or nullptr, if:
+  /// 1) the filter expression is nullptr
+  /// 2) the filter expression cannot be transformed
+  std::unique_ptr<gqe::expression> transform_partial_filter(gqe::expression* partial_filter);
 
   in_memory_table* _non_owning_table;
 };

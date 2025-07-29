@@ -119,10 +119,10 @@ template <class SetRef,
           typename GlobalSetType,
           typename KeyEqual,
           typename RowHasher,
-          class WindowExtent>
+          typename BucketExtent>
 __global__ void compute_mapping_indices(GlobalSetType global_set,
                                         cudf::size_type num_input_rows,
-                                        WindowExtent window_extent,
+                                        BucketExtent bucket_extent,
                                         cuco::empty_key<cudf::size_type> empty_key_sentinel,
                                         KeyEqual d_key_equal,
                                         RowHasher d_row_hash,
@@ -135,15 +135,15 @@ __global__ void compute_mapping_indices(GlobalSetType global_set,
   __shared__ cudf::size_type shared_set_indices[shared_set_num_elements];
 
   // Shared set initialization
-  __shared__ typename SetRef::window_type windows[window_extent.value()];
-  auto storage = SetRef::storage_ref_type(window_extent, windows);
+  __shared__ typename SetRef::bucket_type buckets[bucket_extent.value()];
+  auto storage = SetRef::storage_ref_type(bucket_extent, buckets);
   auto shared_set =
     SetRef(empty_key_sentinel, d_key_equal, probing_scheme_type{d_row_hash}, {}, storage);
   auto const block = cooperative_groups::this_thread_block();
   shared_set.initialize(block);
   block.sync();
 
-  auto shared_insert_ref = std::move(shared_set).with(cuco::insert_and_find);
+  auto shared_insert_ref = std::move(shared_set).rebind_operators(cuco::insert_and_find);
 
   __shared__ cudf::size_type cardinality;
 
@@ -633,7 +633,7 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
   auto const d_aggs         = cudf::detail::make_device_uvector_async(
     agg_kinds, stream, rmm::mr::get_current_device_resource());
 
-  auto constexpr window_size                      = 1;
+  auto constexpr bucket_size                      = 1;
   constexpr int block_size                        = 128;
   constexpr cudf::size_type cardinality_threshold = 128;
 
@@ -654,9 +654,9 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
                        cudf::experimental::row::equality::nan_equal_physical_equality_comparator>,
                      probing_scheme_type,
                      cuco::cuda_allocator<cudf::size_type>,
-                     cuco::storage<window_size>>;
+                     cuco::storage<bucket_size>>;
   using shared_set_ref_type    = typename shared_set_type::ref_type<>;
-  auto constexpr window_extent = cuco::make_window_extent<shared_set_ref_type>(extent_type{});
+  auto constexpr bucket_extent = cuco::make_bucket_extent<shared_set_ref_type>(extent_type{});
 
   auto global_set_ref = global_set.ref(cuco::op::insert_and_find);
 
@@ -667,7 +667,7 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
                                                                 decltype(global_set_ref),
                                                                 KeyEqual,
                                                                 RowHasher,
-                                                                decltype(window_extent)>;
+                                                                decltype(bucket_extent)>;
   int grid_size =
     find_grid_size(compute_mapping_indices_fn_ptr, block_size, num_input_rows, num_sms);
 
@@ -691,7 +691,7 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
   compute_mapping_indices<shared_set_ref_type, shared_set_num_elements, cardinality_threshold>
     <<<grid_size, block_size, 0, stream>>>(global_set_ref,
                                            num_input_rows,
-                                           window_extent,
+                                           bucket_extent,
                                            empty_key_sentinel,
                                            d_key_equal,
                                            d_row_hash,

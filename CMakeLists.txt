@@ -73,7 +73,7 @@ rapids_cpm_spdlog()
 CPMAddPackage(
   NAME cuco
   GITHUB_REPOSITORY NVIDIA/cuCollections
-  GIT_TAG 9fe6c82d08b95795e351af5dd5828fbb06a556c7
+  GIT_TAG d4b2e2a303ef0064acdc6169d2ca926ec1fb5d2e
   OPTIONS
      "BUILD_TESTS OFF"
      "BUILD_BENCHMARKS OFF"

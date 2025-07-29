@@ -10,7 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+#include "unique_key_inner_join.cuh"
 #include <gqe/catalog.hpp>
+#include <gqe/executor/unique_key_inner_join.hpp>
 #include <gqe/utility/error.hpp>
 
 #include <cuco/probing_scheme.cuh>
@@ -18,16 +20,8 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/copying.hpp>
-#include <cudf/hashing.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/join.hpp>
-#include <cudf/table/experimental/row_operators.cuh>
-
-#include <rmm/device_uvector.hpp>
-#include <rmm/exec_policy.hpp>
-#include <rmm/mr/device/cuda_memory_resource.hpp>
-#include <rmm/mr/device/per_device_resource.hpp>
-#include <rmm/mr/device/polymorphic_allocator.hpp>
 
 #include <thrust/equal.h>
 #include <thrust/execution_policy.h>
@@ -44,33 +38,6 @@
 namespace gqe {
 
 namespace {
-
-bool keys_not_supported(cudf::table_view keys)
-{
-  return thrust::any_of(thrust::host, keys.begin(), keys.end(), [](cudf::column_view col) {
-    return !cudf::is_numeric(col.type());
-  });
-}
-
-std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
-          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-cudf_unique_key_inner_join(
-  cudf::table_view build_keys,
-  cudf::table_view probe_keys,
-  cudf::null_equality compare_nulls,
-  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
-{
-  if (cudf::detail::has_nested_columns(build_keys)) {
-    cudf::distinct_hash_join<cudf::has_nested::YES> join_obj(
-      build_keys, probe_keys, cudf::nullable_join::YES, compare_nulls, stream);
-    return join_obj.inner_join(stream, mr);
-  } else {
-    cudf::distinct_hash_join<cudf::has_nested::NO> join_obj(
-      build_keys, probe_keys, cudf::nullable_join::YES, compare_nulls, stream);
-    return join_obj.inner_join(stream, mr);
-  }
-}
 
 template <template <typename> class hash_function>
 struct element_hasher {
@@ -127,117 +94,6 @@ class device_row_hasher {
 
   uint32_t _seed;
   cudf::table_device_view _table;
-  bool _has_nulls;
-};
-
-/* This is used for hash sets where each element is a pair,
-and probing should be done based on only the first element of the pair */
-template <typename Hasher>
-struct hasher_adapter {
-  hasher_adapter(Hasher const& d_hasher = {}) : _d_hasher{d_hasher} {}
-
-  template <typename T>
-  __device__ constexpr auto operator()(
-    cuco::pair<cudf::hash_value_type, T> const& key) const noexcept
-  {
-    return _d_hasher(key.first);
-  }
-
- private:
-  Hasher _d_hasher;
-};
-
-struct element_comparator {
- public:
-  template <typename T, std::enable_if_t<cudf::is_numeric<T>()>* = nullptr>
-  __device__ bool operator()(cudf::column_device_view const& lhs,
-                             cudf::size_type lhs_index,
-                             cudf::column_device_view const& rhs,
-                             cudf::size_type rhs_index)
-  {
-    if (_has_nulls) {
-      bool const lhs_is_null{lhs.is_null(lhs_index)};
-      bool const rhs_is_null{rhs.is_null(rhs_index)};
-      if (lhs_is_null and rhs_is_null) {
-        return _compare_nulls == cudf::null_equality::EQUAL;
-      } else if (lhs_is_null != rhs_is_null) {
-        return false;
-      }
-    }
-
-    return lhs.element<T>(lhs_index) == rhs.element<T>(rhs_index);
-  }
-
-  template <typename T, std::enable_if_t<!cudf::is_numeric<T>()>* = nullptr>
-  __device__ bool operator()(cudf::column_device_view const& lhs,
-                             cudf::size_type lhs_index,
-                             cudf::column_device_view const& rhs,
-                             cudf::size_type rhs_index)
-  {
-    CUDF_UNREACHABLE("Unsupported datatype");
-  }
-
-  __device__ element_comparator(bool has_nulls, cudf::null_equality compare_nulls)
-    : _has_nulls{has_nulls}, _compare_nulls{compare_nulls}
-  {
-  }
-
-  cudf::null_equality _compare_nulls;
-  bool _has_nulls;
-};
-
-struct comparator_adapter {
-  comparator_adapter(cudf::table_device_view lhs_table,
-                     cudf::table_device_view rhs_table,
-                     bool has_nulls,
-                     cudf::null_equality compare_nulls)
-    : _lhs_table{lhs_table},
-      _rhs_table{rhs_table},
-      _has_nulls{has_nulls},
-      _compare_nulls{compare_nulls}
-  {
-  }
-
-  __device__ constexpr auto operator()(
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type> const&,
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type> const&)
-    const noexcept
-  {
-    // All build table keys are distinct thus `false` no matter what
-    return false;
-  }
-
-  __device__ constexpr auto operator()(
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::lhs_index_type> const& lhs,
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type> const& rhs)
-    const noexcept
-  {
-    if (lhs.first != rhs.first) {
-      return false;
-    }
-
-    else {
-      cudf::size_type lhs_index = static_cast<cudf::size_type>(lhs.second);
-      cudf::size_type rhs_index = static_cast<cudf::size_type>(rhs.second);
-
-      for (cudf::size_type column_idx = 0; column_idx < _lhs_table.num_columns(); column_idx++) {
-        if (!cudf::type_dispatcher(_lhs_table.column(column_idx).type(),
-                                   element_comparator{_has_nulls, _compare_nulls},
-                                   _lhs_table.column(column_idx),
-                                   lhs_index,
-                                   _rhs_table.column(column_idx),
-                                   rhs_index)) {
-          return false;
-        }
-      }
-      return true;
-    }
-  }
-
- public:
-  cudf::table_device_view _lhs_table;
-  cudf::table_device_view _rhs_table;
-  cudf::null_equality _compare_nulls;
   bool _has_nulls;
 };
 
@@ -367,54 +223,25 @@ int find_grid_size(KernelType kernel)
   return grid_size;
 }
 
-cudf::size_type perform_join(cudf::table_view build_keys,
+template <typename Set>
+cudf::size_type perform_join(Set const& build_set,
+                             cudf::table_view const& build_keys,
                              cudf::size_type* build_indices,
-                             cudf::table_view probe_keys,
+                             cudf::table_view const& probe_keys,
                              cudf::size_type* probe_indices,
                              cudf::null_equality compare_nulls,
-                             float load_factor            = 0.5,
                              rmm::cuda_stream_view stream = rmm::cuda_stream_default)
 {
-  int constexpr cg_size = 1;
-  using probing_scheme_type =
-    cuco::linear_probing<cg_size, hasher_adapter<thrust::identity<cudf::hash_value_type>>>;
-
-  auto build_keys_view      = cudf::table_device_view::create(build_keys, stream);
   auto probe_keys_view      = cudf::table_device_view::create(probe_keys, stream);
-  bool build_keys_has_nulls = cudf::has_nulls(build_keys);
+  auto build_keys_view      = cudf::table_device_view::create(build_keys, stream);
   bool probe_keys_has_nulls = cudf::has_nulls(probe_keys);
+  bool build_keys_has_nulls = cudf::has_nulls(build_keys);
 
-  auto const d_build_hasher =
-    device_row_hasher<cudf::hashing::detail::default_hash>{*build_keys_view, build_keys_has_nulls};
-
-  rmm::mr::polymorphic_allocator<
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type>>
-    polly_alloc;
-  auto stream_alloc = rmm::mr::stream_allocator_adaptor(polly_alloc, stream);
-
-  auto empty_key_sentinel =
-    cuco::empty_key{cuco::pair{std::numeric_limits<cudf::hash_value_type>::max(),
-                               cudf::experimental::row::rhs_index_type{-1}}};
-  auto comparator_adapter_obj = comparator_adapter{*probe_keys_view,
-                                                   *build_keys_view,
-                                                   build_keys_has_nulls || probe_keys_has_nulls,
-                                                   compare_nulls};
-
-  auto build_set = cuco::static_set{build_keys.num_rows(),
-                                    load_factor,
-                                    empty_key_sentinel,
-                                    comparator_adapter_obj,
-                                    probing_scheme_type{},
-                                    cuco::thread_scope_device,
-                                    cuco::storage<1>{},
-                                    stream_alloc,
-                                    stream.value()};
-
-  auto const build_iter = cudf::detail::make_counting_transform_iterator(
-    0,
-    create_input_pair<decltype(d_build_hasher), cudf::experimental::row::rhs_index_type>{
-      d_build_hasher});
-  build_set.insert(build_iter, build_iter + build_keys.num_rows(), stream.value());
+  auto comparator_adapter_obj =
+    gqe::detail::comparator_adapter{*probe_keys_view,
+                                    *build_keys_view,
+                                    build_keys_has_nulls || probe_keys_has_nulls,
+                                    compare_nulls};
 
   auto const d_probe_hasher =
     device_row_hasher<cudf::hashing::detail::default_hash>{*probe_keys_view, probe_keys_has_nulls};
@@ -425,7 +252,9 @@ cudf::size_type perform_join(cudf::table_view build_keys,
 
   // Thread block size of the "probe_hash_set" kernel, must be a multiple of `warp_size`
   constexpr int block_size = 128;
-  auto build_set_ref       = build_set.ref(cuco::op::find);
+
+  auto build_set_base = build_set.ref(cuco::op::find);
+  auto build_set_ref  = build_set_base.rebind_key_eq(comparator_adapter_obj);
 
   auto probe_hash_set_kernel =
     probe_hash_set<block_size, decltype(build_set_ref), decltype(probe_iter)>;
@@ -446,26 +275,27 @@ cudf::size_type perform_join(cudf::table_view build_keys,
   return global_offset.value(stream);
 }
 
+template <typename Set>
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-gqe_unique_key_inner_join(
+unique_key_inner_join_impl(
+  Set const& build_set,
   cudf::table_view build_keys,
   cudf::table_view probe_keys,
   cudf::null_equality compare_nulls,
-  float load_factor                   = 0.5,
-  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
+  rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref())
 {
   auto const result_num_rows = probe_keys.num_rows();
   rmm::device_uvector<cudf::size_type> build_indices(result_num_rows, stream, mr);
   rmm::device_uvector<cudf::size_type> probe_indices(result_num_rows, stream, mr);
 
-  cudf::size_type out_rows_total = perform_join(build_keys,
+  cudf::size_type out_rows_total = perform_join(build_set,
+                                                build_keys,
                                                 build_indices.data(),
                                                 probe_keys,
                                                 probe_indices.data(),
                                                 compare_nulls,
-                                                load_factor,
                                                 stream);
 
   build_indices.resize(out_rows_total, stream);
@@ -477,58 +307,151 @@ gqe_unique_key_inner_join(
     std::make_unique<rmm::device_uvector<cudf::size_type>>(std::move(probe_indices), stream, mr));
 }
 
+}  // namespace
+
+namespace detail {
+
+unique_key_join::unique_key_join(cudf::table_view const& build,
+                                 cudf::null_equality compare_nulls,
+                                 float load_factor,
+                                 rmm::cuda_stream_view stream,
+                                 rmm::device_async_resource_ref mr)
+  : _build{build},
+    _nulls_equal{compare_nulls},
+    _build_set{build.num_rows(),
+               load_factor,
+               cuco::empty_key{cuco::pair{std::numeric_limits<cudf::hash_value_type>::max(),
+                                          cudf::experimental::row::rhs_index_type{-1}}},
+               always_not_equal{},
+               {},
+               cuco::thread_scope_device,
+               cuco_storage_type{},
+               rmm::mr::stream_allocator_adaptor{
+                 rmm::mr::polymorphic_allocator<
+                   cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type>>{},
+                 stream},
+               stream.value()}
+{
+  GQE_EXPECTS(0 != build.num_columns(), "Hash join build table is empty");
+  if (build.num_rows() == 0) { return; }
+
+  auto build_keys_view      = cudf::table_device_view::create(build, stream);
+  bool build_keys_has_nulls = cudf::has_nulls(build);
+  auto const d_build_hasher =
+    device_row_hasher<cudf::hashing::detail::default_hash>{*build_keys_view, build_keys_has_nulls};
+
+  auto const build_iter = cudf::detail::make_counting_transform_iterator(
+    0,
+    create_input_pair<decltype(d_build_hasher), cudf::experimental::row::rhs_index_type>{
+      d_build_hasher});
+  _build_set.insert(build_iter, build_iter + build.num_rows(), stream.value());
+}
+
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-compute_unique_key_inner_join(
-  cudf::table_view build_keys,
-  cudf::table_view probe_keys,
-  cudf::null_equality compare_nulls,
-  float load_factor                   = 0.5,
-  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
+unique_key_join::inner_join(cudf::table_view const& probe,
+                            rmm::cuda_stream_view stream,
+                            rmm::device_async_resource_ref mr) const
 {
-  GQE_EXPECTS(0 != build_keys.num_columns(), "Hash join build table is empty");
-  GQE_EXPECTS(0 != probe_keys.num_columns(), "Hash join probe table is empty");
+  GQE_EXPECTS(0 != probe.num_columns(), "Hash join probe table is empty");
 
-  GQE_EXPECTS(build_keys.num_columns() == probe_keys.num_columns(),
+  GQE_EXPECTS(this->_build.num_columns() == probe.num_columns(),
               "Mismatch in number of columns to be joined on");
 
   // If either table is empty, return immediately
-  if (build_keys.is_empty() || probe_keys.is_empty() || 0 == build_keys.num_rows() ||
-      0 == probe_keys.num_rows()) {
+  if (this->_build.is_empty() || probe.is_empty() || 0 == this->_build.num_rows() ||
+      0 == probe.num_rows()) {
     return std::pair(std::make_unique<rmm::device_uvector<cudf::size_type>>(0, stream, mr),
                      std::make_unique<rmm::device_uvector<cudf::size_type>>(0, stream, mr));
   }
 
-  GQE_EXPECTS(std::equal(std::cbegin(build_keys),
-                         std::cend(build_keys),
-                         std::cbegin(probe_keys),
-                         std::cend(probe_keys),
+  GQE_EXPECTS(std::equal(std::cbegin(this->_build),
+                         std::cend(this->_build),
+                         std::cbegin(probe),
+                         std::cend(probe),
                          [](auto const& b, auto const& p) { return b.type() == p.type(); }),
               "Mismatch in joining column data types");
 
-  if (keys_not_supported(build_keys)) {
-    GQE_LOG_WARN("Using cudf's distinct hash join, since keys are not numeric datatype");
-    return cudf_unique_key_inner_join(build_keys, probe_keys, compare_nulls, stream, mr);
-  }
+  auto [build_indices, probe_indices] = unique_key_inner_join_impl(
+    this->_build_set, this->_build, probe, this->_nulls_equal, stream, mr);
 
-  return gqe_unique_key_inner_join(build_keys, probe_keys, compare_nulls, load_factor, stream, mr);
+  return std::pair(std::move(probe_indices), std::move(build_indices));
 }
 
-}  // namespace
+}  // namespace detail
+
+unique_key_join::unique_key_join(cudf::table_view const& build,
+                                 cudf::null_equality compare_nulls,
+                                 float load_factor,
+                                 rmm::cuda_stream_view stream,
+                                 rmm::device_async_resource_ref mr)
+{
+  _impl =
+    std::make_unique<gqe::detail::unique_key_join>(build, compare_nulls, load_factor, stream, mr);
+}
+
+unique_key_join::unique_key_join(cudf::table_view const& build,
+                                 cudf::null_equality compare_nulls,
+                                 rmm::cuda_stream_view stream,
+                                 rmm::device_async_resource_ref mr)
+  : unique_key_join(build, compare_nulls, 0.5, stream, mr)
+{
+}
+
+unique_key_join::~unique_key_join() = default;
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-unique_key_inner_join(cudf::table_view build_keys,
-                      cudf::table_view probe_keys,
-                      cudf::null_equality compare_nulls,
-                      float load_factor                   = 0.5,
-                      rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
-                      rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
+unique_key_join::inner_join(cudf::table_view const& probe,
+                            rmm::cuda_stream_view stream,
+                            rmm::device_async_resource_ref mr) const
 {
-  utility::nvtx_scoped_range unique_key_inner_join_range("unique_key_inner_join");
-  return compute_unique_key_inner_join(
-    build_keys, probe_keys, compare_nulls, load_factor, stream, mr);
+  return _impl->inner_join(probe, stream, mr);
 }
 
+bool unique_key_join_supported(cudf::table_view const& keys)
+{
+  return thrust::all_of(thrust::host, keys.begin(), keys.end(), [](cudf::column_view col) {
+    return cudf::is_numeric(col.type());
+  });
+}
+
+std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+cudf_unique_key_inner_join(
+  cudf::table_view const& build_keys,
+  cudf::table_view const& probe_keys,
+  cudf::null_equality compare_nulls,
+  rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref())
+{
+  if (cudf::detail::has_nested_columns(build_keys)) {
+    cudf::distinct_hash_join<cudf::has_nested::YES> join_obj(
+      build_keys, probe_keys, cudf::nullable_join::YES, compare_nulls, stream);
+    return join_obj.inner_join(stream, mr);
+  } else {
+    cudf::distinct_hash_join<cudf::has_nested::NO> join_obj(
+      build_keys, probe_keys, cudf::nullable_join::YES, compare_nulls, stream);
+    return join_obj.inner_join(stream, mr);
+  }
+}
+
+std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+unique_key_inner_join(cudf::table_view const& build,
+                      cudf::table_view const& probe,
+                      cudf::null_equality compare_nulls,
+                      float load_factor,
+                      rmm::cuda_stream_view stream,
+                      rmm::device_async_resource_ref mr)
+{
+  if (!gqe::unique_key_join_supported(build) || !gqe::unique_key_join_supported(probe)) {
+    GQE_LOG_WARN("Using cudf's distinct hash join, since keys are not numeric datatype");
+    return cudf_unique_key_inner_join(build, probe, compare_nulls, stream, mr);
+  }
+
+  auto join_obj = gqe::unique_key_join(build, compare_nulls, load_factor, stream, mr);
+  auto [probe_indices, build_indices] = join_obj.inner_join(probe, stream, mr);
+  return std::pair(std::move(build_indices), std::move(probe_indices));
+}
 }  // namespace gqe

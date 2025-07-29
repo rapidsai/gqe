@@ -406,7 +406,7 @@ TEST_F(SingleKeyColumnNullsEqualJoinTest, NullsNotEqual)
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
-TEST(JoinHashMapCache, DISABLED_Multithread)
+TEST(HashMapCache, HashJoin)
 {
   int64_column_wrapper left_key({2, 1, 1, 3, 4, 1});
   int64_column_wrapper right_key({3, 1, 5, 1, 2});
@@ -433,8 +433,10 @@ TEST(JoinHashMapCache, DISABLED_Multithread)
   for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
     threads.emplace_back(
       [thread_idx, left_view, right_view, &cache, &left_num_matches, &right_num_matches]() {
-        auto const hash_join = cache.hash_map(left_view, cudf::null_equality::UNEQUAL);
-        auto [right_indices, left_indices] = hash_join->inner_join(right_view);
+        auto const hash_join =
+          cache.hash_map(left_view, gqe::join_algorithm::HASH_JOIN, cudf::null_equality::UNEQUAL);
+        auto [right_indices, left_indices] =
+          hash_join->probe(right_view, gqe::join_type_type::inner);
 
         left_num_matches[thread_idx]  = left_indices->size();
         right_num_matches[thread_idx] = right_indices->size();
@@ -451,6 +453,56 @@ TEST(JoinHashMapCache, DISABLED_Multithread)
 
   for (auto const& num_matches : right_num_matches) {
     EXPECT_EQ(num_matches, 8);
+  }
+}
+
+TEST(HashMapCache, UniqueKeyJoin)
+{
+  int64_column_wrapper left_key({1, 2, 3, 4, 5});
+  int64_column_wrapper right_key({3, 1, 5, 1, 2});
+
+  std::vector<std::unique_ptr<cudf::column>> left_table_columns;
+  left_table_columns.push_back(left_key.release());
+  auto left_table = std::make_unique<cudf::table>(std::move(left_table_columns));
+  auto left_view  = left_table->view();
+
+  std::vector<std::unique_ptr<cudf::column>> right_table_columns;
+  right_table_columns.push_back(right_key.release());
+  auto right_table = std::make_unique<cudf::table>(std::move(right_table_columns));
+  auto right_view  = right_table->view();
+
+  gqe::join_hash_map_cache cache(gqe::join_hash_map_cache::build_location::left);
+
+  constexpr std::size_t num_threads = 4;
+  std::vector<std::thread> threads;
+  threads.reserve(num_threads);
+
+  std::vector<std::size_t> left_num_matches(num_threads, 0);
+  std::vector<std::size_t> right_num_matches(num_threads, 0);
+
+  for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
+    threads.emplace_back(
+      [thread_idx, left_view, right_view, &cache, &left_num_matches, &right_num_matches]() {
+        auto const hash_join = cache.hash_map(
+          left_view, gqe::join_algorithm::UNIQUE_KEY_JOIN, cudf::null_equality::UNEQUAL);
+        auto [right_indices, left_indices] =
+          hash_join->probe(right_view, gqe::join_type_type::inner);
+
+        left_num_matches[thread_idx]  = left_indices->size();
+        right_num_matches[thread_idx] = right_indices->size();
+      });
+  }
+
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  for (auto const& num_matches : left_num_matches) {
+    EXPECT_EQ(num_matches, 5);
+  }
+
+  for (auto const& num_matches : right_num_matches) {
+    EXPECT_EQ(num_matches, 5);
   }
 }
 

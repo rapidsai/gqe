@@ -43,12 +43,60 @@
 
 namespace gqe {
 
-cudf::hash_join const* join_hash_map_cache::hash_map(cudf::table_view build_keys,
-                                                     cudf::null_equality compare_nulls) const
+hash_join_interface::hash_join_interface(cudf::table_view const& build,
+                                         cudf::null_equality compare_nulls,
+                                         rmm::cuda_stream_view stream)
+  : _hash_join_interface{std::make_unique<cudf::hash_join>(build, compare_nulls, stream)}
+{
+}
+
+std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+hash_join_interface::probe(cudf::table_view const& probe, join_type_type join_type) const
+{
+  switch (join_type) {
+    case join_type_type::inner: return _hash_join_interface->inner_join(probe);
+    case join_type_type::left: return _hash_join_interface->left_join(probe);
+    case join_type_type::full: return _hash_join_interface->full_join(probe);
+    default: throw std::logic_error("Unsupported join type");
+  }
+}
+
+unique_key_join_interface::unique_key_join_interface(cudf::table_view const& build,
+                                                     cudf::null_equality compare_nulls,
+                                                     rmm::cuda_stream_view stream)
+  : _unique_key_join_interface{std::make_unique<gqe::unique_key_join>(build, compare_nulls, stream)}
+{
+}
+
+std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+unique_key_join_interface::probe(cudf::table_view const& probe, join_type_type join_type) const
+{
+  switch (join_type) {
+    case join_type_type::inner: {
+      return _unique_key_join_interface->inner_join(probe);
+    }
+    default: throw std::logic_error("Unsupported join type");
+  }
+}
+
+join_interface const* join_hash_map_cache::hash_map(cudf::table_view const& build_keys,
+                                                    join_algorithm join_algorithm,
+                                                    cudf::null_equality compare_nulls) const
 {
   std::unique_lock latch_guard(_hash_map_latch);
 
-  if (!_hash_map) { _hash_map = std::make_unique<cudf::hash_join>(build_keys, compare_nulls); }
+  if (!_hash_map) {
+    switch (join_algorithm) {
+      case join_algorithm::HASH_JOIN:
+        _hash_map = std::make_unique<hash_join_interface>(build_keys, compare_nulls);
+        break;
+      case join_algorithm::UNIQUE_KEY_JOIN:
+        _hash_map = std::make_unique<unique_key_join_interface>(build_keys, compare_nulls);
+        break;
+    }
+  }
 
   return _hash_map.get();
 }
@@ -476,6 +524,7 @@ void join_task::execute()
     // Fast path: use the cached hash map
     cudf::table_view build_keys;
     cudf::table_view probe_keys;
+
     switch (_hash_map_cache->build_side()) {
       case join_hash_map_cache::build_location::left:
         build_keys = left_keys;
@@ -487,25 +536,30 @@ void join_task::execute()
         break;
     }
 
-    auto const hash_map = _hash_map_cache->hash_map(build_keys, join_keys.compare_nulls());
+    join_algorithm join_algo;
+
+    // TODO: if gqe::unique_key_join_supported is false, we can use distinct_hash_join instead,
+    // but we need to upgrade to cudf 25.06
+    if (((_unique_keys_policy == gqe::unique_keys_policy::left &&
+          _hash_map_cache->build_side() == join_hash_map_cache::build_location::left) ||
+         (_unique_keys_policy == gqe::unique_keys_policy::right &&
+          _hash_map_cache->build_side() == join_hash_map_cache::build_location::right)) &&
+        gqe::unique_key_join_supported(build_keys) && gqe::unique_key_join_supported(probe_keys) &&
+        _join_type == join_type_type::inner) {
+      join_algo = join_algorithm::UNIQUE_KEY_JOIN;
+      GQE_LOG_TRACE("Join implementation: unique_key_join.");
+    } else {
+      join_algo = join_algorithm::HASH_JOIN;
+      GQE_LOG_TRACE("Join implementation: hash join.");
+    }
+
+    auto const hash_map =
+      _hash_map_cache->hash_map(build_keys, join_algo, join_keys.compare_nulls());
+
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_indices;
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_indices;
 
-    switch (_join_type) {
-      case join_type_type::inner:
-        GQE_LOG_TRACE("Join implementation: cudf::hash_join::inner_join.");
-        std::tie(probe_indices, build_indices) = hash_map->inner_join(probe_keys);
-        break;
-      case join_type_type::left:
-        GQE_LOG_TRACE("Join implementation: cudf::hash_join::left_join.");
-        std::tie(probe_indices, build_indices) = hash_map->left_join(probe_keys);
-        break;
-      case join_type_type::full:
-        GQE_LOG_TRACE("Join implementation: cudf::hash_join::full_join.");
-        std::tie(probe_indices, build_indices) = hash_map->full_join(probe_keys);
-        break;
-      default: throw std::logic_error("Unsupported join type for the cached hash map");
-    }
+    std::tie(probe_indices, build_indices) = hash_map->probe(probe_keys, _join_type);
 
     switch (_hash_map_cache->build_side()) {
       case join_hash_map_cache::build_location::left:

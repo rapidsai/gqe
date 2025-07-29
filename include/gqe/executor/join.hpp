@@ -14,6 +14,7 @@
 
 #include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
+#include <gqe/executor/unique_key_inner_join.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/types.hpp>
 
@@ -25,6 +26,53 @@
 #include <vector>
 
 namespace gqe {
+
+class join_interface {
+ public:
+  virtual ~join_interface() = default;
+
+  virtual std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+                    std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+  probe(cudf::table_view const& probe, join_type_type join_type) const = 0;
+};
+
+class hash_join_interface : public join_interface {
+ public:
+  ~hash_join_interface() override = default;
+  hash_join_interface(cudf::table_view const& build,
+                      cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
+                      rmm::cuda_stream_view stream      = rmm::cuda_stream_default);
+
+  std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+            std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+  probe(cudf::table_view const& probe, join_type_type join_type) const override;
+
+ private:
+  mutable std::unique_ptr<cudf::hash_join> _hash_join_interface;
+};
+
+class unique_key_join_interface : public join_interface {
+ public:
+  ~unique_key_join_interface() override = default;
+  unique_key_join_interface(cudf::table_view const& build,
+                            cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
+                            rmm::cuda_stream_view stream      = rmm::cuda_stream_default);
+
+  std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+            std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+  probe(cudf::table_view const& probe, join_type_type join_type) const override;
+
+ private:
+  mutable std::unique_ptr<gqe::unique_key_join> _unique_key_join_interface;
+};
+
+/**
+ * @brief Specifies the type of hash join algorithm to use for building the map.
+ */
+enum class join_algorithm {
+  HASH_JOIN,        ///< Regular hash join (uses `cudf::hash_join`)
+  UNIQUE_KEY_JOIN,  ///< Unique key inner join (uses `gqe::unique_key_inner_join`)
+};
 
 /**
  * @brief Owner of the hash map used in hash joins.
@@ -67,12 +115,13 @@ class join_hash_map_cache {
    *
    * @return A hash join object that can be subsequently probed.
    */
-  cudf::hash_join const* hash_map(cudf::table_view build_keys,
-                                  cudf::null_equality compare_nulls) const;
+  join_interface const* hash_map(cudf::table_view const& build_keys,
+                                 join_algorithm join_algorithm,
+                                 cudf::null_equality compare_nulls) const;
 
  private:
   build_location _build_side;
-  mutable std::unique_ptr<cudf::hash_join> _hash_map;
+  mutable std::unique_ptr<join_interface> _hash_map;
   mutable std::shared_mutex
     _hash_map_latch;  //> The latch guards the hash map object. It needs to be acquired to allocate
                       // and free the hash map. It does not need to be acquired for (thread-safe

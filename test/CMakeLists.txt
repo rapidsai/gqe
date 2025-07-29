@@ -34,6 +34,7 @@ target_include_directories(unique_key_inner_join_test PUBLIC ${CMAKE_CURRENT_SOU
 target_link_libraries(unique_key_inner_join_test PUBLIC gqe)
 target_link_libraries(unique_key_inner_join_test PUBLIC GTest::gtest_main GTest::gmock)
 target_link_libraries(unique_key_inner_join_test PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
+target_link_libraries(unique_key_inner_join_test PUBLIC libperfect)
 add_test(NAME unique_key_inner_join COMMAND unique_key_inner_join_test)
 
 add_executable(read_task_test executor/read_task_test.cpp)

@@ -107,6 +107,7 @@ class broadcast_join_relation : public join_relation_base {
    * are discarded.
    * @param[in] policy Whether to broadcast the right relation or the left relation.
    * @param[in] unique_keys_pol Whether to enable the unique keys optimization.
+   * @param[in] perfect_hashing Whether to use perfect hashing.
    */
   broadcast_join_relation(std::shared_ptr<relation> left,
                           std::shared_ptr<relation> right,
@@ -115,7 +116,8 @@ class broadcast_join_relation : public join_relation_base {
                           std::unique_ptr<expression> condition,
                           std::vector<cudf::size_type> projection_indices,
                           broadcast_policy policy,
-                          gqe::unique_keys_policy unique_keys_pol = gqe::unique_keys_policy::none)
+                          gqe::unique_keys_policy unique_keys_pol = gqe::unique_keys_policy::none,
+                          bool perfect_hashing                    = false)
     : join_relation_base(std::move(left),
                          std::move(right),
                          std::move(subquery_relations),
@@ -123,7 +125,8 @@ class broadcast_join_relation : public join_relation_base {
                          std::move(condition),
                          std::move(projection_indices)),
       _policy(policy),
-      _unique_keys_policy(unique_keys_pol)
+      _unique_keys_policy(unique_keys_pol),
+      _perfect_hashing(perfect_hashing)
   {
   }
 
@@ -143,6 +146,11 @@ class broadcast_join_relation : public join_relation_base {
   }
 
   /**
+   * @brief Return a boolean indicating whether to use perfect hashing.
+   */
+  [[nodiscard]] bool perfect_hashing() const noexcept { return _perfect_hashing; }
+
+  /**
    * @copydoc gqe::physical::relation::accept(relation_visitor&)
    */
   void accept(relation_visitor& visitor) override { visitor.visit(this); }
@@ -150,6 +158,7 @@ class broadcast_join_relation : public join_relation_base {
  private:
   broadcast_policy _policy;
   gqe::unique_keys_policy _unique_keys_policy;
+  bool _perfect_hashing;
 };
 
 }  // namespace physical

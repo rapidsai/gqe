@@ -201,6 +201,8 @@ optimization_parameters::optimization_parameters(bool only_defaults)
 
     join_use_unique_keys = parse_env_variable("GQE_JOIN_USE_UNIQUE_KEYS", join_use_unique_keys);
 
+    join_use_perfect_hash = parse_env_variable("GQE_JOIN_USE_PERFECT_HASH", join_use_perfect_hash);
+
     read_zero_copy_enable = parse_env_variable("GQE_READ_USE_ZERO_COPY", read_zero_copy_enable);
 
     use_customized_io = parse_env_variable("GQE_USE_CUSTOMIZED_IO", use_customized_io);

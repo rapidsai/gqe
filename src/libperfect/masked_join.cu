@@ -1,0 +1,94 @@
+#include <cudf/column/column_view.hpp>
+#include <cudf/table/table.hpp>
+
+#include "xor_hash_table.cuh"
+
+#include "masked_join.hpp"
+
+// We'll do a bunch of lookups and then we need to process the result
+// of each lookup as it happens.  The processing for us will involve
+// putting the answer into one output list or another.
+std::tuple<CudaGpuArray<cudf::size_type>,
+           std::optional<CudaGpuArray<cudf::size_type>>,
+           std::optional<CudaGpuBuffer>,
+           std::optional<CudaGpuBuffer>>
+masked_join(const std::vector<ConstCudaGpuBufferPointer>& left_keys,
+            const size_t left_keys_numel,
+            const std::vector<ConstCudaGpuBufferPointer>& right_keys,
+            const size_t right_keys_numel,
+            const std::optional<ConstCudaGpuBufferPointer>& left_mask,
+            const std::optional<ConstCudaGpuBufferPointer>& right_mask,
+            const bool& left_unique,
+            const bool& right_unique,
+            const bool& return_all)
+{
+  // Make a hash table backed by a tensor.  The xors are needed for hashing.
+  PUSH_RANGE("perfect join", 0);
+  PUSH_RANGE("build hash", 1);
+  auto hash_table = xor_hash_table::make_hash_table(
+    left_keys, left_keys_numel, std::make_pair(right_keys, right_keys_numel));
+  POP_RANGE();
+  // Do all the inserts.
+  PUSH_RANGE("insert", 1);
+  hash_table.template bulk_insert<xor_hash_table::CheckEquality::False,
+                                  xor_hash_table::InsertOutput::False>(
+    left_keys, left_keys_numel, left_mask);
+  POP_RANGE();
+
+  PUSH_RANGE("lookup", 1);
+  auto ret = hash_table.bulk_lookup(right_keys,
+                                    right_keys_numel,
+                                    right_mask,
+                                    left_keys,
+                                    left_keys_numel,
+                                    left_unique,
+                                    right_unique,
+                                    return_all);
+  POP_RANGE();
+  POP_RANGE();
+  return ret;
+}
+
+std::vector<ConstCudaGpuBufferPointer> table_to_buffers(cudf::table_view const& t)
+{
+  std::vector<ConstCudaGpuBufferPointer> ret;
+  for (int column_index = 0; column_index < t.num_columns(); column_index++) {
+    const auto& current_column = t.column(column_index);
+    ret.emplace_back(current_column.data<int>(), current_column.type().id());
+  }
+  return ret;
+}
+
+std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+perfect_join(const cudf::table_view& left_keys, const cudf::table_view& right_keys)
+{
+  for (auto column_id = 0; column_id < left_keys.num_columns(); column_id++) {
+    auto const& column = left_keys.column(column_id);
+    if (column.has_nulls()) {
+      throw std::logic_error("Perfect hashing requires that both sides have no nulls");
+    }
+  }
+  for (auto column_id = 0; column_id < right_keys.num_columns(); column_id++) {
+    auto const& column = right_keys.column(column_id);
+    if (column.has_nulls()) {
+      throw std::logic_error("Perfect hashing requires that both sides have no nulls");
+    }
+  }
+  std::vector<ConstCudaGpuBufferPointer> left  = table_to_buffers(left_keys);
+  std::vector<ConstCudaGpuBufferPointer> right = table_to_buffers(right_keys);
+  auto ret                                     = masked_join(left,
+                         left_keys.num_rows(),
+                         right,
+                         right_keys.num_rows(),
+                         std::nullopt,
+                         std::nullopt,
+                         true,
+                         false,
+                         false);
+  auto left_indices = std::make_unique<rmm::device_uvector<cudf::size_type>>(
+    std::move(std::get<0>(ret).get_buffer()));
+  auto right_indices = std::make_unique<rmm::device_uvector<cudf::size_type>>(
+    std::move(std::get<1>(ret)->get_buffer()));
+  return std::make_pair(std::move(left_indices), std::move(right_indices));
+}

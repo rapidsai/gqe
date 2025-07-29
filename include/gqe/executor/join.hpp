@@ -114,6 +114,7 @@ class join_task : public task {
    * columns as the size of `projection_indices`. If `false`, emit the position lists.
    * @param[in] build_unique_keys_pol If `build_unique_keys_policy::right`, build on right side and
    * assume unique keys. Similarly if `build_unique_keys_policy::left`.
+   * @param[in] perfect_hashing If `true`, use perfect hashing for the join.
    */
   join_task(context_reference ctx_ref,
             int32_t task_id,
@@ -125,7 +126,8 @@ class join_task : public task {
             std::vector<cudf::size_type> projection_indices,
             std::shared_ptr<join_hash_map_cache> hash_map_cache = nullptr,
             bool materialize_output                             = true,
-            gqe::unique_keys_policy unique_keys_pol             = gqe::unique_keys_policy::none);
+            gqe::unique_keys_policy unique_keys_pol             = gqe::unique_keys_policy::none,
+            bool perfect_hashing                                = false);
 
   /**
    * @copydoc gqe::task::execute()
@@ -148,6 +150,7 @@ class join_task : public task {
   std::shared_ptr<join_hash_map_cache> _hash_map_cache;
   bool _materialize_output;
   gqe::unique_keys_policy _unique_keys_policy;
+  bool _perfect_hashing;
 };
 
 namespace detail {

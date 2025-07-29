@@ -22,6 +22,8 @@ target_link_libraries(substrait PRIVATE protobuf::libprotobuf)
 # See this issue for details: https://github.com/protocolbuffers/protobuf/issues/9947
 target_compile_options(substrait PRIVATE -DNDEBUG)
 
+add_subdirectory(libperfect)
+
 add_library(
     gqe STATIC
     logical/aggregate.cpp
@@ -112,6 +114,7 @@ target_link_libraries(gqe PRIVATE nvcomp::nvcomp)
 target_link_libraries(gqe PUBLIC uring)
 target_link_libraries(gqe PUBLIC MPI::MPI_CXX)
 target_link_libraries(gqe PUBLIC nvshmem::nvshmem_host)
+target_link_libraries(gqe PRIVATE libperfect)
 
 # Download and configure Parquet format
 if(GQE_ENABLE_CUSTOMIZED_PARQUET)

@@ -295,6 +295,13 @@ void task_graph_builder::generate_task_graph_visitor::visit(
 
   std::shared_ptr<gqe::join_hash_map_cache> hash_map_cache = nullptr;
 
+  gqe::unique_keys_policy unique_keys_pol =
+    _builder->_ctx_ref._query_context->parameters.join_use_unique_keys
+      ? relation->unique_keys_policy()
+      : gqe::unique_keys_policy::none;
+  bool perfect_hashing = _builder->_ctx_ref._query_context->parameters.join_use_perfect_hash &&
+                         relation->perfect_hashing();
+
   if (relation->policy() == physical::broadcast_policy::right) {
     // Generate the right children tasks
     auto right_tasks = _builder->generate_tasks(children[1]);
@@ -316,11 +323,6 @@ void task_graph_builder::generate_task_graph_visitor::visit(
         std::make_shared<gqe::join_hash_map_cache>(gqe::join_hash_map_cache::build_location::right);
     }
 
-    gqe::unique_keys_policy unique_keys_pol =
-      _builder->_ctx_ref._query_context->parameters.join_use_unique_keys
-        ? relation->unique_keys_policy()
-        : gqe::unique_keys_policy::none;
-
     // Generate the join tasks
     for (auto& left_task : left_tasks) {
       _generated_tasks.push_back(std::make_shared<join_task>(_builder->_ctx_ref,
@@ -333,7 +335,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
                                                              relation->projection_indices(),
                                                              hash_map_cache,
                                                              true,
-                                                             unique_keys_pol));
+                                                             unique_keys_pol,
+                                                             perfect_hashing));
       _builder->_current_task_id++;
     }
   } else {
@@ -371,11 +374,6 @@ void task_graph_builder::generate_task_graph_visitor::visit(
       separate_materialization = true;
     }
 
-    gqe::unique_keys_policy unique_keys_pol =
-      _builder->_ctx_ref._query_context->parameters.join_use_unique_keys
-        ? relation->unique_keys_policy()
-        : gqe::unique_keys_policy::none;
-
     // Generate the join tasks
     std::vector<std::shared_ptr<task>> join_tasks;
     for (auto& right_task : right_tasks) {
@@ -389,7 +387,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
                                                        relation->projection_indices(),
                                                        hash_map_cache,
                                                        !separate_materialization,
-                                                       unique_keys_pol));
+                                                       unique_keys_pol,
+                                                       perfect_hashing));
       _builder->_current_task_id++;
     }
 

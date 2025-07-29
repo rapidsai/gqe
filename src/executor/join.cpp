@@ -34,6 +34,8 @@
 #include <cudf/utilities/traits.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
+#include "../libperfect/masked_join.hpp"
+
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -61,14 +63,16 @@ join_task::join_task(context_reference ctx_ref,
                      std::vector<cudf::size_type> projection_indices,
                      std::shared_ptr<join_hash_map_cache> hash_map_cache,
                      bool materialize_output,
-                     gqe::unique_keys_policy unique_keys_pol)
+                     gqe::unique_keys_policy unique_keys_pol,
+                     bool perfect_hashing)
   : task(ctx_ref, task_id, stage_id, {std::move(left), std::move(right)}, {}),
     _join_type(join_type),
     _condition(std::move(condition)),
     _projection_indices(std::move(projection_indices)),
     _hash_map_cache(std::move(hash_map_cache)),
     _materialize_output(materialize_output),
-    _unique_keys_policy(unique_keys_pol)
+    _unique_keys_policy(unique_keys_pol),
+    _perfect_hashing(perfect_hashing)
 {
 }
 
@@ -519,27 +523,46 @@ void join_task::execute()
       // Only have equality join conditions
       auto const compare_nulls = join_keys.compare_nulls();
       switch (_join_type) {
-        case join_type_type::inner:
-          switch (_unique_keys_policy) {
-            case gqe::unique_keys_policy::left: {
-              GQE_LOG_TRACE("Join implementation: unique_key_inner_join.");
-              std::tie(left_indices, right_indices) =
-                unique_key_inner_join(left_keys, right_keys, compare_nulls);
-              break;
+        case join_type_type::inner: {
+          if (_perfect_hashing) {
+            switch (_unique_keys_policy) {
+              case gqe::unique_keys_policy::left: {
+                GQE_LOG_TRACE("Join implementation: perfect_join.");
+                std::tie(left_indices, right_indices) = perfect_join(left_keys, right_keys);
+                break;
+              }
+              case gqe::unique_keys_policy::right: {
+                GQE_LOG_TRACE("Join implementation: perfect_join.");
+                std::tie(right_indices, left_indices) = perfect_join(right_keys, left_keys);
+                break;
+              }
+              default: {
+                throw std::logic_error(
+                  "Perfect hashing requires that at least one side has unique keys");
+              }
             }
-            case gqe::unique_keys_policy::right: {
-              GQE_LOG_TRACE("Join implementation: unique_key_inner_join.");
-              std::tie(right_indices, left_indices) =
-                unique_key_inner_join(right_keys, left_keys, compare_nulls);
-              break;
-            }
-            default: {
-              GQE_LOG_TRACE("Join implementation: cudf::inner_join.");
-              std::tie(left_indices, right_indices) =
-                cudf::inner_join(left_keys, right_keys, compare_nulls);
+          } else {
+            switch (_unique_keys_policy) {
+              case gqe::unique_keys_policy::left: {
+                GQE_LOG_TRACE("Join implementation: unique_key_inner_join.");
+                std::tie(left_indices, right_indices) =
+                  unique_key_inner_join(left_keys, right_keys, compare_nulls);
+                break;
+              }
+              case gqe::unique_keys_policy::right: {
+                GQE_LOG_TRACE("Join implementation: unique_key_inner_join.");
+                std::tie(right_indices, left_indices) =
+                  unique_key_inner_join(right_keys, left_keys, compare_nulls);
+                break;
+              }
+              default: {
+                GQE_LOG_TRACE("Join implementation: cudf::inner_join.");
+                std::tie(left_indices, right_indices) =
+                  cudf::inner_join(left_keys, right_keys, compare_nulls);
+              }
             }
           }
-          break;
+        } break;
         case join_type_type::left:
           GQE_LOG_TRACE("Join implementation: cudf::left_join.");
           std::tie(left_indices, right_indices) =

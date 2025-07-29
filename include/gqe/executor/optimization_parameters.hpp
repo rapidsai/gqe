@@ -48,6 +48,9 @@ struct optimization_parameters {
   bool join_use_unique_keys = true;  ///< Allow inner join to be optimized for unique build-side
                                      ///< keys with a hashset instead of a hash multiset. Joins on
                                      ///< non-unique keys will always deactivate this optimization.
+  bool join_use_perfect_hash =
+    true;  ///< Allow inner join to be optimized for unique build-side keys with perfect hashing.
+           ///< Perfect hashing requires that both sides have no nulls.
   bool read_zero_copy_enable =
     true;  ///< Enable zero-copy reads for in-memory table. When disabled, read tasks copy input
            ///< data to a temporary output buffer.

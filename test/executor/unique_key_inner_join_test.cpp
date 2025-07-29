@@ -11,6 +11,7 @@
  */
 
 #include <gqe/executor/unique_key_inner_join.hpp>
+#include <masked_join.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/join.hpp>
@@ -26,8 +27,30 @@
 
 #include <random>
 
-using TestType =
-  cudf::test::Concat<cudf::test::IntegralTypesNotBool, cudf::test::FloatingPointTypes>;
+class UniqueKeyInnerJoiner {
+ public:
+  std::tuple<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+  operator()(cudf::table_view build_keys_table_view, cudf::table_view probe_keys_table_view)
+  {
+    return gqe::unique_key_inner_join(
+      build_keys_table_view, probe_keys_table_view, cudf::null_equality::UNEQUAL);
+  }
+};
+
+class PerfectHashJoiner {
+ public:
+  std::tuple<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+  operator()(cudf::table_view build_keys_table_view, cudf::table_view probe_keys_table_view)
+  {
+    return perfect_join(build_keys_table_view, probe_keys_table_view);
+  }
+};
+
+using TestType = cudf::test::CrossProduct<
+  cudf::test::Concat<cudf::test::IntegralTypesNotBool, cudf::test::FloatingPointTypes>,
+  ::testing::Types<UniqueKeyInnerJoiner, PerfectHashJoiner>>;
 
 template <typename T, typename RandDist>
 void gen_keys_from_dist(std::vector<T>& build_keys_data,
@@ -156,7 +179,8 @@ TYPED_TEST_SUITE(UniqueKeyInnerJoinTest, TestType);
 
 TYPED_TEST(UniqueKeyInnerJoinTest, Basic)
 {
-  using T      = TypeParam;
+  using T      = cudf::test::GetType<TypeParam, 0>;
+  using Joiner = cudf::test::GetType<TypeParam, 1>;
   int num_keys = 100;
   std::vector<T> build_keys_data;
   std::vector<T> probe_keys_data;
@@ -176,8 +200,8 @@ TYPED_TEST(UniqueKeyInnerJoinTest, Basic)
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_expected_indices;
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_expected_indices;
 
-  std::tie(build_result_indices, probe_result_indices) = gqe::unique_key_inner_join(
-    build_keys_table_view, probe_keys_table_view, cudf::null_equality::UNEQUAL);
+  std::tie(build_result_indices, probe_result_indices) =
+    Joiner()(build_keys_table_view, probe_keys_table_view);
 
   std::tie(build_expected_indices, probe_expected_indices) =
     cudf::inner_join(build_keys_table_view, probe_keys_table_view, cudf::null_equality::UNEQUAL);
@@ -190,7 +214,8 @@ TYPED_TEST(UniqueKeyInnerJoinTest, Basic)
 
 TYPED_TEST(UniqueKeyInnerJoinTest, Multicol)
 {
-  using T      = TypeParam;
+  using T      = cudf::test::GetType<TypeParam, 0>;
+  using Joiner = cudf::test::GetType<TypeParam, 1>;
   int num_keys = 100;
   std::vector<T> build_keys_col_0_data;
   std::vector<T> probe_keys_col_0_data;
@@ -218,8 +243,8 @@ TYPED_TEST(UniqueKeyInnerJoinTest, Multicol)
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_expected_indices;
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_expected_indices;
 
-  std::tie(build_result_indices, probe_result_indices) = gqe::unique_key_inner_join(
-    build_keys_table_view, probe_keys_table_view, cudf::null_equality::UNEQUAL);
+  std::tie(build_result_indices, probe_result_indices) =
+    Joiner()(build_keys_table_view, probe_keys_table_view);
 
   std::tie(build_expected_indices, probe_expected_indices) =
     cudf::inner_join(build_keys_table_view, probe_keys_table_view, cudf::null_equality::UNEQUAL);
@@ -289,3 +314,41 @@ TEST(UniqueKeyInnerJoinTest, UnequalNullTest)
                  build_expected_indices,
                  probe_expected_indices);
 }
+
+struct PerfectHashInnerJoinTest : public ::testing::TestWithParam<std::tuple<bool, bool>> {};
+
+TEST_P(PerfectHashInnerJoinTest, PerfectHashWithNulls)
+{
+  auto [build_valid, probe_valid] = GetParam();
+
+  std::vector<int64_t> build_keys_data  = {0, 1, 2, 3, 4, 5};
+  std::vector<int64_t> build_keys_valid = {build_valid, 1, 1, 1, 1, 1};
+  std::vector<int64_t> probe_keys_data  = {0, 3, 4, 6, 7, 8};
+  std::vector<int64_t> probe_keys_valid = {probe_valid, 1, 1, 1, 1, 1};
+
+  cudf::test::fixed_width_column_wrapper<int64_t> build_keys_column(
+    build_keys_data.begin(), build_keys_data.end(), build_keys_valid.begin());
+  cudf::test::fixed_width_column_wrapper<int64_t> probe_keys_column(
+    probe_keys_data.begin(), probe_keys_data.end(), probe_keys_valid.begin());
+
+  cudf::table_view build_keys_table_view({build_keys_column});
+  cudf::table_view probe_keys_table_view({probe_keys_column});
+
+  if (build_valid && probe_valid) {
+    EXPECT_NO_THROW(perfect_join(build_keys_table_view, probe_keys_table_view));
+  } else {
+    EXPECT_THROW(perfect_join(build_keys_table_view, probe_keys_table_view), std::logic_error)
+      << "Perfect hashing requires that both sides have no nulls";
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+  PerfectHashInnerJoinTest,
+  PerfectHashInnerJoinTest,
+  ::testing::Combine(::testing::Values(true, false), ::testing::Values(true, false)),
+  [](const testing::TestParamInfo<PerfectHashInnerJoinTest::ParamType>& info) {
+    std::string name = std::string("build_keys_") +
+                       (std::get<0>(info.param) ? "valid" : "invalid") + "_" +
+                       std::string("probe_keys_") + (std::get<1>(info.param) ? "valid" : "invalid");
+    return name;
+  });

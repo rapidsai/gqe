@@ -45,7 +45,7 @@ void gen_ident_col_task::execute()
   auto input_table = dependent_tasks[0]->result().value();
 
   rmm::device_uvector<uint64_t> row_id_vec{static_cast<std::size_t>(input_table.num_rows()),
-                                           rmm::cuda_stream_default};
+                                           cudf::get_default_stream()};
   thrust::sequence(thrust::device,
                    row_id_vec.data(),
                    row_id_vec.data() + input_table.num_rows(),

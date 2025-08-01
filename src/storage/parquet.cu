@@ -141,10 +141,10 @@ std::unique_ptr<cudf::column> parquet_read_task::construct_partition_key_column(
   auto column = cudf::make_numeric_column(dtype, offsets.back());
 
   auto keys_dev = cudf::detail::make_device_uvector_async(
-    keys, rmm::cuda_stream_default, rmm::mr::get_current_device_resource());
+    keys, cudf::get_default_stream(), rmm::mr::get_current_device_resource());
 
   auto offsets_dev = cudf::detail::make_device_uvector_async(
-    offsets, rmm::cuda_stream_default, rmm::mr::get_current_device_resource());
+    offsets, cudf::get_default_stream(), rmm::mr::get_current_device_resource());
 
   cudf::type_dispatcher(dtype,
                         fill_key_column_functor{},

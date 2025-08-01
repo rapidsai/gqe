@@ -148,7 +148,7 @@ table_with_metadata table_from_parquet(context_reference ctx_ref,
       // Note that we use `device_buffer` only as a RAII wrapper. `bounce_buffer` is located in the
       // pinned host memory, not device memory.
       rmm::device_buffer bounce_buffer(bounce_buffer_size,
-                                       rmm::cuda_stream_default,
+                                       cudf::get_default_stream(),
                                        ctx_ref._query_context->io_bounce_buffer_mr.get());
 
       result =

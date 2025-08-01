@@ -246,7 +246,7 @@ void custom_task::execute()
 
   // Construct a hash map for the date_dim table
   rmm::mr::polymorphic_allocator<cuco::pair<int64_t, int64_t>> polly_alloc;
-  auto stream_alloc = rmm::mr::stream_allocator_adaptor(polly_alloc, rmm::cuda_stream_default);
+  auto stream_alloc = rmm::mr::stream_allocator_adaptor(polly_alloc, cudf::get_default_stream());
 
   auto date_dim_map =
     cuco::static_map{date_dim_capacity,
@@ -291,9 +291,9 @@ void custom_task::execute()
   // We don't know exactly how many rows will be produced a priori, but we know it is capped by the
   // number of rows in the store_sales table.
   auto const ss_num_rows = store_sales_table.num_rows();
-  rmm::device_uvector<int64_t> item_indices(ss_num_rows, rmm::cuda_stream_default);
-  rmm::device_uvector<int64_t> date_dim_indices(ss_num_rows, rmm::cuda_stream_default);
-  rmm::device_uvector<int64_t> ss_indices(ss_num_rows, rmm::cuda_stream_default);
+  rmm::device_uvector<int64_t> item_indices(ss_num_rows, cudf::get_default_stream());
+  rmm::device_uvector<int64_t> date_dim_indices(ss_num_rows, cudf::get_default_stream());
+  rmm::device_uvector<int64_t> ss_indices(ss_num_rows, cudf::get_default_stream());
 
   auto ss_item_sk_column      = cudf::column_device_view::create(store_sales_table.column(0));
   auto ss_sold_date_sk_column = cudf::column_device_view::create(store_sales_table.column(1));
@@ -304,7 +304,7 @@ void custom_task::execute()
   constexpr int grid_size     = 1600;
   constexpr auto num_warps    = grid_size * (block_size / warp_size);
   auto const in_rows_per_warp = (ss_num_rows + num_warps - 1) / num_warps;
-  rmm::device_uvector<cudf::size_type> out_rows_per_warp(num_warps, rmm::cuda_stream_default);
+  rmm::device_uvector<cudf::size_type> out_rows_per_warp(num_warps, cudf::get_default_stream());
 
   probe_hash_maps<block_size><<<grid_size, block_size>>>(item_map.ref(cuco::find),
                                                          date_dim_map.ref(cuco::find),
@@ -315,17 +315,17 @@ void custom_task::execute()
                                                          date_dim_indices.data(),
                                                          ss_indices.data(),
                                                          out_rows_per_warp.data());
-  rmm::cuda_stream_default.synchronize();
+  cudf::get_default_stream().synchronize();
 
   // Turn the number of rows into output offsets for each warp
   thrust::inclusive_scan(
     thrust::device, out_rows_per_warp.begin(), out_rows_per_warp.end(), out_rows_per_warp.begin());
 
   // Allocate vectors for the compacted row indices
-  auto const out_rows_total = out_rows_per_warp.back_element(rmm::cuda_stream_default);
-  rmm::device_uvector<int64_t> compact_item_indices(out_rows_total, rmm::cuda_stream_default);
-  rmm::device_uvector<int64_t> compact_date_dim_indices(out_rows_total, rmm::cuda_stream_default);
-  rmm::device_uvector<int64_t> compact_ss_indices(out_rows_total, rmm::cuda_stream_default);
+  auto const out_rows_total = out_rows_per_warp.back_element(cudf::get_default_stream());
+  rmm::device_uvector<int64_t> compact_item_indices(out_rows_total, cudf::get_default_stream());
+  rmm::device_uvector<int64_t> compact_date_dim_indices(out_rows_total, cudf::get_default_stream());
+  rmm::device_uvector<int64_t> compact_ss_indices(out_rows_total, cudf::get_default_stream());
 
   // FIXME: Use DeviceBatchMemcpy from CUB instead of customized kernel after 2.1.0
   // https://github.com/NVIDIA/cub/pull/359
@@ -347,7 +347,7 @@ void custom_task::execute()
                                                out_rows_per_warp.data(),
                                                num_warps);
 
-  rmm::cuda_stream_default.synchronize();
+  cudf::get_default_stream().synchronize();
 
   // Convert indices from vectors to columns
   auto item_indices_column =

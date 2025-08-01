@@ -230,7 +230,7 @@ cudf::size_type perform_join(Set const& build_set,
                              cudf::table_view const& probe_keys,
                              cudf::size_type* probe_indices,
                              cudf::null_equality compare_nulls,
-                             rmm::cuda_stream_view stream = rmm::cuda_stream_default)
+                             rmm::cuda_stream_view stream = cudf::get_default_stream())
 {
   auto probe_keys_view      = cudf::table_device_view::create(probe_keys, stream);
   auto build_keys_view      = cudf::table_device_view::create(build_keys, stream);
@@ -278,13 +278,12 @@ cudf::size_type perform_join(Set const& build_set,
 template <typename Set>
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-unique_key_inner_join_impl(
-  Set const& build_set,
-  cudf::table_view build_keys,
-  cudf::table_view probe_keys,
-  cudf::null_equality compare_nulls,
-  rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref())
+unique_key_inner_join_impl(Set const& build_set,
+                           cudf::table_view build_keys,
+                           cudf::table_view probe_keys,
+                           cudf::null_equality compare_nulls,
+                           rmm::cuda_stream_view stream,
+                           rmm::device_async_resource_ref mr)
 {
   auto const result_num_rows = probe_keys.num_rows();
   rmm::device_uvector<cudf::size_type> build_indices(result_num_rows, stream, mr);

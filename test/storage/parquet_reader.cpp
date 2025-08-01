@@ -56,7 +56,7 @@ gqe::storage::table_with_metadata write_file_and_load_back(cudf::table_view tabl
 
   auto const bounce_buffer_size = query_ctx.io_bounce_buffer_mr->get_block_size();
   rmm::device_buffer bounce_buffer(
-    bounce_buffer_size, rmm::cuda_stream_default, query_ctx.io_bounce_buffer_mr.get());
+    bounce_buffer_size, cudf::get_default_stream(), query_ctx.io_bounce_buffer_mr.get());
 
   gqe::storage::table_with_metadata result_table;
 

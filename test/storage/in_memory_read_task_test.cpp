@@ -103,7 +103,7 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
           return std::make_unique<gqe::storage::compressed_column>(
             std::move(cudf_col),
             comp_format,
-            rmm::cuda_stream_default,
+            cudf::get_default_stream(),
             rmm::mr::get_current_device_resource(),
             nvcomp_data_format,
             chunk_size);

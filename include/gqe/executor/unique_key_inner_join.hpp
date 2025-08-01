@@ -117,7 +117,7 @@ unique_key_inner_join(
   cudf::table_view const& probe,
   cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
   float load_factor                 = 0.5,
-  rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 }  // namespace gqe

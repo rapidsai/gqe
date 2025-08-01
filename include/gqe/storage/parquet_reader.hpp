@@ -105,7 +105,7 @@ table_with_metadata read_parquet_custom(
   gqe::utility::bandwidth_timer& h2d_timer,
   gqe::utility::bandwidth_timer& decomp_timer,
   gqe::utility::bandwidth_timer& decode_timer,
-  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 }  // namespace gqe::storage

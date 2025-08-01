@@ -129,7 +129,7 @@ std::unique_ptr<cudf::table> window_partition_and_order(
     auto const host_offsets = groups.offsets;
 
     rmm::device_uvector<cudf::size_type> device_offsets{host_offsets.size(),
-                                                        rmm::cuda_stream_default};
+                                                        cudf::get_default_stream()};
     GQE_CUDA_TRY(cudaMemcpy(device_offsets.data(),
                             host_offsets.data(),
                             host_offsets.size() * sizeof(cudf::size_type),

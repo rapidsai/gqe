@@ -52,6 +52,8 @@ add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--generate-line-info>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:-Wno-deprecated-gpu-targets>")
+add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>")
+
 
 # needed for clang-tidy
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

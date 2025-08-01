@@ -233,7 +233,7 @@ class parquet_writeable_view : public writeable_view {
 std::unique_ptr<cudf::column> cast(
   cudf::column_view input,
   cudf::data_type type,
-  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 };  // namespace storage

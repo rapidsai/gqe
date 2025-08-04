@@ -345,9 +345,6 @@ in_memory_read_task::in_memory_read_task(context_reference ctx_ref,
 {
   if (should_use_overlap_mtx()) {
     GQE_LOG_DEBUG("Using overlap mutex for in_memory_read_task");
-    GQE_CUDA_TRY(cudaEventCreateWithFlags(&_ce_evt, cudaEventDisableTiming));
-    _ce_lock = std::unique_lock{
-      get_context_reference()._task_manager_context->copy_engine_stream.mtx, std::defer_lock};
     _decompression_stream =
       get_context_reference()._task_manager_context->copy_engine_stream.stream;
   } else {
@@ -358,29 +355,6 @@ in_memory_read_task::in_memory_read_task(context_reference ctx_ref,
 bool in_memory_read_task::should_use_overlap_mtx() const
 {
   return get_query_context()->parameters.use_overlap_mtx;
-}
-
-void in_memory_read_task::lock_shared_copy_engine()
-{
-  if (should_use_overlap_mtx()) { _ce_lock.lock(); }
-}
-void in_memory_read_task::wait_for_shared_copy_engine()
-{
-  if (should_use_overlap_mtx()) {
-    auto default_stream = cudf::get_default_stream().value();
-    auto shared_ce_stream =
-      get_context_reference()._task_manager_context->copy_engine_stream.stream.value();
-    GQE_CUDA_TRY(cudaEventRecord(_ce_evt, shared_ce_stream));
-    GQE_CUDA_TRY(cudaStreamWaitEvent(default_stream, _ce_evt));
-  }
-}
-
-void in_memory_read_task::unlock_shared_copy_engine()
-{
-  if (should_use_overlap_mtx()) {
-    _ce_lock.unlock();
-    GQE_CUDA_TRY(cudaEventDestroy(_ce_evt));
-  }
 }
 
 bool in_memory_read_task::can_prune_partitions() const
@@ -555,7 +529,7 @@ void in_memory_read_task::emit_single_partition(
 }
 
 void in_memory_read_task::emit_concatenated_partitions(
-  const std::vector<cudf::table_view>& sliced_row_groups)
+  const std::vector<cudf::table_view>& sliced_row_groups, cudaEvent_t& ce_evt)
 {
   /*
    * If the column is not compressed we do a CE copy in concatenate, we want this copy
@@ -570,8 +544,8 @@ void in_memory_read_task::emit_concatenated_partitions(
   if (_decompressed_columns.empty() && should_use_overlap_mtx()) {
     result = cudf::concatenate(
       sliced_row_groups, _decompression_stream, rmm::mr::get_current_device_resource());
-    GQE_CUDA_TRY(cudaEventRecord(_ce_evt, _decompression_stream.value()));
-    GQE_CUDA_TRY(cudaStreamWaitEvent(cudf::get_default_stream().value(), _ce_evt));
+    GQE_CUDA_TRY(cudaEventRecord(ce_evt, _decompression_stream.value()));
+    GQE_CUDA_TRY(cudaStreamWaitEvent(cudf::get_default_stream().value(), ce_evt));
   } else {
     result = cudf::concatenate(sliced_row_groups);
   }
@@ -590,27 +564,47 @@ void in_memory_read_task::execute()
 
   utility::nvtx_scoped_range in_memory_read_task_range("in_memory_read_task");
 
-  lock_shared_copy_engine();
+  // Lock on the shared copy engine stream.
+  std::unique_lock<std::mutex> ce_lock;
+  // Event used to synchronize the CUDF default stream and the shared copy engine stream.
+  cudaEvent_t ce_evt;
+
+  if (should_use_overlap_mtx()) {
+    GQE_CUDA_TRY(cudaEventCreateWithFlags(&ce_evt, cudaEventDisableTiming));
+    ce_lock =
+      std::unique_lock{get_context_reference()._task_manager_context->copy_engine_stream.mtx};
+  }
 
   const std::vector<row_group_with_partitions> row_groups_with_partitions =
     can_prune_partitions() ? evaluate_partial_filter() : construct_fully_covering_partitions();
   const std::vector<cudf::table_view> sliced_row_groups =
     slice_row_groups(row_groups_with_partitions);
 
-  if (!_decompressed_columns.empty()) { wait_for_shared_copy_engine(); }
+  if (!_decompressed_columns.empty() && should_use_overlap_mtx()) {
+    // Wait on the CUDF default stream until data transfers of the shared copy engine are finished.
+    auto default_stream = cudf::get_default_stream().value();
+    auto shared_ce_stream =
+      get_context_reference()._task_manager_context->copy_engine_stream.stream.value();
+    GQE_CUDA_TRY(cudaEventRecord(ce_evt, shared_ce_stream));
+    GQE_CUDA_TRY(cudaStreamWaitEvent(default_stream, ce_evt));
+  }
 
+  auto unlock_shared_copy_engine = [&ce_lock, &ce_evt]() {
+    ce_lock.unlock();
+    GQE_CUDA_TRY(cudaEventDestroy(ce_evt));
+  };
   // If there are multiple sliced row groups that have to be concatenated, the lock to the shared
   // copy engine has to be held until after the concatenation. Otherwise the lock can be relased
   // now.
   if (sliced_row_groups.empty()) {
-    unlock_shared_copy_engine();
+    if (should_use_overlap_mtx()) { unlock_shared_copy_engine(); }
     emit_empty_table();
   } else if (is_zero_copy_possible(sliced_row_groups)) {
-    unlock_shared_copy_engine();
+    if (should_use_overlap_mtx()) { unlock_shared_copy_engine(); }
     emit_single_partition(sliced_row_groups);
   } else {
-    emit_concatenated_partitions(sliced_row_groups);
-    unlock_shared_copy_engine();
+    emit_concatenated_partitions(sliced_row_groups, ce_evt);
+    if (should_use_overlap_mtx()) { unlock_shared_copy_engine(); }
   }
 
   remove_dependencies();

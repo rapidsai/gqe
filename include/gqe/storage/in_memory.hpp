@@ -449,16 +449,6 @@ class in_memory_read_task : public read_task_base {
   /// with subsequent tasks from other workers.
   bool should_use_overlap_mtx() const;
 
-  /// Lock the copy engine shared by read tasks. A no-op if read tasks are not overlapped.
-  void lock_shared_copy_engine();
-
-  /// Wait on the CUDF default stream until data transfers of the shared copy engine are finished. A
-  /// no-op if read tasks are not overlapped.
-  void wait_for_shared_copy_engine();
-
-  /// Unlock the copy engine shared by read tasks. A no-op if read tasks are not overlapped.
-  void unlock_shared_copy_engine();
-
   /// Convenience type which pairs a row group with the partitions determined by evaluating a
   /// partial filter on the row group's zone map.
   using row_group_with_partitions = std::pair<const row_group*, std::vector<zone_map::partition>>;
@@ -497,8 +487,10 @@ class in_memory_read_task : public read_task_base {
   /// Emit a single row group partition as a borrowed result.
   void emit_single_partition(const std::vector<cudf::table_view>& sliced_row_groups);
 
-  /// Concatenate and emit one or more row group partitions as an owned result.
-  void emit_concatenated_partitions(const std::vector<cudf::table_view>& sliced_row_groups);
+  /// Concatenate and emit one or more row group partitions as an owned result. Synchronizes the
+  /// cuDF default stream with _decompression_stream via ce_evt.
+  void emit_concatenated_partitions(const std::vector<cudf::table_view>& sliced_row_groups,
+                                    cudaEvent_t& ce_evt);
 
   std::vector<const row_group*>
     _row_groups; /**< Non-owning references to the row groups assigned to this task. */
@@ -511,12 +503,6 @@ class in_memory_read_task : public read_task_base {
   /// Decompressed columns need to be kept valid during the lifetime of the read task. This map also
   /// serves as a cache for decompressed columns.
   std::unordered_map<const column_base*, std::unique_ptr<cudf::column>> _decompressed_columns;
-
-  /// Event used to synchronize the CUDF default stream and the shared copy engine stream.
-  cudaEvent_t _ce_evt;
-
-  /// Lock on the shared copy engine stream.
-  std::unique_lock<std::mutex> _ce_lock;
 
   /// The stream used to decompress columns. Either the shared copy engine stream if data transfers
   /// are overlapped, or the CUDF default stream otherwise.

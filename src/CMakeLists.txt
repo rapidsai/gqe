@@ -102,7 +102,8 @@ add_library(
     storage/zone_map.cpp
 )
 
-target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+include_directories(${PROJECT_SOURCE_DIR}/include)
+
 target_link_libraries(gqe PUBLIC cuco::cuco)
 target_link_libraries(gqe PUBLIC cudf::cudf)
 target_link_libraries(gqe PUBLIC numa)
@@ -130,4 +131,41 @@ if(GQE_ENABLE_CUSTOMIZED_PARQUET)
 
     target_link_libraries(gqe PRIVATE parquet uring)
     add_compile_definitions(ENABLE_CUSTOMIZED_PARQUET)
+endif()
+
+if(GQE_ENABLE_QUERY_COMPILER)
+  include_directories(${PROJECT_BINARY_DIR}/include)
+  add_subdirectory(compiler)
+
+  get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
+  get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
+
+  set(COMPILER_LIBS
+    ${dialect_libs}
+    ${conversion_libs}
+
+    # GQE compiler libraries
+    GQECompilerRelAlg
+    GQECompilerRelAlgPipelines
+    GQECompilerGPUPipelines
+
+    # Upstream MLIR libraries
+    MLIRBuiltinToLLVMIRTranslation
+    MLIRGPUToLLVMIRTranslation
+    MLIRLLVMToLLVMIRTranslation
+  )
+
+  target_include_directories(gqe PUBLIC ${CMAKE_BINARY_DIR}/include)
+  target_sources(
+    gqe
+    PUBLIC
+    utility/cuda_driver.cpp
+    utility/kernel_arguments_builder.cpp
+  )
+  target_link_libraries(
+    gqe
+    PRIVATE
+    ${COMPILER_LIBS}
+    CUDA::cuda_driver
+  )
 endif()

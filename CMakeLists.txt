@@ -138,6 +138,8 @@ if(GQE_ENABLE_QUERY_COMPILER)
 
   link_directories(${LLVM_BUILD_LIBRARY_DIR})
   add_definitions(${LLVM_DEFINITIONS})
+
+  add_subdirectory(include)
 endif()
 
 # ##################################################################################################

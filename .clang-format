@@ -153,3 +153,8 @@ StatementMacros:
 # Be consistent with indent-width, even for people who use tab for indentation!
 TabWidth: 2
 UseTab: Never
+---
+Language: TableGen
+BasedOnStyle: LLVM
+IndentWidth: 2
+ReflowComments: Always

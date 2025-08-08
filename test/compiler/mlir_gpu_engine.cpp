@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -10,9 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-#include <gtest/gtest.h>
-
-#include <kernel_launch.hpp>
+#include <gqe/utility/cuda_driver.hpp>
 
 #include <mlir/Conversion/ArithToLLVM/ArithToLLVM.h>
 #include <mlir/Conversion/ComplexToLLVM/ComplexToLLVM.h>
@@ -26,6 +24,7 @@
 #include <mlir/Conversion/NVVMToLLVM/NVVMToLLVM.h>
 #include <mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h>
 #include <mlir/Conversion/UBToLLVM/UBToLLVM.h>
+#include <mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/Extensions/AllExtensions.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
@@ -65,6 +64,8 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 
+#include <gtest/gtest.h>
+
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -77,7 +78,7 @@
  *
  * The kernel calls `printf` to print the string "test".
  */
-void generate_gpu_test(mlir::OpBuilder& builder)
+void buildSimpleModule(mlir::OpBuilder& builder)
 {
   // The insertion guard captures the current op insertion point. When
   // destroyed, the insert guard resets the op insertion point to the initial
@@ -161,7 +162,7 @@ void generate_gpu_test(mlir::OpBuilder& builder)
   builder.setInsertionPointToEnd(module.getBody());
 
   // Generate the GPU kernel.
-  generate_gpu_test(builder);
+  buildSimpleModule(builder);
 
   // Add an `int main()` function.
   auto mainFnTy = builder.getFunctionType({}, builder.getI32Type());
@@ -289,9 +290,7 @@ class mlir_gpu_engine_test : public testing::Test {
     mlir::gpu::registerOffloadingLLVMTranslationInterfaceExternalModels(*registry);
     mlir::NVVM::registerNVVMTargetInterfaceExternalModels(*registry);
     mlir::ub::registerConvertUBToLLVMInterface(*registry);
-
-    // FIXME: This test is currently broken. Call
-    // `registerConvertVectorToLLVMInterface` when updating to 20.1.3 or later.
+    mlir::vector::registerConvertVectorToLLVMInterface(*registry);
 
     // Create the Context and load the relevant dialects into in. The dialects
     // are the ones we explicitly use to generate our program.
@@ -323,17 +322,16 @@ class mlir_gpu_engine_test : public testing::Test {
 
 TEST_F(mlir_gpu_engine_test, execute_hello_world)
 {
-  constexpr int device_id = 0;
+  constexpr int32_t device_id = 0;
 
-  // CUDA context is only necessary to dynamically detect device architecture.
-  // The kernel launch occurs in a different process.
-  cuda_init_and_context(device_id);
+  // Initialize CUDA before querying GPU architecture.
+  gqe::utility::safeCuInit();
 
-  auto gpu_arch     = detect_architecture_by_id(device_id);
+  auto gpu_arch     = gqe::utility::detectDeviceArchitecture(device_id);
   auto gpu_arch_str = llvm::Twine("sm_") + llvm::Twine(gpu_arch);
 
   // Print detected GPU architecture
-  llvm::errs() << "Detected arch: " << gpu_arch_str << "\n";
+  llvm::outs() << "Detected arch: " << gpu_arch_str << "\n";
 
   auto module_generation_start = std::chrono::high_resolution_clock::now();
 
@@ -346,7 +344,7 @@ TEST_F(mlir_gpu_engine_test, execute_hello_world)
   auto module_generation_end          = std::chrono::high_resolution_clock::now();
   auto module_generation_elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(
     module_generation_end - module_generation_start);
-  llvm::errs() << "Module generation time: " << module_generation_elapsed_time.count() << "ms\n";
+  llvm::outs() << "Module generation time: " << module_generation_elapsed_time.count() << "ms\n";
 
 #ifdef DEBUG_MLIR_MODULE
   // Print the generate MLIR to screen.
@@ -361,7 +359,7 @@ TEST_F(mlir_gpu_engine_test, execute_hello_world)
   auto lowering_end = std::chrono::high_resolution_clock::now();
   auto lowering_elapsed_time =
     std::chrono::duration_cast<std::chrono::milliseconds>(lowering_end - lowering_start);
-  llvm::errs() << "Module lowering time (includes serialization): " << lowering_elapsed_time.count()
+  llvm::outs() << "Module lowering time (includes serialization): " << lowering_elapsed_time.count()
                << "ms\n";
 
 #ifdef DEBUG_MLIR_MODULE

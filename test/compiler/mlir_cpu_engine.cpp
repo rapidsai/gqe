@@ -120,7 +120,8 @@
 
   // Create the function signature for `printf`. This is simplified, we don't
   // consider variadic arguments.
-  auto printffn = mlir::LLVM::lookupOrCreateFn(module, "printf", {llvmPtrTy}, llvmI32Ty, true);
+  auto printffn =
+    mlir::LLVM::lookupOrCreateFn(builder, module, "printf", {llvmPtrTy}, llvmI32Ty, true);
 
   // Check if the function was successfully created.
   if (mlir::failed(printffn)) {
@@ -260,7 +261,7 @@ TEST_F(mlir_cpu_engine_test, execute_hello_world)
   auto module_generation_end          = std::chrono::high_resolution_clock::now();
   auto module_generation_elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(
     module_generation_end - module_generation_start);
-  llvm::errs() << "Module generation time: " << module_generation_elapsed_time.count() << "ms\n";
+  llvm::outs() << "Module generation time: " << module_generation_elapsed_time.count() << "ms\n";
 
   auto lowering_start = std::chrono::high_resolution_clock::now();
 
@@ -269,7 +270,7 @@ TEST_F(mlir_cpu_engine_test, execute_hello_world)
   auto lowering_end = std::chrono::high_resolution_clock::now();
   auto lowering_elapsed_time =
     std::chrono::duration_cast<std::chrono::milliseconds>(lowering_end - lowering_start);
-  llvm::errs() << "Module lowering time: " << lowering_elapsed_time.count() << "ms\n";
+  llvm::outs() << "Module lowering time: " << lowering_elapsed_time.count() << "ms\n";
 
 #ifdef DEBUG_MLIR_MODULE
   // Print the MLIR output after lowering to the MLIR LLVM dialect.

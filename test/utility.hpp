@@ -17,8 +17,28 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
 
+#include <cstdlib>
 #include <random>
+#include <stdexcept>
 #include <string>
+
+namespace gqe_test {
+
+std::string get_tpch_data_path()
+{
+  constexpr auto env_name = "TPCH_DATA_DIR";
+
+  char const* const env_path = std::getenv(env_name);
+
+  if (env_path) {
+    return env_path;
+  } else {
+    throw std::invalid_argument(std::string() + "expected the environment variable " + env_name +
+                                " to be set.");
+  }
+}
+
+}  // namespace gqe_test
 
 template <typename data_type>
 std::vector<data_type> generate_random_data(cudf::size_type length,

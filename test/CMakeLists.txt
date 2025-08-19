@@ -165,6 +165,8 @@ add_executable(groupby_test executor/groupby/argmax_tests.cpp
                             executor/groupby/sum_of_squares_tests.cpp
                             executor/groupby/sum_tests.cpp
                             )
+                            
+target_include_directories(groupby_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(groupby_test PUBLIC gqe)
 target_link_libraries(groupby_test PUBLIC GTest::gtest_main GTest::gmock)
 target_link_libraries(groupby_test PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)

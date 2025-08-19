@@ -19,6 +19,7 @@
 #include <gqe/logical/sort.hpp>
 #include <gqe/logical/window.hpp>
 #include <gqe/optimizer/logical_optimization.hpp>
+#include <gqe/optimizer/rules/column_name_assignment.hpp>
 #include <gqe/optimizer/rules/fix_partial_filter_column_references.hpp>
 #include <gqe/optimizer/rules/join_children_swap.hpp>
 #include <gqe/optimizer/rules/join_unique_keys.hpp>
@@ -120,6 +121,8 @@ std::unique_ptr<gqe::optimizer::optimization_rule> gqe::optimizer::logical_optim
       return std::make_unique<join_unique_keys>(cat);
     case logical_optimization_rule_type::fix_partial_filter_column_references:
       return std::make_unique<fix_partial_filter_column_references>(cat);
+    case logical_optimization_rule_type::column_name_assignment:
+      return std::make_unique<column_name_assignment>(cat);
     default:
       throw std::runtime_error("Logical Optimizer: logical_optimization_rule_type " +
                                std::to_string(static_cast<size_t>(rule_type)) + " not supported");

@@ -34,6 +34,17 @@ class column_reference_expression : public expression {
   }
 
   /**
+   * @brief Construct a column reference expression with names.
+   *
+   * @param[in] column_idx Column index of the referenced column (zero-based).
+   * @param[in] column_name Name of the referenced column (can be empty for benchmarking).
+   */
+  column_reference_expression(cudf::size_type column_idx, std::string column_name)
+    : expression({}), _column_idx(column_idx), _column_name(std::move(column_name))
+  {
+  }
+
+  /**
    * @copydoc gqe::expression::type()
    */
   [[nodiscard]] expression_type type() const noexcept override
@@ -56,11 +67,20 @@ class column_reference_expression : public expression {
   [[nodiscard]] cudf::size_type column_idx() const noexcept { return _column_idx; }
 
   /**
+   * @brief Return the column name.
+   */
+  [[nodiscard]] std::string const& column_name() const noexcept { return _column_name; }
+
+  /**
    * @copydoc gqe::expression::to_string()
    */
   [[nodiscard]] std::string to_string() const noexcept override
   {
-    return "column_reference(" + std::to_string(_column_idx) + ")";
+    if (_column_name.empty()) {
+      return "column_reference(" + std::to_string(_column_idx) + ")";
+    } else {
+      return _column_name;
+    }
   }
 
   /**
@@ -89,6 +109,7 @@ class column_reference_expression : public expression {
 
  private:
   cudf::size_type _column_idx;
+  std::string _column_name;
 };
 
 }  // namespace gqe

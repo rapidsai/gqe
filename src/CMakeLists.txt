@@ -74,6 +74,7 @@ add_library(
     optimizer/optimization_configuration.cpp
     optimizer/physical_transformation.cpp
     optimizer/relation_properties.cpp
+    optimizer/rules/column_name_assignment.cpp
     optimizer/rules/projection_pushdown.cpp
     optimizer/rules/join_children_swap.cpp
     optimizer/rules/join_unique_keys.cpp

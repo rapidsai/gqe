@@ -211,6 +211,13 @@ target_link_libraries(uniqueness_prop_test PUBLIC gqe)
 target_link_libraries(uniqueness_prop_test PUBLIC GTest::gtest_main GTest::gmock)
 add_test(NAME uniqueness_prop_test COMMAND uniqueness_prop_test)
 
+add_executable(column_name_assignment_test optimizer/column_name_assignment_test.cpp)
+target_include_directories(column_name_assignment_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(column_name_assignment_test PUBLIC gqe)
+target_link_libraries(column_name_assignment_test PUBLIC GTest::gtest_main GTest::gmock)
+target_compile_definitions(column_name_assignment_test PUBLIC TEST_RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resource/")
+add_test(NAME column_name_assignment_test COMMAND column_name_assignment_test)
+
 add_executable(task_graph_test task_graph/task_graph_generation_test.cpp)
 target_include_directories(task_graph_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(task_graph_test PUBLIC gqe)

@@ -103,7 +103,7 @@ add_library(
     storage/zone_map.cpp
 )
 
-include_directories(${PROJECT_SOURCE_DIR}/include)
+target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 
 target_link_libraries(gqe PUBLIC cuco::cuco)
 target_link_libraries(gqe PUBLIC cudf::cudf)
@@ -135,7 +135,7 @@ if(GQE_ENABLE_CUSTOMIZED_PARQUET)
 endif()
 
 if(GQE_ENABLE_QUERY_COMPILER)
-  include_directories(${PROJECT_BINARY_DIR}/include)
+  include_directories(${PROJECT_BINARY_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/../include)
   add_subdirectory(compiler)
 
   get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
@@ -165,7 +165,7 @@ if(GQE_ENABLE_QUERY_COMPILER)
   )
   target_link_libraries(
     gqe
-    PRIVATE
+    PUBLIC
     ${COMPILER_LIBS}
     CUDA::cuda_driver
   )

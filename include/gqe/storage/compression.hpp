@@ -34,6 +34,7 @@
 #include <memory>
 #include <nvcomp.hpp>
 #include <nvcomp/nvcompManagerFactory.hpp>
+#include <string>
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_view.hpp>
@@ -56,6 +57,8 @@ class compression_manager {
   gqe::compression_format _comp_format;
   nvcompType_t _data_type;
   int _chunk_size;
+  std::string _column_name;
+  cudf::data_type _cudf_type;
   void print_usage() const;
   /**
    * @brief Function that creates a nvcompManagerBase object based on the compression format.
@@ -74,10 +77,14 @@ class compression_manager {
    * @param[in] comp_format Compression format to use
    * @param[in] data_format Data format to use for compression configuration
    * @param[in] explicit_chunk_size Chunk size to use for nvcomp
+   * @param[in] column_name Name of the column being compressed
+   * @param[in] cudf_type CUDF data type of the column being compressed
    */
   compression_manager(gqe::compression_format comp_format,
                       nvcompType_t data_format,
-                      int explicit_chunk_size);
+                      int explicit_chunk_size,
+                      std::string column_name   = "",
+                      cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
 
   /**
    * @brief Function to perform compression on a column. Retuns a unique pointer to the compressed
@@ -122,6 +129,16 @@ class compression_manager {
    * @brief Function to fetch the chunk size used by the compression manager.
    * */
   int get_chunk_size() const;
+
+  /**
+   * @brief Function to fetch the column name used by the compression manager.
+   * */
+  std::string get_column_name() const;
+
+  /**
+   * @brief Function to fetch the CUDF data type used by the compression manager.
+   * */
+  cudf::data_type get_cudf_type() const;
 };
 
 // Function to map cudf::type_id to nvcomp_data_format

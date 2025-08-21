@@ -109,14 +109,16 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
                                      rmm::cuda_stream_view stream,
                                      rmm::device_async_resource_ref mr,
                                      nvcompType_t nvcomp_data_format,
-                                     int chunk_size)
+                                     int chunk_size,
+                                     std::string column_name,
+                                     cudf::data_type cudf_type)
   : column_base(),
     _comp_format(comp_format),
     _compression_ratio(0.0),
     _null_mask_compression_ratio(0.0),
     _is_compressed(false),
     _is_null_mask_compressed(false),
-    _nvcomp_manager(comp_format, nvcomp_data_format, chunk_size)
+    _nvcomp_manager(comp_format, nvcomp_data_format, chunk_size, column_name, cudf_type)
 {
   _size       = cudf_column.size();
   _dtype      = cudf_column.type();
@@ -145,8 +147,14 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
         (comp_format == gqe::compression_format::best_compression_ratio ? 0 : 1));
     }
 
-    _compressed_children.push_back(std::make_unique<compressed_column>(
-      std::move(*child), comp_format, stream, mr, nvcomp_data_format, chunk_size));
+    _compressed_children.push_back(std::make_unique<compressed_column>(std::move(*child),
+                                                                       comp_format,
+                                                                       stream,
+                                                                       mr,
+                                                                       nvcomp_data_format,
+                                                                       chunk_size,
+                                                                       column_name + "_child",
+                                                                       cudf_type));
   }
 }
 
@@ -618,12 +626,14 @@ in_memory_write_task::in_memory_write_task(
   rmm::mr::device_memory_resource* non_owned_memory_resource,
   in_memory_table::row_group_appender appender,
   std::vector<cudf::size_type> column_indexes,
+  std::vector<std::string> column_names,
   std::vector<cudf::data_type> data_types,
   table_statistics_manager* statistics)
   : write_task_base(ctx_ref, task_id, stage_id, input),
     _non_owned_memory_resource(non_owned_memory_resource),
     _appender(std::move(appender)),
     _column_indexes(std::move(column_indexes)),
+    _column_names(std::move(column_names)),
     _data_types(std::move(data_types)),
     _statistics(statistics)
 {
@@ -695,7 +705,9 @@ void in_memory_write_task::execute()
                                             stream,
                                             _non_owned_memory_resource,
                                             nvcomp_data_format,
-                                            chunk_size);
+                                            chunk_size,
+                                            _column_names[column_idx],
+                                            cudf_column.type());
     }
   }
 
@@ -867,6 +879,7 @@ std::vector<std::unique_ptr<write_task_base>> in_memory_writeable_view::get_writ
                                              _non_owning_table->_memory_resource.get(),
                                              std::move(appender),
                                              column_indexes,
+                                             column_names,
                                              data_types,
                                              statistics);
     write_tasks.push_back(std::move(write_task));

@@ -168,7 +168,9 @@ class compressed_column : public column_base {
                              rmm::cuda_stream_view stream,
                              rmm::device_async_resource_ref mr,
                              nvcompType_t nvcomp_data_format,
-                             int chunk_size);
+                             int chunk_size,
+                             std::string column_name   = "",
+                             cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
 
   ~compressed_column() override = default;
 
@@ -524,6 +526,7 @@ class in_memory_write_task : public write_task_base {
    * @param[in] non_owned_memory_resource A memory resource for allocating memory.
    * @param[in] appender An appender functor for adding row groups to the table.
    * @param[in] column_indexes Columns to be loaded.
+   * @param[in] column_names Names of the columns to be loaded.
    * @param[in] data_types Expected data types of each column. If the actual data type of a loaded
    * column is different from expected, the column will be casted to the data type specified. Must
    * have the same length as `column_names`.
@@ -536,6 +539,7 @@ class in_memory_write_task : public write_task_base {
                        rmm::mr::device_memory_resource* non_owned_memory_resource,
                        in_memory_table::row_group_appender appender,
                        std::vector<cudf::size_type> column_indexes,
+                       std::vector<std::string> column_names,
                        std::vector<cudf::data_type> data_types,
                        table_statistics_manager* statistics);
 
@@ -551,6 +555,7 @@ class in_memory_write_task : public write_task_base {
   in_memory_table::row_group_appender
     _appender; /**< Implicitly holds a non-owning reference to an in_memory_table */
   std::vector<cudf::size_type> _column_indexes;
+  std::vector<std::string> _column_names;
   std::vector<cudf::data_type> _data_types;
   table_statistics_manager* _statistics;
 };

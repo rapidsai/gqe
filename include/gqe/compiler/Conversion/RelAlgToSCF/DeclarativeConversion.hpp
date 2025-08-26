@@ -182,6 +182,13 @@ class DeclarativeConversionPatternRewriter final : public mlir::PatternRewriter 
    */
   void appendIUTuple(mlir::Value otherTupleStream);
 
+  /**
+   * @brief Get the integer type with the same bitwidth as the MLIR index type.
+   *
+   * @return The integer type.
+   */
+  [[nodiscard]] mlir::Type getIndexIntegerType();
+
  private:
   void setCurrentOp(mlir::Operation* op);
 

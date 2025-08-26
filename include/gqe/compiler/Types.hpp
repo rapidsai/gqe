@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <climits>
 #include <cstdint>
 
 namespace gqe {
@@ -26,6 +27,11 @@ namespace compiler {
  * https://mlir.llvm.org/docs/Dialects/IndexOps
  */
 using mlirIndexType = int32_t;
+
+/**
+ * @brief The bitwidth of the MLIR index type.
+ */
+constexpr int32_t mlirIndexBitwidth = sizeof(int32_t) * CHAR_BIT;
 
 }  // namespace compiler
 }  // namespace gqe

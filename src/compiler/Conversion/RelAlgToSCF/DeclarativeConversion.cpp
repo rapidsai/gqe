@@ -14,6 +14,7 @@
 
 #include <gqe/compiler/Conversion/RelAlgToSCF/NamedIUTuple.hpp>
 #include <gqe/compiler/Dialect/RelAlg/IR/RelAlgOps.hpp>
+#include <gqe/compiler/Types.hpp>
 
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/Iterators.h>
@@ -161,6 +162,11 @@ void DeclarativeConversionPatternRewriter::appendIUTuple(mlir::Value otherTupleS
   // Before appending, create the IU tuple if it doens't already exist.
   std::ignore = iuTupleCollection->getNamedIUTuple(currentOp->getResult(0));
   iuTupleCollection->append(otherTupleStream, currentOp->getResult(0));
+}
+
+mlir::Type DeclarativeConversionPatternRewriter::getIndexIntegerType()
+{
+  return getIntegerType(mlirIndexBitwidth);
 }
 
 void DeclarativeConversionPatternRewriter::setCurrentOp(mlir::Operation* op) { currentOp = op; }

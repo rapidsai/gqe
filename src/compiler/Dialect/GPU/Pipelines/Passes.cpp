@@ -29,9 +29,6 @@
 #include <mlir/Pass/PassRegistry.h>
 #include <mlir/Transforms/Passes.h>
 
-#include <climits>
-#include <cstdint>
-
 namespace gqe {
 namespace compiler {
 namespace gpu {
@@ -40,10 +37,8 @@ namespace gpu {
 // `pm.addPass(mlir::createPrintIRPass())`.
 void buildLowerToNvvmPassPipeline(mlir::OpPassManager& pm, const GPUToNVVMPipelineOptions& options)
 {
-  constexpr int32_t indexBitwidth = sizeof(mlirIndexType) * CHAR_BIT;
-
   mlir::ConvertIndexToLLVMPassOptions indexToLLVMOptions;
-  indexToLLVMOptions.indexBitwidth = indexBitwidth;
+  indexToLLVMOptions.indexBitwidth = mlirIndexBitwidth;
 
   mlir::GpuNVVMAttachTargetOptions nvvmTargetOptions;
   // Compiler optimization level
@@ -82,7 +77,7 @@ void buildLowerToNvvmPassPipeline(mlir::OpPassManager& pm, const GPUToNVVMPipeli
   //
   // `0` sets the default value, which is the machine's word length. Should be
   // 64-bit for NVIDIA GPUs (unverified).
-  gpuToNvvmOptions.indexBitwidth = indexBitwidth;
+  gpuToNvvmOptions.indexBitwidth = mlirIndexBitwidth;
 
   // From `buildCommonPassPipeline`.
   pm.addPass(mlir::createSCFToControlFlowPass());

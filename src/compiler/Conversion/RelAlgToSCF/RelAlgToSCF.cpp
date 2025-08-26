@@ -12,6 +12,7 @@
 
 #include <gqe/compiler/Conversion/RelAlgToSCF/RelAlgToSCF.hpp>
 
+#include <gqe/compiler/Conversion/RelAlgToSCF/CudfTableMaterialize.hpp>
 #include <gqe/compiler/Conversion/RelAlgToSCF/CudfTableScan.hpp>
 #include <gqe/compiler/Conversion/RelAlgToSCF/DeclarativeConversion.hpp>
 #include <gqe/compiler/Conversion/RelAlgToSCF/Filter.hpp>
@@ -47,7 +48,8 @@ void populateRelAlgToSCFConversionPatterns(mlir::RewritePatternSet& patterns)
 {
   using namespace detail;
 
-  patterns.add<CudfTableScanOpConversion,
+  patterns.add<CudfTableMaterializeOpConversion,
+               CudfTableScanOpConversion,
                FilterOpConversion,
                GetIUOpConversion,
                MapOpConversion,

@@ -170,7 +170,7 @@ Kernel arguments for the query state are appended by the AggregateOp.
 
 Design requirements:
 
-  - SinkOps (e.g., CudfTableSink) should be able to declare kernel arguments for
+  - Materialize Ops (e.g., CudfTableMaterialize) should be able to declare kernel arguments for
     their output.
 
   - The kernel launch and GPU memory allocations / frees should be created

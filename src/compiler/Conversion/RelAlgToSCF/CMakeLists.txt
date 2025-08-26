@@ -13,6 +13,7 @@ add_mlir_conversion_library(GQECompilerRelAlgToSCF
   NamedIUTuple.cpp
   RelAlgToSCF.cpp
 
+  CudfTableMaterialize.cpp
   CudfTableScan.cpp
   Filter.cpp
   GetIU.cpp

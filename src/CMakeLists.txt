@@ -105,6 +105,7 @@ add_library(
 
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 
+target_link_libraries(gqe PUBLIC gqe-version)
 target_link_libraries(gqe PUBLIC cuco::cuco)
 target_link_libraries(gqe PUBLIC cudf::cudf)
 target_link_libraries(gqe PUBLIC numa)

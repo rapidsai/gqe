@@ -147,6 +147,8 @@ endif()
 # ##################################################################################################
 # * targets ---------------------------------------------------------------------------------------
 
+rapids_cmake_write_git_revision_file(gqe-version ${CMAKE_CURRENT_BINARY_DIR} PREFIX GQE)
+
 add_subdirectory(src)
 if(PROJECT_IS_TOP_LEVEL)
   add_subdirectory(test)

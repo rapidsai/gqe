@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.
+ * Copyright (c) 2020-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@
 #include <cudf/detail/aggregation/aggregation.hpp>
 #include <cudf/dictionary/update_keys.hpp>
 
+#include <gqe/device_properties.hpp>
 #include <gqe/executor/groupby.hpp>
 
 #include <gtest/gtest.h>
@@ -159,7 +160,8 @@ TYPED_TEST(groupby_min_floating_point_test, values_with_nan)
   // This test is just to verify that the aggregate operation does not hang.
   auto gb_obj = gqe::groupby::groupby(cudf::table_view({keys}));
   cudf::column_view active_mask;
-  auto const result = gb_obj.aggregate(requests, active_mask);
+  auto device_properties = gqe::device_properties{};
+  auto const result      = gb_obj.aggregate(requests, active_mask, device_properties);
 
   EXPECT_EQ(result.first->num_rows(), 1);
 }

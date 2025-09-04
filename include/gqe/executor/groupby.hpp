@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.
+ * Copyright (c) 2020-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 
 #pragma once
+
+#include <gqe/device_properties.hpp>
 
 #include <cudf/aggregation.hpp>
 #include <cudf/detail/groupby.hpp>
@@ -72,6 +74,7 @@ class groupby {
    * @param requests The set of columns to aggregate and the aggregations to
    * perform
    * @param active_mask A boolean mask that represents which rows are active
+   * @param device_properties The GQE device properties cache.
    * @param mr Device memory resource used to allocate the returned table and columns' device memory
    * @return Pair containing the table with each group's unique key and
    * a vector of aggregation_results for each request in the same order as
@@ -80,6 +83,7 @@ class groupby {
   std::pair<std::unique_ptr<cudf::table>, std::vector<cudf::groupby::aggregation_result>> aggregate(
     cudf::host_span<cudf::groupby::aggregation_request const> requests,
     cudf::column_view const& active_mask,
+    gqe::device_properties const& device_properties,
     rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
   /**
@@ -91,6 +95,7 @@ class groupby {
   std::pair<std::unique_ptr<cudf::table>, std::vector<cudf::groupby::aggregation_result>> aggregate(
     cudf::host_span<cudf::groupby::aggregation_request const> requests,
     cudf::column_view const& active_mask,
+    gqe::device_properties const& device_properties,
     rmm::cuda_stream_view stream,
     rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

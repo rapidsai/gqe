@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -13,6 +13,7 @@
 #pragma once
 
 #include <gqe/context_reference.hpp>
+#include <gqe/device_properties.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/executor/unique_key_inner_join.hpp>
 #include <gqe/expression/expression.hpp>
@@ -33,7 +34,9 @@ class join_interface {
 
   virtual std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
                     std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe, join_type_type join_type) const = 0;
+  probe(cudf::table_view const& probe,
+        join_type_type join_type,
+        gqe::device_properties const& device_properties) const = 0;
 };
 
 class hash_join_interface : public join_interface {
@@ -45,7 +48,9 @@ class hash_join_interface : public join_interface {
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe, join_type_type join_type) const override;
+  probe(cudf::table_view const& probe,
+        join_type_type join_type,
+        gqe::device_properties const& device_properties) const override;
 
  private:
   mutable std::unique_ptr<cudf::hash_join> _hash_join_interface;
@@ -60,7 +65,9 @@ class unique_key_join_interface : public join_interface {
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe, join_type_type join_type) const override;
+  probe(cudf::table_view const& probe,
+        join_type_type join_type,
+        gqe::device_properties const& device_properties) const override;
 
  private:
   mutable std::unique_ptr<gqe::unique_key_join> _unique_key_join_interface;

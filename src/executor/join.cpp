@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/device_properties.hpp>
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/join.hpp>
 #include <gqe/executor/unique_key_inner_join.hpp>
@@ -52,7 +53,9 @@ hash_join_interface::hash_join_interface(cudf::table_view const& build,
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-hash_join_interface::probe(cudf::table_view const& probe, join_type_type join_type) const
+hash_join_interface::probe(cudf::table_view const& probe,
+                           join_type_type join_type,
+                           gqe::device_properties const& device_properties) const
 {
   switch (join_type) {
     case join_type_type::inner: return _hash_join_interface->inner_join(probe);
@@ -71,11 +74,13 @@ unique_key_join_interface::unique_key_join_interface(cudf::table_view const& bui
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-unique_key_join_interface::probe(cudf::table_view const& probe, join_type_type join_type) const
+unique_key_join_interface::probe(cudf::table_view const& probe,
+                                 join_type_type join_type,
+                                 gqe::device_properties const& device_properties) const
 {
   switch (join_type) {
     case join_type_type::inner: {
-      return _unique_key_join_interface->inner_join(probe);
+      return _unique_key_join_interface->inner_join(probe, device_properties);
     }
     default: throw std::logic_error("Unsupported join type");
   }
@@ -508,6 +513,8 @@ void join_task::execute()
   auto dependent_tasks = dependencies();
   auto left_view       = *dependent_tasks[0]->result();
   auto right_view      = *dependent_tasks[1]->result();
+  auto const& device_properties =
+    get_context_reference()._task_manager_context->get_device_properties();
 
   // Parse the join condition to get the keys
   join_keys_container join_keys(left_view, right_view);
@@ -559,7 +566,8 @@ void join_task::execute()
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_indices;
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_indices;
 
-    std::tie(probe_indices, build_indices) = hash_map->probe(probe_keys, _join_type);
+    std::tie(probe_indices, build_indices) =
+      hash_map->probe(probe_keys, _join_type, device_properties);
 
     switch (_hash_map_cache->build_side()) {
       case join_hash_map_cache::build_location::left:
@@ -600,13 +608,13 @@ void join_task::execute()
               case gqe::unique_keys_policy::left: {
                 GQE_LOG_TRACE("Join implementation: unique_key_inner_join.");
                 std::tie(left_indices, right_indices) =
-                  unique_key_inner_join(left_keys, right_keys, compare_nulls);
+                  unique_key_inner_join(left_keys, right_keys, device_properties, compare_nulls);
                 break;
               }
               case gqe::unique_keys_policy::right: {
                 GQE_LOG_TRACE("Join implementation: unique_key_inner_join.");
                 std::tie(right_indices, left_indices) =
-                  unique_key_inner_join(right_keys, left_keys, compare_nulls);
+                  unique_key_inner_join(right_keys, left_keys, device_properties, compare_nulls);
                 break;
               }
               default: {

@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -12,11 +12,14 @@
 
 #pragma once
 
+#include <gqe/utility/cuda.hpp>
+
+#include <cuco/static_set.cuh>
+
 #include <cudf/hashing.hpp>
 #include <cudf/table/experimental/row_operators.cuh>
 #include <cudf/types.hpp>
 
-#include <cuco/static_set.cuh>
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
@@ -159,7 +162,9 @@ class unique_key_join {
    *
    * @param build The build table that contains unique elements
    * @param compare_nulls Controls whether null join-key values should match or not
+   * @param load_factor The load factor of the hash map.
    * @param stream CUDA stream used for device memory operations and kernel launches
+   * @param mr The memory resource used for allocations.
    */
   unique_key_join(cudf::table_view const& build,
                   cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
@@ -172,6 +177,7 @@ class unique_key_join {
    * an inner join between two tables.
    *
    * @param probe The probe table, from which the keys are probed
+   * @param device_properties The GQE device properties cache.
    * @param stream CUDA stream used for device memory operations and kernel launches
    * @param mr Device memory resource used to allocate the returned indices' device memory.
    *
@@ -182,6 +188,7 @@ class unique_key_join {
   [[nodiscard]] std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
                           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
   inner_join(cudf::table_view const& probe,
+             gqe::device_properties const& device_properties,
              rmm::cuda_stream_view stream      = cudf::get_default_stream(),
              rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()) const;
 

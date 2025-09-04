@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/device_properties.hpp>
 #include <gqe/executor/unique_key_inner_join.hpp>
 #include <masked_join.hpp>
 
@@ -33,8 +34,11 @@ class UniqueKeyInnerJoiner {
              std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
   operator()(cudf::table_view build_keys_table_view, cudf::table_view probe_keys_table_view)
   {
-    return gqe::unique_key_inner_join(
-      build_keys_table_view, probe_keys_table_view, cudf::null_equality::UNEQUAL);
+    auto const& device_properties = gqe::device_properties{};
+    return gqe::unique_key_inner_join(build_keys_table_view,
+                                      probe_keys_table_view,
+                                      device_properties,
+                                      cudf::null_equality::UNEQUAL);
   }
 };
 
@@ -273,8 +277,10 @@ TEST(UniqueKeyInnerJoinTest, EqualNullTest)
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_result_indices;
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_result_indices;
 
+  auto const& device_properties = gqe::device_properties{};
+
   std::tie(build_result_indices, probe_result_indices) = gqe::unique_key_inner_join(
-    build_keys_table_view, probe_keys_table_view, cudf::null_equality::EQUAL);
+    build_keys_table_view, probe_keys_table_view, device_properties, cudf::null_equality::EQUAL);
 
   std::vector<cudf::size_type> build_expected_indices = {0, 3, 4};
   std::vector<cudf::size_type> probe_expected_indices = {0, 1, 2};
@@ -303,8 +309,10 @@ TEST(UniqueKeyInnerJoinTest, UnequalNullTest)
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_result_indices;
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_result_indices;
 
+  auto const& device_properties = gqe::device_properties{};
+
   std::tie(build_result_indices, probe_result_indices) = gqe::unique_key_inner_join(
-    build_keys_table_view, probe_keys_table_view, cudf::null_equality::UNEQUAL);
+    build_keys_table_view, probe_keys_table_view, device_properties, cudf::null_equality::UNEQUAL);
 
   std::vector<cudf::size_type> build_expected_indices = {3, 4};
   std::vector<cudf::size_type> probe_expected_indices = {1, 2};

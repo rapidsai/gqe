@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/device_properties.hpp>
 #include <gqe/executor/groupby.hpp>
 
 #include <cudf/column/column.hpp>
@@ -79,8 +80,11 @@ TEST(StressTest, Groupby)
   cudf::groupby::groupby cudf_groupby_obj(cudf::table_view(std::vector({keys_column_view})));
   auto [expected_agg_keys, expected_agg_results] = cudf_groupby_obj.aggregate(reqs);
 
+  auto device_properties = gqe::device_properties{};
+
   gqe::groupby::groupby gqe_groupby_obj(cudf::table_view(std::vector({keys_column_view})));
-  auto [actual_agg_keys, actual_agg_results] = gqe_groupby_obj.aggregate(reqs, {});
+  auto [actual_agg_keys, actual_agg_results] =
+    gqe_groupby_obj.aggregate(reqs, {}, device_properties);
 
   auto expected_result =
     get_output_table(std::move(expected_agg_keys), std::move(expected_agg_results));

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -176,11 +176,15 @@ void aggregate_task::execute()
     auto [key_columns, key_columns_cache] =
       evaluate_expressions(input_table, utility::to_const_raw_ptrs(_keys));
 
+    auto const& device_properties =
+      get_context_reference()._task_manager_context->get_device_properties();
+
     // In SQL standard, two NULL values are not equal, but for the purpose of grouping, two or
     // more values with NULL should be grouped together.
     gqe::groupby::groupby groupby_obj{cudf::table_view(key_columns)};
-    auto [key_outputs, agg_results] = groupby_obj.aggregate(agg_requests, active_mask);
-    result_columns                  = key_outputs->release();
+    auto [key_outputs, agg_results] =
+      groupby_obj.aggregate(agg_requests, active_mask, device_properties);
+    result_columns = key_outputs->release();
 
     for (auto& agg_result : agg_results) {
       assert(agg_result.results.size() == 1);

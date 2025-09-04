@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -13,7 +13,13 @@
 #pragma once
 
 #include <gqe/utility/cuda.hpp>
+
 #include <rmm/cuda_device.hpp>
+
+#include <driver_types.h>
+
+#include <stdexcept>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -29,7 +35,7 @@ struct device_properties {
    * @brief Enum specifying accessible and enabled device properties
    *
    */
-  enum property { pageableMemoryAccess, unifiedAddressing, managedMemory };
+  enum property { multiProcessorCount, pageableMemoryAccess, unifiedAddressing, managedMemory };
 
   /**
    * @brief Construct a new device properties object given a set of visible devices. By default,
@@ -70,7 +76,9 @@ auto device_properties::get(rmm::cuda_device_id device) const
   if (match == _device_properties_cache.end()) { throw std::runtime_error("Device not found"); }
   auto& properties = match->second;
 
-  if constexpr (p == property::pageableMemoryAccess) {
+  if constexpr (p == property::multiProcessorCount) {
+    return static_cast<int>(properties.multiProcessorCount);
+  } else if constexpr (p == property::pageableMemoryAccess) {
     return static_cast<bool>(properties.pageableMemoryAccess);
   } else if constexpr (p == property::unifiedAddressing) {
     return static_cast<bool>(properties.unifiedAddressing);

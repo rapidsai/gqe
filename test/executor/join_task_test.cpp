@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -13,6 +13,7 @@
 #include "utilities.hpp"
 
 #include <gqe/context_reference.hpp>
+#include <gqe/device_properties.hpp>
 #include <gqe/executor/join.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/expression/binary_op.hpp>
@@ -430,17 +431,24 @@ TEST(HashMapCache, HashJoin)
   std::vector<std::size_t> left_num_matches(num_threads, 0);
   std::vector<std::size_t> right_num_matches(num_threads, 0);
 
-  for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
-    threads.emplace_back(
-      [thread_idx, left_view, right_view, &cache, &left_num_matches, &right_num_matches]() {
-        auto const hash_join =
-          cache.hash_map(left_view, gqe::join_algorithm::HASH_JOIN, cudf::null_equality::UNEQUAL);
-        auto [right_indices, left_indices] =
-          hash_join->probe(right_view, gqe::join_type_type::inner);
+  auto const& device_properties = gqe::device_properties{};
 
-        left_num_matches[thread_idx]  = left_indices->size();
-        right_num_matches[thread_idx] = right_indices->size();
-      });
+  for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
+    threads.emplace_back([thread_idx,
+                          left_view,
+                          right_view,
+                          &cache,
+                          &left_num_matches,
+                          &right_num_matches,
+                          &device_properties]() {
+      auto const hash_join =
+        cache.hash_map(left_view, gqe::join_algorithm::HASH_JOIN, cudf::null_equality::UNEQUAL);
+      auto [right_indices, left_indices] =
+        hash_join->probe(right_view, gqe::join_type_type::inner, device_properties);
+
+      left_num_matches[thread_idx]  = left_indices->size();
+      right_num_matches[thread_idx] = right_indices->size();
+    });
   }
 
   for (auto& thread : threads) {
@@ -480,17 +488,24 @@ TEST(HashMapCache, UniqueKeyJoin)
   std::vector<std::size_t> left_num_matches(num_threads, 0);
   std::vector<std::size_t> right_num_matches(num_threads, 0);
 
-  for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
-    threads.emplace_back(
-      [thread_idx, left_view, right_view, &cache, &left_num_matches, &right_num_matches]() {
-        auto const hash_join = cache.hash_map(
-          left_view, gqe::join_algorithm::UNIQUE_KEY_JOIN, cudf::null_equality::UNEQUAL);
-        auto [right_indices, left_indices] =
-          hash_join->probe(right_view, gqe::join_type_type::inner);
+  auto const& device_properties = gqe::device_properties{};
 
-        left_num_matches[thread_idx]  = left_indices->size();
-        right_num_matches[thread_idx] = right_indices->size();
-      });
+  for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
+    threads.emplace_back([thread_idx,
+                          left_view,
+                          right_view,
+                          &cache,
+                          &left_num_matches,
+                          &right_num_matches,
+                          &device_properties]() {
+      auto const hash_join = cache.hash_map(
+        left_view, gqe::join_algorithm::UNIQUE_KEY_JOIN, cudf::null_equality::UNEQUAL);
+      auto [right_indices, left_indices] =
+        hash_join->probe(right_view, gqe::join_type_type::inner, device_properties);
+
+      left_num_matches[thread_idx]  = left_indices->size();
+      right_num_matches[thread_idx] = right_indices->size();
+    });
   }
 
   for (auto& thread : threads) {

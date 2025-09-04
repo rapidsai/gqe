@@ -597,7 +597,10 @@ void in_memory_read_task::execute()
     GQE_CUDA_TRY(cudaStreamWaitEvent(default_stream, ce_evt));
   }
 
-  auto unlock_shared_copy_engine = [&ce_lock, &ce_evt]() {
+  auto unlock_shared_copy_engine = [&ce_lock, &ce_evt, this]() {
+    // We sync while holding the lock to avoid aggressive memory allocation leading to OOM errors.
+    // This is a hotfix so the behaviour is same as that for cuDF 24.12. 
+    get_context_reference()._task_manager_context->copy_engine_stream.stream.synchronize();
     ce_lock.unlock();
     GQE_CUDA_TRY(cudaEventDestroy(ce_evt));
   };

@@ -34,6 +34,10 @@
 #include <cudf/table/table.hpp>
 #include <cudf/utilities/traits.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
+#include <cudf/join/conditional_join.hpp>
+#include <cudf/join/hash_join.hpp>
+#include <cudf/join/mixed_join.hpp>
+#include <cudf/join/join.hpp>
 
 #include "../libperfect/masked_join.hpp"
 

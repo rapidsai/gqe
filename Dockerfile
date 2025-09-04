@@ -40,11 +40,11 @@ SHELL ["/bin/bash", "-c"]
 COPY conda/*.yml /config/conda/
 RUN git clone https://github.com/rapidsai/cudf.git /cudf \
     && cd /cudf \
-    && git checkout branch-24.12 \
+    && git checkout 0fbd451151a3f5226624448a27de75a3d81b6e4e \
     && git submodule update --init --remote --recursive \
     && mamba env create -q --name gqe --file /config/conda/docker-$(uname -m).yml \
     && source activate gqe \
-    && PARALLEL_LEVEL=16 CUDF_CMAKE_CUDA_ARCHITECTURES="70-real;80-real;90-real;100-real;120" ./build.sh libcudf --ptds --cmake-args=\" -DCUDF_ENABLE_ARROW_S3=OFF -DBUILD_BENCHMARKS=OFF -DCUDA_ENABLE_LINEINFO=ON \" \
+    && PARALLEL_LEVEL=16 CUDF_CMAKE_CUDA_ARCHITECTURES="70-real;80-real;90-real;100-real;120" ./build.sh libcudf --ptds --cmake-args=\" -DCUDF_ENABLE_ARROW_S3=OFF -DBUILD_BENCHMARKS=OFF -DCUDA_ENABLE_LINEINFO=ON -Drapids-cmake-sha=c82ccbf86c53437d80a45c502e64029b7c1c7f31 \" \
     && conda clean --all
 
 # Compile MLIR from source

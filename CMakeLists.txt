@@ -26,8 +26,9 @@ endif()
 set(CMAKE_CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}" CACHE STRING "CUDA architectures")
 
 # Setup rapids-cmake
+set(rapids-cmake-version "25.10")
 if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/GQE_RAPIDS.cmake)
-  file(DOWNLOAD https://raw.githubusercontent.com/rapidsai/rapids-cmake/branch-24.12/RAPIDS.cmake
+  file(DOWNLOAD https://raw.githubusercontent.com/rapidsai/rapids-cmake/branch-25.10/RAPIDS.cmake
        ${CMAKE_CURRENT_BINARY_DIR}/GQE_RAPIDS.cmake
   )
 endif()
@@ -41,8 +42,8 @@ project(gqe LANGUAGES CXX CUDA)
 # ##################################################################################################
 # * compiler options ------------------------------------------------------------------------------
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CUDA_STANDARD 20)
 
 add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wall>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Werror>")
@@ -68,7 +69,7 @@ option(GQE_ENABLE_QUERY_COMPILER "Enable the query compiler" OFF)
 
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
-
+find_package(spdlog REQUIRED)
 include(${rapids-cmake-dir}/cpm/gtest.cmake)
 include(${rapids-cmake-dir}/cpm/spdlog.cmake)
 rapids_cpm_gtest()

@@ -12,11 +12,12 @@
 
 #pragma once
 
+#include <cuda_runtime.h>
+#include <driver_types.h>
+
 #include <gqe/utility/cuda.hpp>
 
 #include <rmm/cuda_device.hpp>
-
-#include <driver_types.h>
 
 #include <stdexcept>
 #include <type_traits>

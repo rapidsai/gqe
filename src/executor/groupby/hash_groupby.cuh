@@ -22,14 +22,15 @@
 
 #include <cuco/static_set.cuh>
 
+#include <cudf/detail/aggregation/aggregation.cuh>
 #include <cudf/detail/aggregation/device_aggregators.cuh>
 
 #include <cudf/reduction.hpp>
 
 #include <rmm/device_scalar.hpp>
 
+#include <cuda/std/optional>
 #include <thrust/iterator/counting_iterator.h>
-#include <thrust/optional.h>
 
 #include <cmath>
 #include <cooperative_groups.h>
@@ -61,7 +62,7 @@ __device__ void find_local_mapping(cudf::size_type cur_idx,
                                    SetType shared_set,
                                    cudf::size_type* local_mapping_index,
                                    cudf::size_type* shared_set_indices,
-                                   thrust::optional<cudf::column_device_view> active_mask)
+                                   cuda::std::optional<cudf::column_device_view> active_mask)
 {
   cudf::size_type result_idx;
   bool row_inserted = false;
@@ -132,7 +133,7 @@ __global__ void compute_mapping_indices(GlobalSetType global_set,
                                         cudf::size_type* global_mapping_index,
                                         cudf::size_type* block_cardinality,
                                         bool* direct_aggregations,
-                                        thrust::optional<cudf::column_device_view> active_mask)
+                                        cuda::std::optional<cudf::column_device_view> active_mask)
 {
   __shared__ cudf::size_type shared_set_indices[shared_set_num_elements];
 
@@ -404,7 +405,7 @@ struct compute_direct_aggregates {
   int stride;
   int block_size;
   cudf::size_type cardinality_threshold;
-  thrust::optional<cudf::column_device_view> active_mask;
+  cuda::std::optional<cudf::column_device_view> active_mask;
 
   compute_direct_aggregates(SetType set,
                             cudf::table_device_view input_values,
@@ -414,7 +415,7 @@ struct compute_direct_aggregates {
                             int stride,
                             int block_size,
                             cudf::size_type cardinality_threshold,
-                            thrust::optional<cudf::column_device_view> active_mask)
+                            cuda::std::optional<cudf::column_device_view> active_mask)
     : set(set),
       input_values(input_values),
       output_values(output_values),
@@ -474,7 +475,7 @@ struct initialize_sparse_table {
 };
 
 // TODO: copied from cudf::detail::initialize_with_identity
-void initialize_with_identity(cudf::mutable_table_view& table,
+/*void initialize_with_identity(cudf::mutable_table_view& table,
                               std::vector<cudf::aggregation::Kind> const& aggs,
                               rmm::cuda_stream_view stream)
 {
@@ -485,7 +486,7 @@ void initialize_with_identity(cudf::mutable_table_view& table,
     cudf::detail::dispatch_type_and_aggregation(
       col.type(), aggs[i], cudf::detail::identity_initializer{}, col, stream);
   }
-}
+}*/
 
 template <typename GlobalSetType>
 auto create_sparse_results_table(cudf::table_view const& flattened_values,
@@ -535,7 +536,7 @@ auto create_sparse_results_table(cudf::table_view const& flattened_values,
   // Else initialise the whole table
   else {
     cudf::mutable_table_view sparse_table_view = sparse_table.mutable_view();
-    gqe::groupby::hash::initialize_with_identity(sparse_table_view, aggs, stream);
+    cudf::detail::initialize_with_identity(sparse_table_view, aggs, stream);
   }
 
   return sparse_table;
@@ -670,10 +671,10 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
 
   rmm::device_scalar<bool> direct_aggregations(false, stream);
 
-  thrust::optional<cudf::column_device_view> active_mask_device_view =
-    active_mask.is_empty()
-      ? thrust::nullopt
-      : thrust::optional<cudf::column_device_view>(*cudf::column_device_view::create(active_mask));
+  cuda::std::optional<cudf::column_device_view> active_mask_device_view =
+    active_mask.is_empty() ? cuda::std::nullopt
+                           : cuda::std::optional<cudf::column_device_view>(
+                               *cudf::column_device_view::create(active_mask));
 
   compute_mapping_indices<shared_set_ref_type, shared_set_num_elements, cardinality_threshold>
     <<<grid_size, block_size, 0, stream>>>(global_set_ref,

@@ -24,7 +24,7 @@
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/copying.hpp>
 #include <cudf/io/parquet.hpp>
-#include <cudf/join.hpp>
+#include <cudf/join/distinct_hash_join.hpp>
 
 #include <thrust/equal.h>
 #include <thrust/execution_policy.h>
@@ -83,7 +83,7 @@ class device_row_hasher {
   __device__ auto operator()(cudf::size_type row_index) const noexcept
   {
     auto it =
-      thrust::make_transform_iterator(_table.begin(), [=](cudf::column_device_view const& col) {
+      thrust::make_transform_iterator(_table.begin(), [this, row_index](cudf::column_device_view const& col) {
         return cudf::type_dispatcher(
           col.type(), element_hasher<hash_function>{_has_nulls, _seed}, col, row_index);
       });
@@ -408,26 +408,6 @@ bool unique_key_join_supported(cudf::table_view const& keys)
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-cudf_unique_key_inner_join(
-  cudf::table_view const& build_keys,
-  cudf::table_view const& probe_keys,
-  cudf::null_equality compare_nulls,
-  rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref())
-{
-  if (cudf::detail::has_nested_columns(build_keys)) {
-    cudf::distinct_hash_join<cudf::has_nested::YES> join_obj(
-      build_keys, probe_keys, cudf::nullable_join::YES, compare_nulls, stream);
-    return join_obj.inner_join(stream, mr);
-  } else {
-    cudf::distinct_hash_join<cudf::has_nested::NO> join_obj(
-      build_keys, probe_keys, cudf::nullable_join::YES, compare_nulls, stream);
-    return join_obj.inner_join(stream, mr);
-  }
-}
-
-std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
-          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 unique_key_inner_join(cudf::table_view const& build,
                       cudf::table_view const& probe,
                       gqe::device_properties const& device_properties,
@@ -438,7 +418,8 @@ unique_key_inner_join(cudf::table_view const& build,
 {
   if (!gqe::unique_key_join_supported(build) || !gqe::unique_key_join_supported(probe)) {
     GQE_LOG_WARN("Using cudf's distinct hash join, since keys are not numeric datatype");
-    return cudf_unique_key_inner_join(build, probe, compare_nulls, stream, mr);
+    cudf::distinct_hash_join join_obj(build, compare_nulls, load_factor, stream);
+    return join_obj.inner_join(probe, stream, mr);
   }
 
   auto join_obj = gqe::unique_key_join(build, compare_nulls, load_factor, stream, mr);

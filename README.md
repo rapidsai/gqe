@@ -107,7 +107,7 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | GQE_USE_PARTITION_PRUNING | false | Enable partition pruning. |
 | GQE_ZONE_MAP_PARTITION_SIZE | 100'000 | Number of rows per zone map row group. Setting this to 0 disables the creation of zone maps and therefore partition pruning, even if `GQE_USE_PARTITION_PRUNING` is `true`. |
 
-Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-24.12/CONTRIBUTING.md#build-cudf-from-source).
+Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-25.10/CONTRIBUTING.md#build-cudf-from-source).
 
 ### Partition pruning
 

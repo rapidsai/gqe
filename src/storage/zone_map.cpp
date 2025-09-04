@@ -410,7 +410,7 @@ std::vector<gqe::zone_map::partition> gqe::zone_map::evaluate(
 {
   std::vector<const gqe::expression*> expressions{&partial_filter};
   auto [mask, _]  = evaluate_expressions(_zone_map->view(), expressions);
-  auto partitions = cudf::detail::make_host_vector_sync(
+  auto partitions = cudf::detail::make_host_vector(
     cudf::device_span<bool const>(mask[0].data<bool>(), mask[0].size()),
     cudf::get_default_stream());
   std::vector<partition> result{};

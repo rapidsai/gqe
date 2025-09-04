@@ -194,7 +194,7 @@ class unique_key_join {
 
  private:
   using probing_scheme_type =
-    cuco::linear_probing<1, gqe::detail::hasher_adapter<thrust::identity<cudf::hash_value_type>>>;
+    cuco::linear_probing<1, gqe::detail::hasher_adapter<cuda::std::identity>>;
   using cuco_storage_type = cuco::storage<1>;
   using hash_table_type =
     cuco::static_set<cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type>,

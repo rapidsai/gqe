@@ -177,7 +177,7 @@ class copy_plan_builder {
       [&](auto const& phyiscal_plan) { return graph_builder.build(phyiscal_plan.get()); });
 
     // Execute the copies
-    std::for_each(task_graphs.begin(), task_graphs.end(), [=](auto const& task_graph) {
+    std::for_each(task_graphs.begin(), task_graphs.end(), [this](auto const& task_graph) {
       gqe::execute_task_graph_single_gpu(_ctx_ref, task_graph.get());
     });
 

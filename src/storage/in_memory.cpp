@@ -76,19 +76,6 @@ cudf::column_view contiguous_column::view() const { return _data.view(); }
 
 cudf::mutable_column_view contiguous_column::mutable_view() { return _data.mutable_view(); }
 
-plain_buffer::plain_buffer(rmm::device_buffer const* input,
-                           rmm::cuda_stream_view stream,
-                           rmm::device_async_resource_ref mr)
-{
-  _buffer = std::make_unique<rmm::device_buffer>(*input, stream, mr);
-}
-
-std::unique_ptr<rmm::device_buffer> plain_buffer::decompress(
-  rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr) const
-{
-  return std::make_unique<rmm::device_buffer>(*_buffer, stream, mr);
-}
-
 std::unique_ptr<rmm::device_buffer> compressed_column::compress(rmm::device_buffer const* input,
                                                                 rmm::cuda_stream_view stream,
                                                                 rmm::device_async_resource_ref mr,
@@ -96,10 +83,11 @@ std::unique_ptr<rmm::device_buffer> compressed_column::compress(rmm::device_buff
 {
   std::unique_ptr<rmm::device_buffer> output;
   if (is_null_mask) {
-    output = _nvcomp_manager.do_compress(
+    std::tie(output, _null_mask_compression_config) = _nvcomp_manager.do_compress(
       input, _null_mask_compression_ratio, _is_null_mask_compressed, stream, mr);
   } else {
-    output = _nvcomp_manager.do_compress(input, _compression_ratio, _is_compressed, stream, mr);
+    std::tie(output, _compression_config) =
+      _nvcomp_manager.do_compress(input, _compression_ratio, _is_compressed, stream, mr);
   }
   return output;
 }
@@ -109,7 +97,7 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
                                      rmm::cuda_stream_view stream,
                                      rmm::device_async_resource_ref mr,
                                      nvcompType_t nvcomp_data_format,
-                                     int chunk_size,
+                                     int compression_chunk_size,
                                      std::string column_name,
                                      cudf::data_type cudf_type)
   : column_base(),
@@ -118,7 +106,8 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
     _null_mask_compression_ratio(0.0),
     _is_compressed(false),
     _is_null_mask_compressed(false),
-    _nvcomp_manager(comp_format, nvcomp_data_format, chunk_size, column_name, cudf_type)
+    _nvcomp_manager(
+      comp_format, nvcomp_data_format, compression_chunk_size, stream, mr, column_name, cudf_type)
 {
   _size       = cudf_column.size();
   _dtype      = cudf_column.type();
@@ -127,7 +116,6 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
   auto column_content = cudf_column.release();
   _compressed_data    = compress(column_content.data.get(), stream, mr, false);
   _compressed_size    = _compressed_data->size();
-
   if (_null_count > 0) {
     _compressed_null_mask = compress(column_content.null_mask.get(), stream, mr, true);
   }
@@ -152,7 +140,7 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
                                                                        stream,
                                                                        mr,
                                                                        nvcomp_data_format,
-                                                                       chunk_size,
+                                                                       compression_chunk_size,
                                                                        column_name + "_child",
                                                                        cudf_type));
   }
@@ -171,9 +159,17 @@ std::unique_ptr<cudf::column> compressed_column::decompress(rmm::cuda_stream_vie
   }
 
   std::unique_ptr<rmm::device_buffer> decompressed_data;
+  // We'll save off the compression config to get the size, then we can allocate here like we do for
+  // the sliced columns
 
   if (_is_compressed) {
-    decompressed_data = _nvcomp_manager.do_decompress(_compressed_data.get(), stream, mr);
+    decompressed_data = _nvcomp_manager.do_decompress(
+      cudf::device_span<uint8_t const>(reinterpret_cast<uint8_t const*>(_compressed_data->data()),
+                                       _compressed_size),
+
+      *_compression_config,
+      stream,
+      mr);
   } else {
     decompressed_data = std::make_unique<rmm::device_buffer>(*_compressed_data, stream, mr);
   }
@@ -181,8 +177,13 @@ std::unique_ptr<cudf::column> compressed_column::decompress(rmm::cuda_stream_vie
   std::unique_ptr<rmm::device_buffer> decompressed_null_mask;
   if (_null_count > 0) {
     if (_is_null_mask_compressed) {
-      decompressed_null_mask =
-        _nvcomp_manager.do_decompress(_compressed_null_mask.get(), stream, mr);
+      decompressed_null_mask = _nvcomp_manager.do_decompress(
+        cudf::device_span<uint8_t const>(
+          reinterpret_cast<uint8_t const*>(_compressed_null_mask->data()),
+          _compressed_null_mask->size()),
+        *_null_mask_compression_config,
+        stream,
+        mr);
     } else {
       decompressed_null_mask =
         std::make_unique<rmm::device_buffer>(*_compressed_null_mask, stream, mr);
@@ -372,10 +373,9 @@ bool in_memory_read_task::can_prune_partitions() const
   return get_query_context()->parameters.use_partition_pruning;
 }
 
-std::vector<in_memory_read_task::row_group_with_partitions>
-in_memory_read_task::evaluate_partial_filter()
+std::vector<row_group_with_partitions> in_memory_read_task::evaluate_partial_filter()
 {
-  std::vector<in_memory_read_task::row_group_with_partitions> row_groups_with_partitions;
+  std::vector<row_group_with_partitions> row_groups_with_partitions;
   std::for_each(_row_groups.begin(), _row_groups.end(), [&](const auto* rg) {
     if (!rg->zone_map()) {
       throw std::logic_error("Row group should have a zone map but none exists");
@@ -394,32 +394,34 @@ in_memory_read_task::evaluate_partial_filter()
   return row_groups_with_partitions;
 }
 
-std::vector<in_memory_read_task::row_group_with_partitions>
-in_memory_read_task::construct_fully_covering_partitions()
+std::vector<row_group_with_partitions> in_memory_read_task::construct_fully_covering_partitions()
 {
   GQE_LOG_DEBUG("No partial filter; processing all row groups");
-  std::vector<in_memory_read_task::row_group_with_partitions> row_groups_with_partitions;
+  std::vector<row_group_with_partitions> row_groups_with_partitions;
   row_groups_with_partitions.reserve(_row_groups.size());
   std::transform(_row_groups.begin(),
                  _row_groups.end(),
                  std::back_inserter(row_groups_with_partitions),
                  [&](const auto* rg) {
                    std::vector<cudf::size_type> null_counts(rg->num_columns());
+
+                   zone_map::partition partition{.pruned = false,
+                                                 .start  = 0,
+                                                 .end    = static_cast<cudf::size_type>(rg->size()),
+                                                 .null_counts = null_counts};
+                   std::vector<zone_map::partition> partitions = {std::move(partition)};
                    std::for_each(_column_indexes.begin(), _column_indexes.end(), [&](const auto i) {
-                     const auto column_view = optionally_decompress_column(rg->get_column(i));
-                     null_counts[i]         = column_view.null_count();
+                     const auto column_view =
+                       optionally_decompress_column(rg->get_column(i), partitions);
+                     partitions[0].null_counts[i] = column_view.null_count();
                    });
-                   const zone_map::partition partition{
-                     .pruned      = false,
-                     .start       = 0,
-                     .end         = static_cast<cudf::size_type>(rg->size()),
-                     .null_counts = null_counts};
-                   return in_memory_read_task::row_group_with_partitions{rg, {partition}};
+                   return row_group_with_partitions{rg, std::move(partitions)};
                  });
   return row_groups_with_partitions;
 }
 
-cudf::column_view in_memory_read_task::optionally_decompress_column(column_base& column)
+cudf::column_view in_memory_read_task::optionally_decompress_column(
+  column_base& column, const std::vector<zone_map::partition>& partitions)
 {
   switch (column.type()) {
     case in_memory_column_type::CONTIGUOUS: {
@@ -437,40 +439,87 @@ cudf::column_view in_memory_read_task::optionally_decompress_column(column_base&
         return column_view;
       }
     }
+    case in_memory_column_type::COMPRESSED_SLICED: {
+      // We'll get here if there is no partial filter
+      auto stored_decompressed_column = _decompressed_columns.find(&column);
+      if (stored_decompressed_column != _decompressed_columns.end()) {
+        return stored_decompressed_column->second->view();
+      }
+      auto decompressed_column = dynamic_cast<compressed_sliced_column&>(column).decompress(
+        _decompression_stream, partitions);
+      const auto column_view = decompressed_column->view();
+      _decompressed_columns.emplace(&column, std::move(decompressed_column));
+      return column_view;
+    }
+    default: {
+      throw std::logic_error("Unknown column type");
+    }
   }
-  // Compiler complains about reaching end of non-void function, even though all cases in the switch
-  // statement are specified and each case has a return statement.
-  throw std::logic_error("Unknown column type");
 }
 
 std::vector<cudf::table_view> in_memory_read_task::slice_row_groups(
   const std::vector<row_group_with_partitions>& row_groups_with_partitions)
 {
+  if (row_groups_with_partitions.empty()) { return {}; }
+
   std::vector<cudf::table_view> sliced_row_groups;
+  auto& first_row_group = row_groups_with_partitions.front().first;
+  bool column_is_compressed_slice =
+    first_row_group->get_column(0).type() == in_memory_column_type::COMPRESSED_SLICED;
   for (const auto& [row_group, partitions] : row_groups_with_partitions) {
-    for (const auto& partition : partitions) {
-      if (!partition.pruned) {
-        std::vector<cudf::column_view> result_columns;
-        result_columns.reserve(_column_indexes.size());
-        for (auto const& idx : _column_indexes) {
-          const auto full_column_view = optionally_decompress_column(row_group->get_column(idx));
-          const auto type             = full_column_view.type();
-          const auto size             = partition.end - partition.start;
-          const auto head             = full_column_view.head();
-          const auto null_mask        = full_column_view.null_mask();
-          const auto null_counts      = partition.null_counts[idx];
-          const auto offset           = partition.start;
-          const auto children = std::vector<cudf::column_view>(full_column_view.child_begin(),
-                                                               full_column_view.child_end());
-          const cudf::column_view column_slice_view{
-            type, size, head, null_mask, null_counts, offset, children};
-          result_columns.push_back(column_slice_view);
+    // we'll assume that all columns are the same format --
+    // even if a column is uncompressed, it will still be a sliced_compressed_column if necessary
+
+    if (column_is_compressed_slice) {
+      std::vector<cudf::column_view> result_columns;
+      result_columns.reserve(partitions.size());
+
+      // If this is a compressed sliced column, we'll get one table view out of this row group
+      // Otherwise we'll have a table view per partition
+      for (auto const& idx : _column_indexes) {
+        // We'll decompress the column and then slice it if necessary
+        auto& column     = row_group->get_column(idx);
+        auto column_type = column.type();
+        if (column_type != in_memory_column_type::COMPRESSED_SLICED) {
+          throw std::logic_error("If any column is compressed_sliced, all columns must be");
         }
-        const cudf::table_view sliced_row_group = cudf::table_view(std::move(result_columns));
-        sliced_row_groups.push_back(sliced_row_group);
+
+        // We'll get a decompressed column that is fully reduced and materialized
+        // The "cache" isn't necessary here, but we still use the map to enable persistent
+        // storage of the decompressed column and to operate on column views.
+        auto column_view = optionally_decompress_column(column, partitions);
+        result_columns.push_back(column_view);
+      }
+      sliced_row_groups.push_back(cudf::table_view(std::move(result_columns)));
+    } else {
+      // We'll do the original logic
+      std::vector<zone_map::partition> empty_partitions =
+        {};  // Just to allow the argument to optionally decompress column
+      for (const auto& partition : partitions) {
+        if (!partition.pruned) {
+          std::vector<cudf::column_view> result_columns;
+          result_columns.reserve(partitions.size());
+          for (auto const& idx : _column_indexes) {
+            auto& column                = row_group->get_column(idx);
+            const auto full_column_view = optionally_decompress_column(column, empty_partitions);
+            const auto type             = full_column_view.type();
+            const auto size             = partition.end - partition.start;
+            const auto head             = full_column_view.head();
+            const auto null_mask        = full_column_view.null_mask();
+            const auto null_counts      = partition.null_counts[idx];
+            const auto offset           = partition.start;
+            const auto children = std::vector<cudf::column_view>(full_column_view.child_begin(),
+                                                                 full_column_view.child_end());
+            const cudf::column_view column_slice_view{
+              type, size, head, null_mask, null_counts, offset, children};
+            result_columns.push_back(column_slice_view);
+          }
+          sliced_row_groups.push_back(cudf::table_view(std::move(result_columns)));
+        }
       }
     }
   }
+
   return sliced_row_groups;
 }
 
@@ -555,9 +604,11 @@ void in_memory_read_task::emit_concatenated_partitions(
     GQE_CUDA_TRY(cudaEventRecord(ce_evt, _decompression_stream.value()));
     GQE_CUDA_TRY(cudaStreamWaitEvent(cudf::get_default_stream().value(), ce_evt));
   } else {
+    GQE_LOG_DEBUG("Calling cudf::concatenate with {} partitions", sliced_row_groups.size());
     result = cudf::concatenate(sliced_row_groups);
+    GQE_LOG_DEBUG("Called cudf::concatenate with {} partitions", sliced_row_groups.size());
   }
-  GQE_LOG_DEBUG("Concatenating {} partitions", sliced_row_groups.size());
+
   GQE_LOG_TRACE(
     "Execute in-memory read task: task_id={}, stage_id={}, strategy=by_value, output_size={}.",
     task_id(),
@@ -569,7 +620,6 @@ void in_memory_read_task::emit_concatenated_partitions(
 void in_memory_read_task::execute()
 {
   prepare_dependencies();
-
   utility::nvtx_scoped_range in_memory_read_task_range("in_memory_read_task");
 
   // Lock on the shared copy engine stream.
@@ -599,7 +649,7 @@ void in_memory_read_task::execute()
 
   auto unlock_shared_copy_engine = [&ce_lock, &ce_evt, this]() {
     // We sync while holding the lock to avoid aggressive memory allocation leading to OOM errors.
-    // This is a hotfix so the behaviour is same as that for cuDF 24.12. 
+    // This is a hotfix so the behaviour is same as that for cuDF 24.12.
     get_context_reference()._task_manager_context->copy_engine_stream.stream.synchronize();
     ce_lock.unlock();
     GQE_CUDA_TRY(cudaEventDestroy(ce_evt));
@@ -614,11 +664,15 @@ void in_memory_read_task::execute()
     if (should_use_overlap_mtx()) { unlock_shared_copy_engine(); }
     emit_single_partition(sliced_row_groups);
   } else {
+    GQE_LOG_DEBUG("Concatenating {} partitions", sliced_row_groups.size());
     emit_concatenated_partitions(sliced_row_groups, ce_evt);
+    GQE_LOG_DEBUG("Concatenated {} partitions", sliced_row_groups.size());
     if (should_use_overlap_mtx()) { unlock_shared_copy_engine(); }
   }
 
+  GQE_LOG_DEBUG("Finishing read task");
   remove_dependencies();
+  GQE_LOG_DEBUG("Finished read task");
 }
 
 in_memory_write_task::in_memory_write_task(
@@ -644,6 +698,7 @@ in_memory_write_task::in_memory_write_task(
 
 void in_memory_write_task::execute()
 {
+  GQE_LOG_INFO("Write task execute");
   prepare_dependencies();
 
   utility::nvtx_scoped_range in_memory_write_task_range("in_memory_write_task");
@@ -672,6 +727,9 @@ void in_memory_write_task::execute()
   // Specify the stream to enqueue copy on
   auto stream = cudf::get_default_stream();
 
+  const auto partition_size            = get_query_context()->parameters.zone_map_partition_size;
+  const bool partition_pruning_enabled = partition_size > 0;
+
   // FIXME: Maybe we can zero-copy construct (i.e., move to) the new columns if
   // the input_table columns have the same memory type as the result columns.
   // This would require us to destroy the result cache here, but that should be
@@ -682,8 +740,8 @@ void in_memory_write_task::execute()
     auto const& input_column = input_table.column(column_idx);
     auto cudf_column         = cudf::column(input_column, stream, _non_owned_memory_resource);
 
-    auto comp_format      = get_query_context()->parameters.in_memory_table_compression_format;
-    auto const chunk_size = get_query_context()->parameters.compression_chunk_size;
+    auto comp_format = get_query_context()->parameters.in_memory_table_compression_format;
+    auto const compression_chunk_size = get_query_context()->parameters.compression_chunk_size;
 
     auto dtype = cudf_column.type().id();
 
@@ -699,25 +757,66 @@ void in_memory_write_task::execute()
     }
 
     if (comp_format == compression_format::none) {
+      GQE_LOG_INFO("Uncompressed column size {}", cudf_column.size());
       new_columns[_column_indexes[column_idx]] =
         std::make_unique<contiguous_column>(std::move(cudf_column));
     } else {
-      new_columns[_column_indexes[column_idx]] =
-        std::make_unique<compressed_column>(std::move(cudf_column),
-                                            comp_format,
-                                            stream,
-                                            _non_owned_memory_resource,
-                                            nvcomp_data_format,
-                                            chunk_size,
-                                            _column_names[column_idx],
-                                            cudf_column.type());
+      if (not partition_pruning_enabled) {
+        GQE_LOG_INFO("Compressed column size {}", cudf_column.size());
+        new_columns[_column_indexes[column_idx]] =
+          std::make_unique<compressed_column>(std::move(cudf_column),
+                                              comp_format,
+                                              stream,
+                                              _non_owned_memory_resource,
+                                              nvcomp_data_format,
+                                              compression_chunk_size,
+                                              _column_names[column_idx],
+                                              cudf_column.type());
+      } else if (dtype == cudf::type_id::STRING) {
+        // Get a string view of the column
+        cudf::strings_column_view strings_column_view(cudf_column);
+        int64_t chars_size = strings_column_view.chars_size(stream);
+        GQE_LOG_INFO("String column size {}", chars_size);
+        if (chars_size > std::numeric_limits<int32_t>::max()) {
+          new_columns[_column_indexes[column_idx]] =
+            std::make_unique<string_compressed_sliced_column<true>>(std::move(cudf_column),
+                                                                    comp_format,
+                                                                    stream,
+                                                                    _non_owned_memory_resource,
+                                                                    compression_chunk_size,
+                                                                    partition_size,
+                                                                    _column_names[column_idx]);
+        } else {
+          new_columns[_column_indexes[column_idx]] =
+            std::make_unique<string_compressed_sliced_column<false>>(std::move(cudf_column),
+                                                                     comp_format,
+                                                                     stream,
+                                                                     _non_owned_memory_resource,
+                                                                     compression_chunk_size,
+                                                                     partition_size,
+                                                                     _column_names[column_idx]);
+        }
+      } else {
+        GQE_LOG_INFO("Compressed sliced column size {}", cudf_column.size());
+        new_columns[_column_indexes[column_idx]] =
+          std::make_unique<compressed_sliced_column>(std::move(cudf_column),
+                                                     comp_format,
+                                                     stream,
+                                                     _non_owned_memory_resource,
+                                                     nvcomp_data_format,
+                                                     compression_chunk_size,
+                                                     partition_size,
+                                                     _column_names[column_idx],
+                                                     cudf_column.type());
+      }
     }
   }
 
   // Create zone map
-  const auto partition_size = get_query_context()->parameters.zone_map_partition_size;
+
   std::unique_ptr<gqe::zone_map> zone_map =
-    partition_size > 0 ? std::make_unique<gqe::zone_map>(input_table, partition_size) : nullptr;
+    partition_pruning_enabled ? std::make_unique<gqe::zone_map>(input_table, partition_size)
+                              : nullptr;
 
   // Create row group from columns
   auto row_group = storage::row_group(std::move(new_columns), std::move(zone_map));
@@ -731,6 +830,7 @@ void in_memory_write_task::execute()
                 stage_id(),
                 input_table.num_rows());
   remove_dependencies();
+  GQE_LOG_TRACE("Finished write task execute");
 }
 
 in_memory_readable_view::in_memory_readable_view(in_memory_table* non_owning_table)

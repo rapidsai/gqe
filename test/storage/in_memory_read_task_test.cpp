@@ -18,6 +18,7 @@
 #include <gqe/types.hpp>
 
 #include <cudf/column/column.hpp>
+#include <cudf/strings/detail/utilities.hpp>
 #include <cudf/types.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
@@ -255,6 +256,8 @@ INSTANTIATE_TEST_SUITE_P(
 //
 // Tests can change parameters of the read task by manipulating _task_manager_ctx and _query_ctx
 // before creating the read task, e.g., to compress the row group columns.
+static constexpr cudf::size_type DEFAULT_NUM_ROWS       = 100;
+static constexpr cudf::size_type DEFAULT_PARTITION_SIZE = 5;
 class InMemoryReadTaskTest : public ::testing::Test {
  protected:
   InMemoryReadTaskTest()
@@ -264,13 +267,30 @@ class InMemoryReadTaskTest : public ::testing::Test {
       _task_id(0),
       _stage_id(0),
       _memory_kind(gqe::memory_kind::device{rmm::cuda_device_id(0)}),
-      _memory_resource(std::make_unique<rmm::mr::cuda_memory_resource>())
+      _memory_resource(std::make_unique<rmm::mr::cuda_memory_resource>()),
+      _num_rows(DEFAULT_NUM_ROWS),
+      _partition_size(DEFAULT_PARTITION_SIZE),
+      _use_sliced_compression(false)
   {
+    rmm::mr::set_current_device_resource(_memory_resource.get());
+  }
+
+  void SetUp(const bool use_sliced_compression    = false,
+             const cudf::size_type num_rows       = DEFAULT_NUM_ROWS,
+             const cudf::size_type partition_size = DEFAULT_PARTITION_SIZE,
+             const bool use_string_column         = false,
+             const size_t num_tables              = NUM_TABLES)
+  {
+    _num_rows               = num_rows;
+    _partition_size         = partition_size;
+    _use_sliced_compression = use_sliced_compression;
+
     // Explicitly enable pruning, in case it is disabled by default.
     _query_ctx->parameters.use_partition_pruning = true;
+
     // Create the four input tables, the corresponding column indexes, and the data types.
-    for (size_t i = 0; i < NUM_TABLES; ++i) {
-      auto table = create_input_table(NUM_ROWS, i * NUM_ROWS);
+    for (size_t i = 0; i < num_tables; ++i) {
+      auto table = create_input_table(_num_rows, i * _num_rows, use_string_column);
       _input_tables.push_back(table->view());
       _tables.push_back(std::move(table));
     }
@@ -279,6 +299,10 @@ class InMemoryReadTaskTest : public ::testing::Test {
                        cudf::data_type(cudf::type_id::INT32),
                        cudf::data_type(cudf::type_id::FLOAT32),
                        cudf::data_type(cudf::type_id::FLOAT32)};
+    if (use_string_column) {
+      _column_indexes.push_back(4);
+      _data_types.push_back(cudf::data_type(cudf::type_id::STRING));
+    }
   }
 
   // Create a typed input column with optional null values
@@ -301,15 +325,62 @@ class InMemoryReadTaskTest : public ::testing::Test {
     }
   }
 
+  // Create a string column with null values, strings a rotating length between 1 and 100
+  std::unique_ptr<cudf::column> create_string_column(cudf::size_type num_rows,
+                                                     cudf::size_type offset,
+                                                     cudf::size_type char_offset)
+  {
+    std::vector<int32_t> offsets(num_rows + 1);
+    int32_t offset_val = 0;
+    for (cudf::size_type i = 0; i < num_rows; i++) {
+      int32_t string_length = (i + offset) % 4 + 1;
+      offsets[i]            = offset_val;
+      offset_val += string_length;
+    }
+
+    offsets[num_rows] = offset_val;
+
+    std::vector<char> values(offset_val);
+    for (cudf::size_type i = 0; i < offset_val; i++) {
+      values[i] = 'a' + ((i + char_offset) % 26);
+    }
+
+    rmm::device_buffer offsets_buffer(reinterpret_cast<uint8_t*>(offsets.data()),
+                                      (num_rows + 1) * sizeof(int32_t),
+                                      rmm::cuda_stream_default,
+                                      _memory_resource.get());
+    rmm::device_buffer values_buffer(reinterpret_cast<uint8_t*>(values.data()),
+                                     offset_val,
+                                     rmm::cuda_stream_default,
+                                     _memory_resource.get());
+    std::unique_ptr<cudf::column> offsets_col =
+      std::make_unique<cudf::column>(cudf::data_type(cudf::type_id::INT32),
+                                     num_rows + 1,
+                                     std::move(offsets_buffer),
+                                     rmm::device_buffer(),
+                                     0);
+    return cudf::make_strings_column(num_rows,
+                                     std::move(offsets_col),
+                                     std::move(values_buffer),
+                                     0 /* null count */,
+                                     rmm::device_buffer{});
+  }
+
   // Create a cudf::table consisting of 2 integer columns (one without nulls and one with nulls) and
   // 2 float columns (same).
-  std::unique_ptr<cudf::table> create_input_table(cudf::size_type num_rows, cudf::size_type offset)
+  std::unique_ptr<cudf::table> create_input_table(cudf::size_type num_rows,
+                                                  cudf::size_type offset,
+                                                  const bool add_string_column = false,
+                                                  cudf::size_type char_offset  = 0)
   {
     std::vector<std::unique_ptr<cudf::column>> columns;
     columns.push_back(create_fixed_width_column_wrapper<int32_t>(num_rows, offset).release());
     columns.push_back(create_fixed_width_column_wrapper<int32_t>(num_rows, offset, true).release());
-    columns.push_back(create_fixed_width_column_wrapper<double>(num_rows, offset).release());
-    columns.push_back(create_fixed_width_column_wrapper<double>(num_rows, offset, true).release());
+    columns.push_back(create_fixed_width_column_wrapper<float>(num_rows, offset).release());
+    columns.push_back(create_fixed_width_column_wrapper<float>(num_rows, offset, true).release());
+    if (add_string_column) {
+      columns.push_back(create_string_column(num_rows, offset, char_offset));
+    }
     return std::make_unique<cudf::table>(
       std::move(columns), cudf::get_default_stream(), _memory_resource.get());
   }
@@ -329,6 +400,18 @@ class InMemoryReadTaskTest : public ::testing::Test {
         std::make_unique<gqe::literal_expression<T>>(end_exclusive)));
   }
 
+  template <typename T>
+  std::unique_ptr<gqe::expression> create_two_range_filters(cudf::size_type column_index,
+                                                            T start_inclusive1,
+                                                            T end_exclusive1,
+                                                            T start_inclusive2,
+                                                            T end_exclusive2)
+  {
+    return std::make_unique<gqe::logical_or_expression>(
+      create_range_filter(column_index, start_inclusive1, end_exclusive1),
+      create_range_filter(column_index, start_inclusive2, end_exclusive2));
+  }
+
   // Create row groups from input table_views
   std::vector<const gqe::storage::row_group*> create_row_groups(
     std::vector<cudf::table_view>::iterator begin, std::vector<cudf::table_view>::iterator end)
@@ -345,21 +428,38 @@ class InMemoryReadTaskTest : public ::testing::Test {
           input_table.begin(),
           input_table.end(),
           std::back_inserter(columns),
-          [comp_format, nvcomp_data_format, chunk_size](
+          [comp_format, nvcomp_data_format, chunk_size, this](
             const cudf::column_view& column_view) -> std::unique_ptr<gqe::storage::column_base> {
             if (comp_format == gqe::compression_format::none) {
               return std::make_unique<gqe::storage::contiguous_column>(cudf::column(column_view));
-            } else {
-              return std::make_unique<gqe::storage::compressed_column>(
+            } else if (not _use_sliced_compression) {
+              return std::make_unique<gqe::storage::compressed_column>(cudf::column(column_view),
+                                                                       comp_format,
+                                                                       rmm::cuda_stream_default,
+                                                                       *_memory_resource,
+                                                                       nvcomp_data_format,
+                                                                       chunk_size);
+            } else if (column_view.type().id() == cudf::type_id::STRING) {
+              return std::make_unique<gqe::storage::string_compressed_sliced_column<false>>(
                 cudf::column(column_view),
                 comp_format,
                 rmm::cuda_stream_default,
-                rmm::mr::get_current_device_resource(),
+                *_memory_resource,
+                chunk_size,
+                _partition_size);
+            } else {
+              return std::make_unique<gqe::storage::compressed_sliced_column>(
+                cudf::column(column_view),
+                comp_format,
+                rmm::cuda_stream_default,
+                *_memory_resource,
                 nvcomp_data_format,
-                chunk_size);
+                chunk_size,
+                _partition_size);
             }
           });
-        auto zone_map = std::make_unique<gqe::zone_map>(input_table, PARTITION_SIZE);
+
+        auto zone_map = std::make_unique<gqe::zone_map>(input_table, _partition_size);
         auto row_group =
           std::make_unique<gqe::storage::row_group>(std::move(columns), std::move(zone_map));
         auto row_group_ptr = row_group.get();
@@ -388,12 +488,6 @@ class InMemoryReadTaskTest : public ::testing::Test {
                                         _memory_kind,
                                         std::move(partial_filter));
   }
-
-  // Number of rows per input table
-  static constexpr cudf::size_type NUM_ROWS = 100;
-
-  // Number of rows per zone map partition
-  static constexpr cudf::size_type PARTITION_SIZE = 5;
 
   // Number of input tables
   static constexpr size_t NUM_TABLES = 4;
@@ -425,10 +519,19 @@ class InMemoryReadTaskTest : public ::testing::Test {
   // Row groups that are created by create_row_groups need to be kept valid during the lifetime of
   // the test
   std::vector<std::unique_ptr<gqe::storage::row_group>> _row_groups;
+
+  // Number of rows per input table
+  cudf::size_type _num_rows;
+
+  // Number of rows per zone map partition
+  cudf::size_type _partition_size;
+
+  bool _use_sliced_compression;
 };
 
 TEST_F(InMemoryReadTaskTest, returnSingleRowGroupDirectly)
 {
+  SetUp();
   // Create a task with a single (!) row group
   std::vector<const storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.begin() + 1);
@@ -446,6 +549,7 @@ TEST_F(InMemoryReadTaskTest, returnSingleRowGroupDirectly)
 
 TEST_F(InMemoryReadTaskTest, copySingleRowGroupIfZeroCopyIsDisabled)
 {
+  SetUp();
   // Disable zero-copying
   _query_ctx->parameters.read_zero_copy_enable = false;
   // Create a task with a single row group
@@ -465,6 +569,7 @@ TEST_F(InMemoryReadTaskTest, copySingleRowGroupIfZeroCopyIsDisabled)
 
 TEST_F(InMemoryReadTaskTest, concatenateMultipleRowGroups)
 {
+  SetUp();
   // Create a task with multiple row groups
   std::vector<const storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
@@ -482,11 +587,12 @@ TEST_F(InMemoryReadTaskTest, concatenateMultipleRowGroups)
 
 TEST_F(InMemoryReadTaskTest, returnEmptyTableIfEntireInputIsPruned)
 {
+  SetUp();
   // Create a zone map filter that exclude all inputs. If there are N input tables, column_0 > N *
-  // NUM_ROWS should filter out all rows.
+  // _num_rows should filter out all rows.
   std::unique_ptr<gqe::expression> partial_filter = std::make_unique<gqe::greater_expression>(
     std::make_unique<gqe::column_reference_expression>(0),
-    std::make_unique<gqe::literal_expression<int32_t>>(_input_tables.size() * NUM_ROWS));
+    std::make_unique<gqe::literal_expression<int32_t>>(_input_tables.size() * _num_rows));
   auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with row groups (actual number should not matter), and pass the filter
   std::vector<const storage::row_group*> row_groups =
@@ -504,6 +610,7 @@ TEST_F(InMemoryReadTaskTest, returnEmptyTableIfEntireInputIsPruned)
 
 TEST_F(InMemoryReadTaskTest, returnSingleRowGroupAfterPruningDirectly)
 {
+  SetUp();
   // Create a zone map filter 148 <= col0 < 157. This should return three partitions, from 145
   // (inclusive) to 160 (exclusive), i.e., 15 rows in total. The rows are contained in the second
   // input table row group.
@@ -531,6 +638,7 @@ TEST_F(InMemoryReadTaskTest, returnSingleRowGroupAfterPruningDirectly)
 
 TEST_F(InMemoryReadTaskTest, concatenatePartitionsInMultipleRowGroups)
 {
+  SetUp();
   // Create a zone map filter 198 <= col0 < 207. This should return three partitions, from 195
   // (inclusive) to 210 (exclusive), i.e., 15 rows in total. The first partition is contained in the
   // second row group and the other partitions in the third row group.
@@ -558,6 +666,7 @@ TEST_F(InMemoryReadTaskTest, concatenatePartitionsInMultipleRowGroups)
 
 TEST_F(InMemoryReadTaskTest, concatenateDiscontiguousPartitionsInSingleRowGroup)
 {
+  SetUp();
   // Create a zone map filter 118 <= col0 < 127 OR 168.0 <= col2 <= 177.0 (the different columns
   // don't really matter). This should return six partitions: three from 115 (inclusive) to 130
   // (exclusive) and three from 165 (inclusive) to 180 (exclusive). Both are contained in the second
@@ -591,6 +700,7 @@ TEST_F(InMemoryReadTaskTest, concatenateDiscontiguousPartitionsInSingleRowGroup)
 
 TEST_F(InMemoryReadTaskTest, concatenateSingleRowGroupIfCompressed)
 {
+  SetUp();
   // Compress input dat
   _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
   // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
@@ -614,4 +724,256 @@ TEST_F(InMemoryReadTaskTest, concatenateSingleRowGroupIfCompressed)
   constexpr cudf::size_type start_offset_in_result = 145;
   auto expected = create_input_table(num_rows_in_result, start_offset_in_result);
   CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
+}
+
+TEST_F(InMemoryReadTaskTest, PruningWithoutCompression)
+{
+  SetUp(true, 1024 * 1024, 64 * 1024);
+  // Compress input dat
+  // _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+  // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
+  std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
+  // one row groups.
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end());
+  storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_FALSE(*task.is_result_owned());
+  constexpr cudf::size_type num_rows_in_result     = 64 * 1024;
+  constexpr cudf::size_type start_offset_in_result = 0;
+  auto expected = create_input_table(num_rows_in_result, start_offset_in_result);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
+}
+
+TEST_F(InMemoryReadTaskTest, PruningWithCompression)
+{
+  SetUp(true, 2 * 64 * 1024, 64 * 1024);
+  // Compress input dat
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+  // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
+  std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
+  // one row groups.
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end());
+  storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+
+  constexpr cudf::size_type num_rows_in_result     = 64 * 1024;
+  constexpr cudf::size_type start_offset_in_result = 0;
+  auto expected = create_input_table(num_rows_in_result, start_offset_in_result);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
+}
+
+TEST_F(InMemoryReadTaskTest, PruningWithCompressionAndTwoFilters)
+{
+  SetUp(true, 4 * 64 * 1024, 64 * 1024);
+  // Compress input dat
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+  // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
+  std::unique_ptr<gqe::expression> partial_filter =
+    create_two_range_filters(0, 100, 157, 3 * 64 * 1024, 3 * 64 * 1024 + 100);
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
+  // one row groups.
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end());
+  storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+
+  constexpr cudf::size_type num_rows_in_result = 64 * 1024;
+  auto partition1 = create_input_table(num_rows_in_result, 0 /*offset*/);
+  auto partition2 = create_input_table(num_rows_in_result, 3 * 64 * 1024 /*offset*/);
+  auto expected =
+    cudf::concatenate(std::vector<cudf::table_view>{partition1->view(), partition2->view()});
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
+}
+
+TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlap)
+{
+  SetUp(true, 4 * 64 * 1024, 64 * 1024);
+  // Compress input dat
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+  // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
+  std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 100, 65 * 1024);
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
+  // one row groups.
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end());
+  storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+
+  constexpr cudf::size_type num_rows_in_result = 128 * 1024;
+  auto expected = create_input_table(num_rows_in_result, 0 /*offset*/);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
+}
+
+TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumn)
+{
+  SetUp(true, 4 * 64 * 1024, 64 * 1024, true);
+  // SetUp(true, 1024, 512, true);
+  // Compress input dat
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+  // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
+  std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 100, 65 * 1024);
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
+  // one row groups.
+
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end());
+  storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+
+  constexpr cudf::size_type num_rows_in_result = 128 * 1024;
+  auto expected = create_input_table(num_rows_in_result, 0 /*offset*/, true /*add_string_column*/);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
+}
+
+TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnWithGap)
+{
+  SetUp(true, 4 * 64 * 1024, 64 * 1024, true);
+  // SetUp(true, 1024, 512, true);
+  // Compress input dat
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+  // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
+  std::unique_ptr<gqe::expression> partial_filter =
+    create_two_range_filters(0, 100, 157, 3 * 64 * 1024, 3 * 64 * 1024 + 100);
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
+  // one row groups.
+
+  constexpr cudf::size_type num_rows_in_result = 64 * 1024;
+  auto col_view = cudf::strings_column_view{_input_tables[0].column(4)};
+  int32_t partition2_char_offset;
+  cudaMemcpy(&partition2_char_offset,
+             col_view.offsets().data<int32_t>() + num_rows_in_result * 3,
+             sizeof(int32_t),
+             cudaMemcpyDefault);
+
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end());
+  storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+
+  auto partition1 =
+    create_input_table(num_rows_in_result, 0 /*offset*/, true /*add_string_column*/);
+
+  auto partition2 = create_input_table(num_rows_in_result,
+                                       3 * 64 * 1024 /*offset*/,
+                                       true /*add_string_column*/,
+                                       partition2_char_offset);
+
+  auto expected =
+    cudf::concatenate(std::vector<cudf::table_view>{partition1->view(), partition2->view()});
+
+  CUDF_TEST_EXPECT_TABLES_EQUAL(expected->view(), *task.result());
+}
+
+TEST_F(InMemoryReadTaskTest, SlicedCompressionOverlapAndStringColumnWithNoFilter)
+{
+  SetUp(true, 128 * 1024, 64 * 1024, false, 4);
+  // SetUp(true, 1024, 512, true);
+  // Compress input dat
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end());
+  storage::in_memory_read_task task = create_read_task(row_groups, _column_indexes, _data_types);
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+
+  // 4 table, each is 128 * 1024 rows concatenated with no filter
+  auto expected = create_input_table(4 * 128 * 1024, 0 /*offset*/, false /*add_string_column*/);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(expected->view(), *task.result());
+}
+
+TEST_F(InMemoryReadTaskTest, PruningWithCompressedSlicedColumnSmallWithoutCompression)
+{
+  SetUp(true, 5, 64 * 1024, true);
+  // SetUp(true, 1024, 512, true);
+  // Compress input dat
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+  // Create a zone map filter which removes all partitions
+  std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 0, 3);
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
+  // one row groups.
+
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end());
+  storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+
+  size_t num_rows_in_result     = 5;
+  size_t start_offset_in_result = 0;
+  auto expected =
+    create_input_table(num_rows_in_result, start_offset_in_result, true /*add_string_column*/);
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+
+  CUDF_TEST_EXPECT_TABLES_EQUAL(expected->view(), *task.result());
 }

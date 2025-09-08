@@ -29,25 +29,25 @@
 #pragma once
 
 #include <gqe/types.hpp>
-#include <gqe/utility/error.hpp>
 #include <gqe/utility/logger.hpp>
-#include <memory>
-#include <nvcomp.hpp>
 #include <nvcomp/nvcompManagerFactory.hpp>
-#include <string>
 
 #include <cudf/column/column.hpp>
-#include <cudf/column/column_view.hpp>
 #include <cudf/types.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
-#include <rmm/mr/device/device_memory_resource.hpp>
 
+#include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 using namespace nvcomp;
 using namespace gqe;
+
+using compression_result =
+  std::pair<std::unique_ptr<rmm::device_buffer>, std::optional<nvcomp::CompressionConfig>>;
 
 /**
  * @brief Class that contains functions for compression and decompression of columns in GQE.
@@ -56,9 +56,12 @@ class compression_manager {
  private:
   gqe::compression_format _comp_format;
   nvcompType_t _data_type;
-  int _chunk_size;
+  int _compression_chunk_size;
   std::string _column_name;
   cudf::data_type _cudf_type;
+  std::unique_ptr<nvcompManagerBase> _compression_manager;
+  std::unique_ptr<nvcompManagerBase> _decompression_manager;
+
   void print_usage() const;
   /**
    * @brief Function that creates a nvcompManagerBase object based on the compression format.
@@ -68,7 +71,7 @@ class compression_manager {
    * nvcomp
    */
   std::unique_ptr<nvcompManagerBase> create_manager(rmm::cuda_stream_view stream,
-                                                    rmm::device_async_resource_ref& mr) const;
+                                                    rmm::device_async_resource_ref mr) const;
 
  public:
   /**
@@ -76,19 +79,24 @@ class compression_manager {
    *
    * @param[in] comp_format Compression format to use
    * @param[in] data_format Data format to use for compression configuration
-   * @param[in] explicit_chunk_size Chunk size to use for nvcomp
+   * @param[in] explicit_compression_chunk_size Chunk size to use for nvcomp
+   * @param[in] stream Stream to use for compression/decompression
+   * @param[in] mr Memory resource to use for allocator in nvcomp
    * @param[in] column_name Name of the column being compressed
    * @param[in] cudf_type CUDF data type of the column being compressed
    */
   compression_manager(gqe::compression_format comp_format,
                       nvcompType_t data_format,
-                      int explicit_chunk_size,
+                      int explicit_compression_chunk_size,
+                      rmm::cuda_stream_view stream,
+                      rmm::device_async_resource_ref mr,
                       std::string column_name   = "",
                       cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
 
   /**
-   * @brief Function to perform compression on a column. Retuns a unique pointer to the compressed
-   * column.
+   * @brief Function to perform compression on a column. Retuns a pair of
+   * 1) compressed column
+   * 2) compression config
    *
    * @param[in] uncompressed Data buffer to compress
    * @param[out] compression_ratio Compression ratio of the compressed column
@@ -96,23 +104,65 @@ class compression_manager {
    * @param[in] supplied_stream Stream to use for compression
    * @param[in] mr Memory resource to use for compression
    */
-  std::unique_ptr<rmm::device_buffer> do_compress(rmm::device_buffer const* uncompressed,
-                                                  float& compression_ratio,
-                                                  bool& is_compressed,
-                                                  rmm::cuda_stream_view supplied_stream,
-                                                  rmm::device_async_resource_ref mr);
+  compression_result do_compress(rmm::device_buffer const* uncompressed,
+                                 float& compression_ratio,
+                                 bool& is_compressed,
+                                 rmm::cuda_stream_view supplied_stream,
+                                 rmm::device_async_resource_ref mr);
 
   /**
    * @brief Function to perform dcompression of a compressed column. Returns a unique pointer to the
    * decompressed column.
    *
    * @param[in] compressed Data buffer containing compressed data
-   * @param[in] supplied_stream Stream to use for decompression
+   * @param[in] compression_config Compression configuration
+   * @param[in] stream Stream to use for decompression
+   * @param[in] mr Memory resource to use for decompression
+   */
+  std::unique_ptr<rmm::device_buffer> do_decompress(
+    cudf::device_span<uint8_t const> compressed,
+    nvcomp::CompressionConfig const& compression_config,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr);
+
+  /**
+   * @brief Function to perform decompression of a batch of compressed buffers
+   *
+   * @param[in] device_decompressed Array of pointers to decompressed buffers
+   * @param[in] device_compressed Array of pointers to compressed buffers
+   * @param[in] buffer_decompression_configs Vector of decompression configs
+   * @param[in] stream Stream to use for decompression
+   * @param[in] mr Memory resource to use for decompression
+   */
+  void decompress_batch(uint8_t* const* device_decompressed,
+                        const uint8_t* const* device_compressed,
+                        std::vector<nvcomp::DecompressionConfig>& buffer_decompression_configs,
+                        rmm::cuda_stream_view stream,
+                        rmm::device_async_resource_ref mr);
+
+  /**
+   * @brief Function to perform compression of a batch of uncompressed buffers
+   *
+   * @param[in] device_uncompressed Array of pointers to uncompressed buffers
+   * @param[out] compression_ratio Compression ratio of the compressed column
+   * @param[out] is_compressed Boolean flag that stores whether compression was viable or not
+   * @param[out] compressed_size Total size of the compressed column
+   * @param[out] compressed_sizes Vector of sizes of the compressed buffers
+   * @param[in] stream Stream to use for compression
    * @param[in] mr Memory resource to use for compression
    */
-  std::unique_ptr<rmm::device_buffer> do_decompress(rmm::device_buffer const* compressed,
-                                                    rmm::cuda_stream_view supplied_stream,
-                                                    rmm::device_async_resource_ref mr);
+  std::pair<std::vector<std::unique_ptr<rmm::device_buffer>>,
+            std::vector<nvcomp::CompressionConfig>>
+  compress_batch(const std::vector<rmm::device_buffer>& device_uncompressed,
+                 float& compression_ratio,
+                 bool& is_compressed,
+                 size_t& compressed_size,
+                 std::vector<cudf::size_type>& compressed_sizes,
+                 rmm::cuda_stream_view stream,
+                 rmm::device_async_resource_ref mr);
+
+  nvcomp::DecompressionConfig configure_decompression(
+    nvcomp::CompressionConfig const& compression_config);
 
   /**
    * @brief Function to fetch the compression format used by the compression manager.
@@ -128,7 +178,7 @@ class compression_manager {
   /**
    * @brief Function to fetch the chunk size used by the compression manager.
    * */
-  int get_chunk_size() const;
+  int get_compression_chunk_size() const;
 
   /**
    * @brief Function to fetch the column name used by the compression manager.

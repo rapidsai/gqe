@@ -307,7 +307,7 @@ struct block_info {
 void print_sq_poll_kernel_thread_status()
 {
   if (system("ps --ppid 2 | grep io_uring-sq") == 0)
-    GQE_LOG_INFO("Kernel thread io_uring-sq found running...\n");
+    GQE_LOG_TRACE("Kernel thread io_uring-sq found running...\n");
   else
     GQE_LOG_WARN("Kernel thread io_uring-sq is not running.\n");
 }

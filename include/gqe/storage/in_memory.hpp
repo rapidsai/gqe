@@ -18,6 +18,7 @@
 #include <gqe/optimizer/statistics.hpp>
 #include <gqe/storage/compression.hpp>
 #include <gqe/storage/readable_view.hpp>
+#include <gqe/storage/sliced_columns.cuh>
 #include <gqe/storage/table.hpp>
 #include <gqe/storage/writeable_view.hpp>
 #include <gqe/storage/zone_map.hpp>
@@ -41,7 +42,10 @@ namespace storage {
 class in_memory_readable_view;
 class in_memory_writeable_view;
 
-enum class in_memory_column_type { CONTIGUOUS, COMPRESSED };
+class row_group;
+using row_group_with_partitions = std::pair<const row_group*, std::vector<zone_map::partition>>;
+
+enum class in_memory_column_type { CONTIGUOUS, COMPRESSED, COMPRESSED_SLICED };
 
 /**
  * @brief Abstract base column of an in-memory table.
@@ -104,73 +108,18 @@ class contiguous_column : public column_base {
 };
 
 /**
- * @brief Abstract base class representing a compressed buffer.
- */
-class compressed_buffer {
- public:
-  virtual ~compressed_buffer() = default;
-
-  /**
-   * @brief Decompress the data into a buffer in device-accessible memory.
-   *
-   * @param[in] stream CUDA stream used for the decompression.
-   * @param[in] mr Memory resource used to allocate the decompressed buffer.
-   */
-  virtual std::unique_ptr<rmm::device_buffer> decompress(
-    rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr) const = 0;
-
-  /**
-   * @brief Return the compressed size of the buffer.
-   */
-  virtual std::size_t compressed_size() const = 0;
-};
-
-/**
- * @brief An implementation of `compressed_buffer` interface with plain encoding (i.e.,
- * uncompressed).
- */
-class plain_buffer : public compressed_buffer {
- public:
-  /**
-   * @brief Construct a compressed buffer using plain encoding.
-   *
-   * @param[in] input Input buffer to be compressed.
-   * @param[in] stream CUDA stream used for compression.
-   * @param[in] mr Memory resource used to allocate the compressed buffer.
-   */
-  plain_buffer(rmm::device_buffer const* input,
-               rmm::cuda_stream_view stream,
-               rmm::device_async_resource_ref mr);
-
-  /**
-   * @copydoc gqe::storage::compressed_buffer::decompress(rmm::cuda_stream_view,
-   * rmm::device_async_resource_ref)
-   */
-  std::unique_ptr<rmm::device_buffer> decompress(rmm::cuda_stream_view stream,
-                                                 rmm::device_async_resource_ref mr) const override;
-
-  /**
-   * @copydoc gqe::storage::compressed_size()
-   */
-  std::size_t compressed_size() const override { return _buffer->size(); }
-
- private:
-  std::unique_ptr<rmm::device_buffer> _buffer;
-};
-
-/**
  * @brief Compressed in-memory table.
  */
 class compressed_column : public column_base {
  public:
-  explicit compressed_column(cudf::column&& cudf_column,
-                             compression_format comp_format,
-                             rmm::cuda_stream_view stream,
-                             rmm::device_async_resource_ref mr,
-                             nvcompType_t nvcomp_data_format,
-                             int chunk_size,
-                             std::string column_name   = "",
-                             cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
+  compressed_column(cudf::column&& cudf_column,
+                    compression_format comp_format,
+                    rmm::cuda_stream_view stream,
+                    rmm::device_async_resource_ref mr,
+                    nvcompType_t nvcomp_data_format,
+                    int compression_chunk_size,
+                    std::string column_name   = "",
+                    cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
 
   ~compressed_column() override = default;
 
@@ -223,8 +172,234 @@ class compressed_column : public column_base {
 
   std::unique_ptr<rmm::device_buffer> _compressed_data;
   std::unique_ptr<rmm::device_buffer> _compressed_null_mask;
+  std::optional<nvcomp::CompressionConfig> _compression_config;
+  std::optional<nvcomp::CompressionConfig> _null_mask_compression_config;
   std::vector<std::unique_ptr<compressed_column>> _compressed_children;
 };
+
+/**
+ * @brief Compressed (and sliced)in-memory table.
+ *
+ * Partition size must be a multiple of 32 to allow null counts to work properly
+ *
+ */
+class compressed_sliced_column : public column_base {
+ public:
+  compressed_sliced_column(cudf::column&& cudf_column,
+                           compression_format comp_format,
+                           rmm::cuda_stream_view stream,
+                           rmm::device_async_resource_ref mr,
+                           nvcompType_t nvcomp_data_format,
+                           int compression_chunk_size,
+                           int partition_size,
+                           std::string column_name   = "",
+                           cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
+
+  ~compressed_sliced_column() override = default;
+
+  compressed_sliced_column(const compressed_sliced_column&)            = delete;
+  compressed_sliced_column& operator=(const compressed_sliced_column&) = delete;
+
+  /**
+   * @copydoc gqe::storage::type()
+   */
+  in_memory_column_type type() const override { return in_memory_column_type::COMPRESSED_SLICED; }
+
+  /**
+   * @copydoc gqe::storage::column_base::size()
+   */
+  int64_t size() const override;
+
+  /**
+   * @brief Decompress and construct an uncompressed version of the column.
+   *
+   * @param[in] stream CUDA stream used for the decompression.
+   * @param[in] partitions The partitions to decompress.
+   * @param[in] mr Memory resource used for allocating the decompressed column.
+   *
+   * Only decompresses the slices indicated by row_groups_with_partitions
+   * Then we create a column view for each partition
+   */
+  virtual std::unique_ptr<cudf::column> decompress(
+    rmm::cuda_stream_view stream,
+    const std::vector<zone_map::partition>& partitions,
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+ protected:
+  size_t _size;
+  size_t _compressed_size;
+  size_t _null_mask_compressed_size;
+  size_t _partition_size;
+  cudf::size_type _null_count;
+
+  cudf::data_type _dtype;
+  std::vector<cudf::size_type> _null_counts;
+  compression_format _comp_format;
+  float _compression_ratio;
+  float _null_mask_compression_ratio;
+  bool _is_compressed;
+  bool _is_null_mask_compressed;
+  compression_manager _nvcomp_manager;
+  compression_manager _nvcomp_null_manager;
+
+  // 1 compressed buffer and 1 compressed null mask per partition
+  std::vector<std::unique_ptr<rmm::device_buffer>> _compressed_data_buffers;
+  std::vector<std::unique_ptr<rmm::device_buffer>> _compressed_null_masks;
+  std::vector<cudf::size_type> _compressed_data_sizes;
+  std::vector<cudf::size_type> _compressed_null_mask_sizes;
+
+  // These must come after the compression managers for proper destruction order
+  std::vector<nvcomp::CompressionConfig> _compression_configs;
+  std::vector<nvcomp::CompressionConfig> _null_compression_configs;
+
+  compressed_sliced_column(const cudf::column& cudf_column,
+                           compression_format comp_format,
+                           rmm::cuda_stream_view stream,
+                           rmm::device_async_resource_ref mr,
+                           nvcompType_t nvcomp_data_format,
+                           int compression_chunk_size,
+                           int partition_size,
+                           std::string column_name,
+                           cudf::data_type cudf_type);
+
+  void compress(cudf::column&& cudf_column,
+                rmm::cuda_stream_view stream,
+                rmm::device_async_resource_ref mr);
+
+  /**
+   * @brief Compress one buffer in the column (i.e. data or null mask)
+   *
+   * @param[in] input The input buffer to compress
+   * @param[out] compressed_data_buffers The compressed data buffers
+   * @param[out] compression_configs The compression configs
+   * @param[out] compressed_sizes The compressed sizes
+   * @param[in] num_rows The number of rows in the column
+   * @param[in] num_partitions The number of partitions in the column
+   * @param[out] is_compressed Whether the column is compressed
+   * @param[out] compressed_size The compressed size
+   * @param[in] is_null_mask Whether the column is a null mask
+   * @param[in] stream The CUDA stream to use
+   * @param[in] mr The memory resource to use
+   */
+  void do_compress(rmm::device_buffer const* input,
+                   std::vector<std::unique_ptr<rmm::device_buffer>>& compressed_data_buffers,
+                   std::vector<nvcomp::CompressionConfig>& compression_configs,
+                   std::vector<cudf::size_type>& compressed_sizes,
+                   size_t num_rows,
+                   size_t num_partitions,
+                   bool& is_compressed,
+                   size_t& compressed_size,
+                   bool is_null_mask,
+                   rmm::cuda_stream_view stream,
+                   rmm::device_async_resource_ref mr);
+
+  /**
+   * @brief Decompress one of the buffers in the column (i.e. data or null mask)
+   *
+   * @param[in] stream CUDA stream to use
+   * @param[in] mr Memory resource to use
+   * @param[in] total_uncompressed_size Total uncompressed size of the column
+   * @param[in] total_compressed_size Total compressed size of the column
+   * @param[in] ix_partition_slices Indices of the partitions to decompress
+   * @param[out] full_compressed_sizes Array of full compressed sizes of the column
+   * @param[out] full_compressed_data_buffers Array of full compressed data buffers of the column
+   * @param[out] full_compression_configs Array of full compression configs of the column
+   * @param[in] is_compressed Whether the column is compressed
+   */
+  rmm::device_buffer do_decompress(
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr,
+    const size_t total_uncompressed_size,
+    const size_t total_compressed_size,
+    const std::vector<size_t>& ix_partition_slices,
+    std::vector<cudf::size_type>& full_compressed_sizes,
+    std::vector<std::unique_ptr<rmm::device_buffer>>& full_compressed_data_buffers,
+    std::vector<nvcomp::CompressionConfig>& full_compression_configs,
+    const bool is_compressed);
+
+  /**
+   * @brief Fill the pointers for a batched memcpy
+   *
+   * @param[out] host_compressed_ptrs Array of pointers to the compressed data on the host
+   * @param[out] device_compressed_ptrs Array of pointers to the compressed data on the device
+   * @param[in] compressed_sizes Array of sizes of the compressed data
+   * @param[in] ix_partition_slices The indices of the partitions to decompress
+   * @param[out] decompression_configs Array of decompression configs
+   * @param[in] compression_configs Array of compression configs
+   * @param[out] reduced_compressed_sizes Array of reduced compressed sizes
+   * @param[out] compressed_data_buffers Array of compressed data buffers
+   * @param[in] dst_ptr The buffer we've allocated for the device compressed ptrs
+   * @param[in] is_compressed Whether the column is compressed
+   * @param[in] stream The CUDA stream to use
+   */
+  void fill_copy_ptrs(uint8_t** host_compressed_ptrs,
+                      uint8_t** device_compressed_ptrs,
+                      const std::vector<cudf::size_type>& compressed_sizes,
+                      const std::vector<size_t>& ix_partition_slices,
+                      std::vector<nvcomp::DecompressionConfig>& decompression_configs,
+                      const std::vector<nvcomp::CompressionConfig>& compression_configs,
+                      std::vector<size_t>& reduced_compressed_sizes,
+                      std::vector<std::unique_ptr<rmm::device_buffer>>& compressed_data_buffers,
+                      uint8_t* dst_ptr,
+                      const bool is_compressed,
+                      rmm::cuda_stream_view stream);
+
+  std::vector<size_t> get_compressed_slice_indices(
+    const std::vector<zone_map::partition>& partitions);
+};
+
+/**
+ * @brief Compressed (and sliced) in-memory string column.
+ *
+ * This is a compressed (and sliced) in-memory column that contains a string column.
+ * It is used to store string columns in a compressed and sliced format.
+ *
+ * This is different because the char (data) array / offset need to be compressed separately
+ * Under decompression the offsets also need to be adjusted to point correctly to the reduced char
+ * array
+ *
+ * Partition size must be a multiple of 32
+ *
+ * @tparam large_string_mode Whether the string column is large (i.e. int64_t offsets)
+ */
+template <bool large_string_mode>
+class string_compressed_sliced_column : public compressed_sliced_column {
+ public:
+  string_compressed_sliced_column(cudf::column&& cudf_column,
+                                  compression_format comp_format,
+                                  rmm::cuda_stream_view stream,
+                                  rmm::device_async_resource_ref mr,
+                                  int compression_chunk_size,
+                                  int partition_size,
+                                  std::string column_name = "");
+
+  std::vector<std::unique_ptr<rmm::device_buffer>> _compressed_offset_partitions;
+  std::vector<cudf::size_type> _compressed_offset_sizes;
+  std::vector<cudf::size_type> _partition_char_array_sizes;
+  std::vector<cudf::size_type> _partition_row_counts;
+  compression_manager _nvcomp_offset_manager;
+  // This needs to come after the manager for proper destruction order
+  std::vector<nvcomp::CompressionConfig> _compressed_offset_configs;
+
+  void compress(cudf::column&& cudf_column,
+                rmm::cuda_stream_view stream,
+                rmm::device_async_resource_ref mr);
+
+  virtual std::unique_ptr<cudf::column> decompress(
+    rmm::cuda_stream_view stream,
+    const std::vector<zone_map::partition>& partitions,
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource()) override;
+
+ private:
+  bool _offsets_are_compressed;
+  using offsets_type = std::conditional_t<large_string_mode, int64_t, int32_t>;
+
+  static constexpr nvcompType_t offset_nvcomp_data_type =
+    large_string_mode ? NVCOMP_TYPE_LONGLONG : NVCOMP_TYPE_INT;
+};
+
+extern template class string_compressed_sliced_column<false>;
+extern template class string_compressed_sliced_column<true>;
 
 /**
  * In-memory row group.
@@ -451,10 +626,6 @@ class in_memory_read_task : public read_task_base {
   /// with subsequent tasks from other workers.
   bool should_use_overlap_mtx() const;
 
-  /// Convenience type which pairs a row group with the partitions determined by evaluating a
-  /// partial filter on the row group's zone map.
-  using row_group_with_partitions = std::pair<const row_group*, std::vector<zone_map::partition>>;
-
   /// Determine if partial pruning is supported. Returns true if partial pruning is enabled and a
   /// partial filter exists.
   bool can_prune_partitions() const;
@@ -472,7 +643,8 @@ class in_memory_read_task : public read_task_base {
   /// If column is an uncompressed column, return its cudf::column_view. Otherwise, decompress the
   /// column before returning the cudf::column_view. Decompressed columns are stored in
   /// _decompressed_columns to cache them and keep them valid through the lifetime of the read task.
-  cudf::column_view optionally_decompress_column(column_base& column);
+  cudf::column_view optionally_decompress_column(
+    column_base& column, const std::vector<zone_map::partition>& partitions);
 
   /// For each row group and each of its partitions, slice the row group's columns and wrap them
   /// inside a cudf::table_view. This operation decompresses compressed columns.

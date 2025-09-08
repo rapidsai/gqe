@@ -82,8 +82,8 @@ class device_row_hasher {
 
   __device__ auto operator()(cudf::size_type row_index) const noexcept
   {
-    auto it =
-      thrust::make_transform_iterator(_table.begin(), [this, row_index](cudf::column_device_view const& col) {
+    auto it = thrust::make_transform_iterator(
+      _table.begin(), [this, row_index](cudf::column_device_view const& col) {
         return cudf::type_dispatcher(
           col.type(), element_hasher<hash_function>{_has_nulls, _seed}, col, row_index);
       });

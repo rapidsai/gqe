@@ -19,8 +19,8 @@
 #include <gqe/expression/expression.hpp>
 #include <gqe/types.hpp>
 
-#include <cudf/types.hpp>
 #include <cudf/join/hash_join.hpp>
+#include <cudf/types.hpp>
 
 #include <cstdint>
 #include <memory>

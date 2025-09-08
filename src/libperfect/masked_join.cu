@@ -63,6 +63,13 @@ std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 perfect_join(const cudf::table_view& left_keys, const cudf::table_view& right_keys)
 {
+  if (right_keys.num_rows() == 0 || left_keys.num_rows() == 0) {
+    return std::make_pair(
+      std::make_unique<rmm::device_uvector<cudf::size_type>>(0, rmm::cuda_stream_default),
+      std::make_unique<rmm::device_uvector<cudf::size_type>>(0, rmm::cuda_stream_default)
+    );
+  }
+
   for (auto column_id = 0; column_id < left_keys.num_columns(); column_id++) {
     auto const& column = left_keys.column(column_id);
     if (column.has_nulls()) {

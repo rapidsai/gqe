@@ -3,7 +3,7 @@
 .idea/
 .vscode/
 /include/substrait/
-/proto/
+/substrait/proto/
 .devcontainer
 compile_commands.json
 /rust/target/

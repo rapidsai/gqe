@@ -27,6 +27,8 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     binutils \
     binutils-dev \
     openssh-client \
+    openmpi-bin \
+    libopenmpi-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Miniforge3

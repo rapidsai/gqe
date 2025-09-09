@@ -12,11 +12,13 @@
 
 #pragma once
 
-#include <gqe/query_context.hpp>
-#include <gqe/task_manager_context.hpp>
 #include <type_traits>
 
 namespace gqe {
+
+// Forward declarations
+class task_manager_context;
+class query_context;
 
 /**
  * @brief context_reference is as a trivially-copyable non-owning reference to various contexts

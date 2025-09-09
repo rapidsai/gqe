@@ -12,18 +12,29 @@
 
 #pragma once
 
+#include <cudf/table/table.hpp>
 #include <gqe/device_properties.hpp>
+#include <gqe/executor/task.hpp>
 #include <gqe/memory_resource/pgas_memory_resource.hpp>
+#include <gqe/rpc/task_migration.hpp>
+#include <gqe/scheduler.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <memory>
 #include <mpi.h>
+#include <nvshmem.h>
 #include <optional>
 #include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
+#include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
+#include <unordered_set>
+
+#include <gqe/communicator.hpp>
+#include <grpc/grpc.h>
+#include <grpcpp/server.h>
 
 namespace gqe {
 
@@ -63,11 +74,15 @@ struct task_manager_context {
   task_manager_context& operator=(const task_manager_context&) = delete;
   task_manager_context& operator=(task_manager_context&&)      = default;
   device_properties const& get_device_properties() const { return _device_properties; };
+  virtual void finalize();
 
  protected:
   device_properties _device_properties;
-
   std::unique_ptr<rmm::mr::device_memory_resource> _mr;
+
+  // protected constructor so child classes, in this case multi_process_task_manager_context,
+  // dont have to pass in a memory resource in initializer list
+  task_manager_context(device_properties device_prop) : _device_properties(device_prop) {};
 
  public:
   shared_stream copy_engine_stream;
@@ -75,34 +90,19 @@ struct task_manager_context {
 
 struct multi_process_task_manager_context : public task_manager_context {
   explicit multi_process_task_manager_context(
-    std::optional<std::unique_ptr<gqe::pgas_memory_resource>> upstream_mr = std::nullopt,
-    device_properties device_prop                                         = device_properties());
+    std::unique_ptr<gqe::communicator> comm,
+    std::unique_ptr<gqe::scheduler> scheduler,
+    std::unique_ptr<gqe::task_migration_client> migration_client,
+    std::unique_ptr<gqe::task_migration_service> migration_service,
+    gqe::rpc_server&& server,
+    std::unique_ptr<gqe::pgas_memory_resource> upstream_mr,
+    device_properties device_prop = device_properties());
+
+  static std::unique_ptr<multi_process_task_manager_context> default_init(MPI_Comm mpi_comm);
+
   multi_process_task_manager_context(const multi_process_task_manager_context&) = delete;
   multi_process_task_manager_context(multi_process_task_manager_context&&)      = default;
   multi_process_task_manager_context& operator=(const multi_process_task_manager_context&) = delete;
-  multi_process_task_manager_context& operator=(multi_process_task_manager_context&&) = default;
-
-  /**
-   * @brief Translate a pointer on the current rank to that on destination_rank
-   *
-   * @param[in] ptr Pointer on current rank
-   * @param[in] destination_rank Destination rank for ptr translation
-   */
-  void* get_translated_ptr(void* ptr, int32_t destination_rank);
-
-  /**
-   * @brief Get the MPI rank of the current process
-   *
-   * @return int32_t MPI rank
-   */
-  int32_t get_mpi_rank() const { return _mpi_rank; }
-
-  /**
-   * @brief Get the MPI communicator size
-   *
-   * @return int32_t MPI size
-   */
-  int32_t get_mpi_size() const { return _mpi_size; }
 
   /**
    * @brief Finalize the task manager context.
@@ -112,13 +112,15 @@ struct multi_process_task_manager_context : public task_manager_context {
    *
    * Need for this functions arises because destructor should be noexcept.
    */
-  void finalize();
+  void finalize() override;
+
+  std::unique_ptr<gqe::communicator> comm;
+  std::unique_ptr<gqe::scheduler> scheduler;
+  std::unique_ptr<gqe::task_migration_client> migration_client;
+  std::unique_ptr<gqe::task_migration_service> migration_service;
 
  private:
-  int32_t _mpi_rank;
-  int32_t _mpi_size;
-  MPI_Comm _mpi_comm;
-  std::vector<void*> _base_ptrs;
+  gqe::rpc_server _rpc_server;
   gqe::pgas_memory_resource* _upstream_pgas_mr;
 };
 

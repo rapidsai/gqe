@@ -10,16 +10,25 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <cudf/types.hpp>
+#include <cudf/utilities/traits.hpp>
+#include <gqe/executor/task.hpp>
 #include <gqe/memory_resource/pgas_memory_resource.hpp>
+#include <gqe/rpc/task_migration.hpp>
 #include <gqe/task_manager_context.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
+#include <grpc/grpc.h>
+#include <grpcpp/security/server_credentials.h>
+#include <grpcpp/server.h>
+#include <grpcpp/server_builder.h>
 #include <mpi.h>
 #include <nvshmem.h>
 #include <nvshmemx.h>
+#include <rmm/aligned.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
+#include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/owning_wrapper.hpp>
-#include <rmm/mr/device/pool_memory_resource.hpp>
 
 namespace gqe {
 task_manager_context::task_manager_context(std::unique_ptr<rmm::mr::device_memory_resource> mr,
@@ -38,94 +47,72 @@ task_manager_context::~task_manager_context()
   rmm::mr::reset_current_device_resource_ref();
 }
 
+void task_manager_context::finalize() { GQE_CUDA_TRY(cudaDeviceSynchronize()); }
+
 multi_process_task_manager_context::multi_process_task_manager_context(
-  std::optional<std::unique_ptr<gqe::pgas_memory_resource>> upstream_mr,
+  std::unique_ptr<gqe::communicator> comm,
+  std::unique_ptr<gqe::scheduler> scheduler,
+  std::unique_ptr<gqe::task_migration_client> migration_client,
+  std::unique_ptr<gqe::task_migration_service> migration_service,
+  gqe::rpc_server&& server,
+  std::unique_ptr<gqe::pgas_memory_resource> upstream_mr,
   device_properties device_prop)
+  : task_manager_context(std::move(device_prop)),
+    comm(std::move(comm)),
+    scheduler(std::move(scheduler)),
+    migration_client(std::move(migration_client)),
+    migration_service(std::move(migration_service)),
+    _rpc_server(std::move(server)),
+    _upstream_pgas_mr(upstream_mr.get())
 {
-  // Initialize MPI and NVSHMEM
-  _mpi_comm = MPI_COMM_WORLD;
-  GQE_MPI_TRY(MPI_Init(NULL, NULL));
-  GQE_MPI_TRY(MPI_Comm_rank(_mpi_comm, &_mpi_rank));
-  GQE_MPI_TRY(MPI_Comm_size(_mpi_comm, &_mpi_size));
+  using upstream_mr_type = gqe::pgas_memory_resource;
+  using mr_type          = rmm::mr::pool_memory_resource<upstream_mr_type>;
+  _mr                    = std::make_unique<rmm::mr::owning_wrapper<mr_type, upstream_mr_type>>(
+    std::move(upstream_mr), upstream_mr->get_bytes(), upstream_mr->get_bytes());
+  rmm::mr::set_current_device_resource(_mr.get());
+}
 
-  // Get node-local rank and size
-  int node_rank;
-  int node_size;
-  MPI_Comm node_comm;
-  // Split the MPI_COMM_WORLD into node_comm based on the node rank
-  GQE_MPI_TRY(MPI_Comm_split_type(_mpi_comm, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &node_comm));
-  // Get the local rank of the process in the node_comm
-  GQE_MPI_TRY(MPI_Comm_rank(node_comm, &node_rank));
-  GQE_MPI_TRY(MPI_Comm_size(node_comm, &node_size));
-  GQE_MPI_TRY(MPI_Comm_free(&node_comm));
-
-  // Set CUDA device based on local rank
-  int num_gpus;
-  GQE_CUDA_TRY(cudaGetDeviceCount(&num_gpus));
-  if (node_size > num_gpus) {
-    throw std::runtime_error("Not enough GPUs available. Node process count " +
-                             std::to_string(node_size) + " >= number of GPUs " +
-                             std::to_string(num_gpus));
-  }
-  GQE_CUDA_TRY(cudaSetDevice(node_rank));
-
-  // Initialize NVSHMEM
-  assert(nvshmemx_init_status() == NVSHMEM_STATUS_NOT_INITIALIZED);
-
-  nvshmemx_init_attr_t attr;
-  attr.mpi_comm = &_mpi_comm;
-  auto status   = nvshmemx_hostlib_init_attr(NVSHMEMX_INIT_WITH_MPI_COMM, &attr);
-  if (status != NVSHMEMX_SUCCESS) { throw std::runtime_error("Failed to initialize NVSHMEM"); }
-
-  GQE_LOG_INFO("NVSHMEM team initialized with {} PEs", nvshmem_n_pes());
+std::unique_ptr<multi_process_task_manager_context>
+multi_process_task_manager_context::default_init(MPI_Comm mpi_comm)
+{
+  auto comm = std::make_unique<nvshmem_communicator>(mpi_comm);
+  comm->init();
 
   auto pool_size = gqe::utility::default_device_memory_pool_size();
-  void* local_base_ptr;
-  {
-    using upstream_mr_type = gqe::pgas_memory_resource;
-    using mr_type          = rmm::mr::pool_memory_resource<upstream_mr_type>;
 
-    // Initialize memory resource
-    if (!upstream_mr.has_value()) {
-      auto pgas_mr      = std::make_shared<gqe::pgas_memory_resource>(pool_size);
-      _upstream_pgas_mr = pgas_mr.get();
-      local_base_ptr    = pgas_mr->get_local_base_ptr();
-      _mr               = std::make_unique<rmm::mr::owning_wrapper<mr_type, upstream_mr_type>>(
-        pgas_mr, pool_size, pool_size);
-    } else {
-      _upstream_pgas_mr = upstream_mr.value().get();
-      local_base_ptr    = upstream_mr.value()->get_local_base_ptr();
-      auto pool_size    = upstream_mr.value()->get_bytes();
-      _mr               = std::make_unique<rmm::mr::owning_wrapper<mr_type, upstream_mr_type>>(
-        std::shared_ptr<gqe::pgas_memory_resource>(std::move(upstream_mr.value())),
-        pool_size,
-        pool_size);
-    }
+  if (comm->num_ranks_per_device() > 1) {
+    GQE_LOG_WARN("Node process count {} >= number of GPUs {}. Using MPG mode for NVSHMEM",
+                 comm->world_size(),
+                 comm->num_ranks_per_device());
+    pool_size = rmm::align_down(pool_size / comm->num_ranks_per_device(), 256);
   }
 
-  _base_ptrs.resize(_mpi_size);
-  GQE_MPI_TRY(MPI_Allgather(&local_base_ptr,
-                            sizeof(void*),
-                            MPI_CHAR,
-                            _base_ptrs.data(),
-                            sizeof(void*),
-                            MPI_CHAR,
-                            _mpi_comm));
+  // PGAS memory resource has to have the same size on all ranks.
+  MPI_Allreduce(&pool_size, &pool_size, 1, MPI_LONG_LONG, MPI_MIN, mpi_comm);
+  GQE_LOG_INFO("Setting pool size to {}", pool_size);
 
-  rmm::mr::set_current_device_resource(_mr.get());
+  auto pgas_mr           = std::make_unique<gqe::pgas_memory_resource>(pool_size);
+  auto scheduler         = std::make_unique<round_robin_scheduler>(comm->world_size());
+  auto migration_service = std::make_unique<task_migration_service>(comm->device_id());
+  auto server            = rpc_server(std::vector<grpc::Service*>{migration_service.get()});
+
+  std::unique_ptr<nvshmem_task_migration_client> migration_client;
+
+  migration_client = std::make_unique<nvshmem_task_migration_client>(
+    comm.get(), server, pgas_mr->get_local_base_ptr());
+  return std::make_unique<multi_process_task_manager_context>(std::move(comm),
+                                                              std::move(scheduler),
+                                                              std::move(migration_client),
+                                                              std::move(migration_service),
+                                                              std::move(server),
+                                                              std::move(pgas_mr));
 }
 
 void multi_process_task_manager_context::finalize()
 {
+  GQE_CUDA_TRY(cudaDeviceSynchronize());
   _upstream_pgas_mr->finalize();
-  nvshmemx_hostlib_finalize();
-  GQE_MPI_TRY(MPI_Finalize());
+  comm->finalize();
 }
 
-void* multi_process_task_manager_context::get_translated_ptr(void* ptr, int32_t destination_rank)
-{
-  return static_cast<std::byte*>(_base_ptrs[destination_rank]) +
-         (reinterpret_cast<std::uintptr_t>(ptr) -
-          reinterpret_cast<std::uintptr_t>(_base_ptrs[_mpi_rank]));
-}
 }  // namespace gqe

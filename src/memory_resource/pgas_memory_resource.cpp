@@ -16,7 +16,7 @@
 
 namespace gqe {
 
-pgas_memory_resource::pgas_memory_resource(std::size_t bytes) : _bytes{bytes}
+pgas_memory_resource::pgas_memory_resource(std::size_t bytes) : _allocated{false}, _bytes{bytes}
 {
   // _local_base_ptr must be 256 bytes aligned, which is required by RMM. See
   // https://docs.rapids.ai/api/rmm/stable/librmm_docs/memory_resources/#_CPPv4N3rmm2mr22device_memory_resourceE

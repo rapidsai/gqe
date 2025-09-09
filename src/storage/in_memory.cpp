@@ -10,13 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/memory_resource/numa_memory_resource.hpp>
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
 #include <gqe/memory_resource/system_memory_resource.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/storage/in_memory.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/writeable_view.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>

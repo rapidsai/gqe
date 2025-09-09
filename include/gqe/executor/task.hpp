@@ -12,11 +12,11 @@
 
 #pragma once
 
-#include <gqe/context_reference.hpp>
-#include <gqe/executor/optimization_parameters.hpp>
-
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
+#include <gqe/context_reference.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <proto/task.pb.h>
 
 #include <cstdint>
 #include <memory>
@@ -41,17 +41,20 @@ using type = std::variant<result_kind::owned, result_kind::borrowed>;
 
 }  // namespace result_kind
 
+// forward declaration for friend function declaration
+class task_graph;
+
 class task {
+  friend void execute_task_graph_single_process(context_reference, task_graph const*);
+  friend void execute_task_graph_multi_process(context_reference, task_graph const*);
+  friend class task_migration_service;
+  friend class task_migration_client;
+
  public:
   /**
    * @brief Status of a task.
    */
-  enum class status_type {
-    not_started,  ///< Task has not been started on the current GPU.
-    in_progress,  ///< Task is currently executing on or migrating to the current GPU.
-    finished,     ///< Task result is available to the current GPU.
-    failed        ///< Task has failed execution.
-  };
+  using status_type = proto::TaskStatus;
 
   /**
    * @brief Construct a new task.
@@ -80,13 +83,6 @@ class task {
    * After executing this function, `result()` will return a valid table view.
    */
   virtual void execute() = 0;
-
-  /**
-   * @brief Migrate the task result from a remote GPU.
-   *
-   * After executing this function, `result()` will return a valid table view.
-   */
-  void migrate();
 
   /**
    * @brief Return the task result.

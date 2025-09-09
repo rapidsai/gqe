@@ -1,0 +1,69 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION &
+ * AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+syntax = "proto3";
+
+package proto;
+
+// protobuf mapping for `type_id` enum 
+// ref: https://docs.rapids.ai/api/libcudf/stable/group__utility__types
+enum DataType {
+   EMPTY = 0;                   
+   INT8 = 1;                    
+   INT16 = 2;                   
+   INT32 = 3;                   
+   INT64 = 4;                   
+   UINT8 = 5;                   
+   UINT16 = 6;                  
+   UINT32 = 7;                  
+   UINT64 = 8;                  
+   FLOAT32 = 9;                 
+   FLOAT64 = 10;                 
+   BOOL8 = 11;                   
+   TIMESTAMP_DAYS = 12;          
+   TIMESTAMP_SECONDS = 13;       
+   TIMESTAMP_MILLISECONDS = 14;  
+   TIMESTAMP_MICROSECONDS = 15;  
+   TIMESTAMP_NANOSECONDS = 16;   
+   DURATION_DAYS = 17;           
+   DURATION_SECONDS = 18;        
+   DURATION_MILLISECONDS = 19;   
+   DURATION_MICROSECONDS = 20;   
+   DURATION_NANOSECONDS = 21;    
+   DICTIONARY32 = 22;            
+   STRING = 23;                  
+   LIST = 24;                    
+   DECIMAL32 = 25;               
+   DECIMAL64 = 26;               
+   DECIMAL128 = 27;              
+   STRUCT = 28;
+}
+
+message Column {
+    DataType type = 1;
+    int32 size = 2;
+    fixed64 data_location = 3; // device ptr to data stored in column
+    fixed64 data_bytes = 4; // number of bytes to in column data
+    fixed64 null_mask_location = 5; // device ptr to null mask
+    int32 null_count = 6;
+    repeated Column children = 7;
+}
+
+message Table {
+    repeated Column columns = 1;
+    int32 num_rows = 2;
+}
+
+message Result {
+    Table table = 1;
+}

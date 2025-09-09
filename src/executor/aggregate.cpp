@@ -13,6 +13,8 @@
 #include <gqe/context_reference.hpp>
 #include <gqe/executor/aggregate.hpp>
 #include <gqe/executor/eval.hpp>
+#include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>

@@ -30,6 +30,7 @@
 #include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/utility/helpers.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>

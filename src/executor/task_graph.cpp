@@ -38,8 +38,10 @@
 #include <gqe/physical/user_defined.hpp>
 #include <gqe/physical/window.hpp>
 #include <gqe/physical/write.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/writeable_view.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
 
@@ -47,6 +49,7 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <stack>
 #include <stdexcept>
 #include <thread>
 
@@ -62,7 +65,7 @@ std::unique_ptr<task_graph> task_graph_builder::build(physical::relation* root_r
   auto generated_tasks = generate_tasks(root_relation);
 
   // Update _stage_root_tasks with tasks in the last stage
-  insert_pipeline_breaker(utility::to_raw_ptrs(generated_tasks));
+  insert_pipeline_breaker(generated_tasks);
 
   return std::make_unique<task_graph>(
     task_graph({std::move(generated_tasks), std::move(_stage_root_tasks)}));
@@ -81,7 +84,7 @@ std::shared_ptr<task> task_graph_builder::concatenate(
   if (input_tasks.size() == 1) {
     return std::move(input_tasks[0]);
   } else {
-    if (is_pipeline_breaker) insert_pipeline_breaker(utility::to_raw_ptrs(input_tasks));
+    if (is_pipeline_breaker) insert_pipeline_breaker(input_tasks);
 
     auto concatenated_input = std::make_shared<concatenate_task>(
       _ctx_ref, _current_task_id, _current_stage_id, std::move(input_tasks));
@@ -93,6 +96,14 @@ std::shared_ptr<task> task_graph_builder::concatenate(
 void execute_task_graph_single_gpu(context_reference ctx_ref,
                                    task_graph const* task_graph_to_execute)
 {
+  auto task_manager_context =
+    dynamic_cast<multi_process_task_manager_context*>(ctx_ref._task_manager_context);
+  if (task_manager_context != nullptr && task_manager_context->comm->rank() != 0) {
+    GQE_LOG_INFO("Process with rank {} is not the root process, skipping task graph execution.",
+                 task_manager_context->comm->rank());
+    return;
+  }
+
   assert(ctx_ref._task_manager_context != nullptr);
   assert(ctx_ref._query_context != nullptr);
   assert(task_graph_to_execute != nullptr);
@@ -103,8 +114,9 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
     std::size_t num_workers =
       std::min(ctx_ref._query_context->parameters.max_num_workers, num_tasks_current_stage);
     if (num_tasks_current_stage) {
-      GQE_LOG_TRACE(
-        "Execute stage {} with {} workers.", tasks_current_stage.front()->stage_id(), num_workers);
+      auto root_task = tasks_current_stage.front().lock();
+      assert(root_task != nullptr);
+      GQE_LOG_TRACE("Execute stage {} with {} workers.", root_task->stage_id(), num_workers);
     } else {
       GQE_LOG_WARN("No tasks in the current stage (cannot identify the stage).");
     }
@@ -114,11 +126,13 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
       // main thread.
       for (auto& task : tasks_current_stage) {
         // root task of a pipeline in a stage cannot belong to more than one pipeline
-        assert(task->pipeline_ids().size() == 1);
-        auto const root_task_pipeline_id = *(task->pipeline_ids().cbegin());
+        auto curr_task = task.lock();
+        assert(curr_task != nullptr);
+        assert(curr_task->pipeline_ids().size() == 1);
+        auto const root_task_pipeline_id = *(curr_task->pipeline_ids().cbegin());
         GQE_LOG_TRACE(
-          "Executing pipeline {} from stage {}.", root_task_pipeline_id, task->stage_id());
-        task->execute();
+          "Executing pipeline {} from stage {}.", root_task_pipeline_id, curr_task->stage_id());
+        curr_task->execute();
       }
       cudf::get_default_stream().synchronize();
     } else {
@@ -133,15 +147,16 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
           try {
             for (std::size_t task_idx = worker_idx; task_idx < num_tasks_current_stage;
                  task_idx += num_workers) {
-              assert(tasks_current_stage[task_idx]->pipeline_ids().size() == 1);
+              auto curr_task = tasks_current_stage[task_idx].lock();
+              assert(curr_task != nullptr);
+              assert(curr_task->pipeline_ids().size() == 1);
 
               // root task of a pipeline in a stage cannot belong to more than one pipeline
-              auto const root_task_pipeline_id =
-                *(tasks_current_stage[task_idx]->pipeline_ids().cbegin());
+              auto const root_task_pipeline_id = *(curr_task->pipeline_ids().cbegin());
               GQE_LOG_TRACE("Executing pipeline {} from stage {}.",
                             root_task_pipeline_id,
-                            tasks_current_stage[task_idx]->stage_id());
-              tasks_current_stage[task_idx]->execute();
+                            curr_task->stage_id());
+              curr_task->execute();
             }
             cudf::get_default_stream().synchronize();
           } catch (const std::exception&) {
@@ -161,6 +176,187 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
       // "terminate called without an active exception" error!
       for (auto& exception : worker_exceptions) {
         if (exception != nullptr) { std::rethrow_exception(exception); }
+      }
+    }
+  }
+}
+
+void execute_task_graph_multi_process(context_reference ctx_ref, task_graph const* task_graph)
+{
+  // Map from stage id to tasks in the stage
+  std::unordered_map<int32_t, std::vector<std::shared_ptr<task>>> stage_map;
+
+  // Map from stage id to set of parent stage ids
+  std::unordered_map<int32_t, std::unordered_set<int32_t>> stage_dependency_map;
+
+  for (auto const& tasks_current_stage : task_graph->stage_root_tasks) {
+    for (auto const& task : tasks_current_stage) {
+      auto curr_task = task.lock();
+      assert(curr_task != nullptr);
+      stage_map[curr_task->stage_id()].push_back(curr_task);
+      auto curr_stage_id = curr_task->stage_id();
+
+      std::stack<gqe::task*> tasks;
+      for (auto dependency : curr_task->dependencies()) {
+        tasks.push(dependency);
+      }
+      while (!tasks.empty()) {
+        auto curr_task = tasks.top();
+        tasks.pop();
+        for (auto dependency : curr_task->dependencies()) {
+          if (dependency->stage_id() == curr_stage_id) {
+            tasks.push(dependency);
+          } else {
+            stage_dependency_map[dependency->stage_id()].insert(curr_stage_id);
+          }
+        }
+      }
+    }
+  }
+
+  assert(ctx_ref._task_manager_context != nullptr);
+  assert(ctx_ref._query_context != nullptr);
+  assert(task_graph != nullptr);
+
+  auto task_manager_context =
+    dynamic_cast<multi_process_task_manager_context*>(ctx_ref._task_manager_context);
+  if (!task_manager_context) {
+    throw std::runtime_error(
+      "execute_multi_process should be called with a multi-process task manager context");
+  }
+
+  auto execute_locally = [task_manager_context](task* t) {
+    auto execution_ranks = task_manager_context->scheduler->get_execution_ranks(t);
+    if (execution_ranks.find(task_manager_context->comm->rank()) != execution_ranks.end()) {
+      return true;
+    }
+    return false;
+  };
+
+  auto get_stage_id = [](std::weak_ptr<task> task) {
+    auto curr_task = task.lock();
+    assert(curr_task != nullptr);
+    return curr_task->stage_id();
+  };
+
+  for (auto const& tasks_current_stage : task_graph->stage_root_tasks) {
+    auto const num_tasks_current_stage = tasks_current_stage.size();
+
+    std::size_t num_workers =
+      std::min(ctx_ref._query_context->parameters.max_num_workers, num_tasks_current_stage);
+    if (num_tasks_current_stage) {
+      GQE_LOG_TRACE("Rank {}: Execute stage {} with {} workers.",
+                    task_manager_context->comm->rank(),
+                    get_stage_id(tasks_current_stage.front()),
+                    num_workers);
+    } else {
+      GQE_LOG_WARN("Rank {}: No tasks in the current stage (cannot identify the stage).",
+                   task_manager_context->comm->rank());
+    }
+
+    if (num_workers == 1) {
+      GQE_CUDA_TRY(cudaSetDevice(task_manager_context->comm->device_id().value()));
+      // If the number of worker threads is 1, we could avoid the thread spawning cost by using the
+      // main thread.
+      for (auto& task : tasks_current_stage) {
+        // root task of a pipeline in a stage cannot belong to more than one pipeline
+        auto curr_task = task.lock();
+        assert(curr_task != nullptr);
+        assert(curr_task->pipeline_ids().size() == 1);
+        auto const root_task_pipeline_id = *(curr_task->pipeline_ids().cbegin());
+        if (execute_locally(curr_task.get())) {
+          GQE_LOG_TRACE("Rank {}: Executing pipeline {} from stage {}.",
+                        task_manager_context->comm->rank(),
+                        root_task_pipeline_id,
+                        curr_task->stage_id());
+          task_manager_context->migration_service->register_task(curr_task.get());
+          curr_task->execute();
+        } else {
+          GQE_LOG_TRACE("Rank {}: Pipeline {} from stage {} is not executed locally.",
+                        task_manager_context->comm->rank(),
+                        root_task_pipeline_id,
+                        curr_task->stage_id());
+        }
+      }
+      cudf::get_default_stream().synchronize();  // ensure completion of launched GPU activity
+      task_manager_context->comm
+        ->barrier_world();  // ensure all ranks have completed the current stage
+    } else {
+      std::vector<std::thread> workers;
+      workers.reserve(num_workers);
+      std::vector<std::exception_ptr> worker_exceptions(num_workers, nullptr);
+      std::vector<task*> tasks_to_execute;
+      for (auto& task : tasks_current_stage) {
+        auto curr_task = task.lock();
+        assert(curr_task != nullptr);
+        if (execute_locally(curr_task.get())) {
+          task_manager_context->migration_service->register_task(curr_task.get());
+          tasks_to_execute.push_back(curr_task.get());
+        }
+      }
+
+      for (std::size_t worker_idx = 0; worker_idx < num_workers; worker_idx++) {
+        auto& worker_exception = worker_exceptions[worker_idx];
+
+        workers.emplace_back([=, &tasks_to_execute, &worker_exception]() {
+          GQE_CUDA_TRY(cudaSetDevice(task_manager_context->comm->device_id().value()));
+          try {
+            for (std::size_t task_idx = worker_idx; task_idx < tasks_to_execute.size();
+                 task_idx += num_workers) {
+              auto curr_task = tasks_to_execute[task_idx];
+              assert(curr_task->pipeline_ids().size() == 1);
+
+              // root task of a pipeline in a stage cannot belong to more than one pipeline
+              auto const root_task_pipeline_id = *(curr_task->pipeline_ids().cbegin());
+              GQE_LOG_TRACE("Rank {}: Executing pipeline {} from stage {}.",
+                            task_manager_context->comm->rank(),
+                            root_task_pipeline_id,
+                            curr_task->stage_id());
+              curr_task->execute();
+            }
+            cudf::get_default_stream().synchronize();
+          } catch (const std::exception&) {
+            worker_exception = std::current_exception();
+          }
+        });
+      }
+
+      for (auto& worker : workers)
+        worker.join();
+      task_manager_context->comm
+        ->barrier_world();  // ensure all ranks have completed the current stage
+
+      // Handle exceptions thrown in the worker threads. The main thread
+      // rethrows the first exception it encounters. The rethrown exception can
+      // be caught by the external function calling GQE.
+      //
+      // All workers _must_ be joined before rethrowing an exception to avoid a
+      // "terminate called without an active exception" error!
+      for (auto& exception : worker_exceptions) {
+        if (exception != nullptr) {
+          task_manager_context->finalize();  // wait for other ranks to propagate the exception
+          std::rethrow_exception(exception);
+        }
+      }
+    }
+
+    // Release dependencies for current stage tasks. Tasks in the current stage may be executed on
+    // by another process, we need to remove dependencies to prevent dangling resources.
+    for (auto& task : tasks_current_stage) {
+      auto curr_task = task.lock();
+      assert(curr_task != nullptr);
+      curr_task->remove_dependencies();
+    }
+
+    // Release child stages
+    for (auto& [child_stage_id, parent_stage_ids] : stage_dependency_map) {
+      if (!tasks_current_stage.empty()) {
+        parent_stage_ids.erase(get_stage_id(
+          tasks_current_stage
+            .front()));  // parent stage is completed, remove it from the dependency map
+      }
+      if (parent_stage_ids.empty()) {
+        stage_map.erase(child_stage_id);  // child has no more parents, we can release it
       }
     }
   }
@@ -307,7 +503,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     auto right_tasks = _builder->generate_tasks(children[1]);
 
     // Insert a pipeline breaker since the right tasks need to be broadcasted
-    _builder->insert_pipeline_breaker(utility::to_raw_ptrs(right_tasks));
+    _builder->insert_pipeline_breaker(right_tasks);
 
     // Generate the left children tasks
     auto left_tasks = _builder->generate_tasks(children[0]);
@@ -351,7 +547,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     auto left_tasks = _builder->generate_tasks(children[0]);
 
     // Insert a pipeline breaker since the left tasks need to be broadcasted
-    _builder->insert_pipeline_breaker(utility::to_raw_ptrs(left_tasks));
+    _builder->insert_pipeline_breaker(left_tasks);
 
     // Generate the right children tasks
     auto right_tasks = _builder->generate_tasks(children[1]);
@@ -394,7 +590,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
 
     // Generate a separate `materialize_join_from_position_lists_task` for semi/anti join
     if (separate_materialization) {
-      _builder->insert_pipeline_breaker(utility::to_raw_ptrs(join_tasks));
+      _builder->insert_pipeline_breaker(join_tasks);
 
       _generated_tasks.push_back(std::make_shared<materialize_join_from_position_lists_task>(
         _builder->_ctx_ref,
@@ -788,7 +984,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(physical::union_all_
   auto const children = relation->children_unsafe();
   assert(children.size() == 2);
   auto left_tasks = _builder->generate_tasks(children[0]);
-  _builder->insert_pipeline_breaker(utility::to_raw_ptrs(left_tasks));
+  _builder->insert_pipeline_breaker(left_tasks);
   auto right_tasks = _builder->generate_tasks(children[1]);
 
   // Concatenate the left tasks and right tasks
@@ -814,7 +1010,7 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   for (std::size_t child_idx = 0; child_idx < children.size(); child_idx++) {
     auto child_task = _builder->generate_tasks(children[child_idx]);
     if (child_idx != children.size() - 1 || last_child_break_pipeline)
-      _builder->insert_pipeline_breaker(utility::to_raw_ptrs(child_task));
+      _builder->insert_pipeline_breaker(child_task);
     children_tasks.push_back(std::move(child_task));
   }
 

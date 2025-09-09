@@ -39,7 +39,7 @@ struct task_graph {
    * Each root task represents the start point of a pipeline. The length of the outer vector is
    * equal to the number of stages.
    */
-  std::vector<std::vector<task*>> stage_root_tasks;
+  std::vector<std::vector<std::weak_ptr<task>>> stage_root_tasks;
 };
 
 /**
@@ -53,6 +53,15 @@ struct task_graph {
  * @param[in] task_graph The task graph to execute.
  */
 void execute_task_graph_single_gpu(context_reference ctx_ref, task_graph const* task_graph);
+
+/**
+ * @brief Distribute and execute the task graph on multiple processes.
+ *
+ * @param[in] context Context object containing execution environment info. This should usually be
+ * the same object as passed to the task graph builder.
+ * @param[in] task_graph The task graph to execute.
+ */
+void execute_task_graph_multi_process(context_reference ctx_ref, task_graph const* task_graph);
 
 /**
  * @brief A builder for generating a task graph from a physical plan.
@@ -118,9 +127,9 @@ class task_graph_builder {
   };
 
   // `root_tasks` contains the tasks passed to the parent relation
-  void insert_pipeline_breaker(std::vector<task*> root_tasks)
+  void insert_pipeline_breaker(std::vector<std::shared_ptr<task>> root_tasks)
   {
-    std::vector<task*> current_stage_tasks;
+    std::vector<std::weak_ptr<task>> current_stage_tasks;
     int32_t pipeline_id = 0;
     for (auto const& task : root_tasks) {
       // Checking the stage is necessary because a task from `root_tasks` can belong to a previous
@@ -137,9 +146,9 @@ class task_graph_builder {
 
   context_reference _ctx_ref;
   catalog const* _catalog;
-  std::vector<std::vector<task*>> _stage_root_tasks = {};
-  int32_t _current_stage_id                         = 0;
-  int32_t _current_task_id                          = 0;
+  std::vector<std::vector<std::weak_ptr<task>>> _stage_root_tasks = {};
+  int32_t _current_stage_id                                       = 0;
+  int32_t _current_task_id                                        = 0;
   std::unordered_map<physical::relation*, std::vector<std::weak_ptr<task>>> _tasks_cache;
 };
 

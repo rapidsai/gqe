@@ -32,10 +32,26 @@ class executed_task : public task {
   executed_task(gqe::context_reference ctx_ref,
                 int32_t task_id,
                 int32_t stage_id,
-                std::unique_ptr<cudf::table> result)
-    : task(ctx_ref, task_id, stage_id, {}, {})
+                std::unique_ptr<cudf::table> result,
+                std::vector<std::shared_ptr<task>> dependencies   = {},
+                std::vector<std::shared_ptr<task>> subquery_tasks = {})
+    : task(ctx_ref, task_id, stage_id, dependencies, subquery_tasks)
   {
     emit_result(std::move(result));
+  }
+
+  void execute() override {}
+};
+
+class no_op_task : public task {
+ public:
+  no_op_task(gqe::context_reference ctx_ref,
+             int32_t task_id,
+             int32_t stage_id,
+             std::vector<std::shared_ptr<task>> dependencies   = {},
+             std::vector<std::shared_ptr<task>> subquery_tasks = {})
+    : task(ctx_ref, task_id, stage_id, dependencies, subquery_tasks)
+  {
   }
 
   void execute() override {}

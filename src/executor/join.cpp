@@ -18,6 +18,8 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/literal.hpp>
 #include <gqe/expression/unary_op.hpp>
+#include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/logger.hpp>
@@ -597,12 +599,14 @@ void join_task::execute()
             switch (_unique_keys_policy) {
               case gqe::unique_keys_policy::left: {
                 GQE_LOG_TRACE("Join implementation: perfect_join.");
-                std::tie(left_indices, right_indices) = libperfect::perfect_join(left_keys, right_keys);
+                std::tie(left_indices, right_indices) =
+                  libperfect::perfect_join(left_keys, right_keys);
                 break;
               }
               case gqe::unique_keys_policy::right: {
                 GQE_LOG_TRACE("Join implementation: perfect_join.");
-                std::tie(right_indices, left_indices) = libperfect::perfect_join(right_keys, left_keys);
+                std::tie(right_indices, left_indices) =
+                  libperfect::perfect_join(right_keys, left_keys);
                 break;
               }
               default: {

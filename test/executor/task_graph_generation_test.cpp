@@ -10,8 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+#include "utilities.hpp"
+
 #include <gqe/context_reference.hpp>
+#include <gqe/executor/project.hpp>
 #include <gqe/executor/task.hpp>
+#include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
 
 #include <gtest/gtest.h>
 
@@ -20,42 +25,39 @@
 
 class TaskGraphGenerationTest : public ::testing::Test {
  protected:
-  class DummyTask : public gqe::task {
-   public:
-    DummyTask(int32_t task_id,
-              int32_t stage_id,
-              std::vector<std::shared_ptr<gqe::task>> dependencies,
-              std::vector<std::shared_ptr<gqe::task>> subquery_tasks)
-      : gqe::task(gqe::context_reference{}, task_id, stage_id, dependencies, subquery_tasks)
-    {
-    }
-    void execute() override { throw std::runtime_error("Not implemented"); }
-  };
+  TaskGraphGenerationTest()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
+
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
 };
 
 TEST_F(TaskGraphGenerationTest, AssignPipelineIds)
 {
+  gqe::task_manager_context task_manager_ctx{};
+  gqe::query_context query_ctx(gqe::optimization_parameters(true));
+  gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
+
   // Dummy task graph
   // (task1, stage 0) <- (task2, stage 1) <- (task3, stage 1)
   //                     (task2, stage 1) <- (task4, stage1)
 
-  auto task1 = std::make_shared<DummyTask>(
-    1, 0, std::vector<std::shared_ptr<gqe::task>>{}, std::vector<std::shared_ptr<gqe::task>>{});
+  auto task1 =
+    std::make_shared<gqe::test::executed_task>(ctx_ref, 1, 0, std::make_unique<cudf::table>());
 
-  auto task2 = std::make_shared<DummyTask>(2,
-                                           1,
-                                           std::vector<std::shared_ptr<gqe::task>>{},
-                                           std::vector<std::shared_ptr<gqe::task>>{task1});
+  auto task2 = std::make_shared<gqe::test::executed_task>(
+    ctx_ref, 2, 1, std::make_unique<cudf::table>(), std::vector<std::shared_ptr<gqe::task>>{task1});
 
-  auto task3 = std::make_shared<DummyTask>(3,
-                                           1,
-                                           std::vector<std::shared_ptr<gqe::task>>{task2},
-                                           std::vector<std::shared_ptr<gqe::task>>{});
+  auto task3 = std::make_shared<gqe::test::executed_task>(
+    ctx_ref, 3, 1, std::make_unique<cudf::table>(), std::vector<std::shared_ptr<gqe::task>>{task2});
 
-  auto task4 = std::make_shared<DummyTask>(4,
-                                           1,
-                                           std::vector<std::shared_ptr<gqe::task>>{task2},
-                                           std::vector<std::shared_ptr<gqe::task>>{});
+  auto task4 = std::make_shared<gqe::test::executed_task>(
+    ctx_ref, 4, 1, std::make_unique<cudf::table>(), std::vector<std::shared_ptr<gqe::task>>{task2});
 
   // pipelines are assinged starting at root tasks for a stage
   task1->assign_pipeline(0);

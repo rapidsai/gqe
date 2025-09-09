@@ -50,6 +50,7 @@ add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Werror>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wimplicit-fallthrough>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wsuggest-override>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--compiler-options=-Wall>")
+add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--compiler-options=-Wno-unused-local-typedefs>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--compiler-options=-Werror>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>")
@@ -113,6 +114,7 @@ rapids_find_package(Protobuf QUIET CONFIG)
 if (NOT Protobuf_FOUND)
   rapids_find_package(Protobuf REQUIRED MODULE)
 endif()
+rapids_find_package(gRPC CONFIG REQUIRED)
 
 if(GQE_ENABLE_CUSTOMIZED_PARQUET)
   rapids_find_package(Thrift CONFIG REQUIRED)
@@ -148,6 +150,7 @@ endif()
 # ##################################################################################################
 # * targets ---------------------------------------------------------------------------------------
 
+add_subdirectory(proto)
 rapids_cmake_write_git_revision_file(gqe-version ${CMAKE_CURRENT_BINARY_DIR} PREFIX GQE)
 
 add_subdirectory(src)

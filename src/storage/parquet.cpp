@@ -11,6 +11,7 @@
  */
 
 #include <gqe/expression/column_reference.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/storage/parquet.hpp>
 #include <gqe/storage/parquet_reader.hpp>
 #include <gqe/storage/readable_view.hpp>

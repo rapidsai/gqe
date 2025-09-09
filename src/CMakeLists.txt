@@ -22,6 +22,8 @@ target_link_libraries(substrait PRIVATE protobuf::libprotobuf)
 # See this issue for details: https://github.com/protocolbuffers/protobuf/issues/9947
 target_compile_options(substrait PRIVATE -DNDEBUG)
 
+get_target_property(INCLUDES proto INCLUDE_DIRECTORIES)
+message(STATUS "Include dirs for proto: ${INCLUDES}")
 add_subdirectory(libperfect)
 
 add_library(
@@ -84,6 +86,7 @@ add_library(
     optimizer/rules/string_to_int_literal.cpp
     optimizer/rules/fix_partial_filter_column_references.cpp
     optimizer/statistics.cpp
+    rpc/task_migration.cpp
     storage/compression.cpp
     storage/in_memory.cpp
     storage/sliced_columns.cpp
@@ -98,16 +101,21 @@ add_library(
     utility/timer.cpp
     utility/tpcds.cpp
     utility/tpch.cpp
+    utility/mpi_helpers.cpp
     catalog.cpp
     query_context.cpp
     task_manager_context.cpp
     device_properties.cpp
+    scheduler.cpp
     types.cpp
+    communicator.cpp
     storage/zone_map.cpp
 )
 
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../proto)
 
+target_link_libraries(gqe PUBLIC proto)
 target_link_libraries(gqe PUBLIC gqe-version)
 target_link_libraries(gqe PUBLIC cuco::cuco)
 target_link_libraries(gqe PUBLIC cudf::cudf)

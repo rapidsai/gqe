@@ -12,6 +12,7 @@
 
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/window.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/logger.hpp>

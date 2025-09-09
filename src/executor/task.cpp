@@ -12,14 +12,19 @@
 
 #include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/utility/helpers.hpp>
 
+#include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
+#include <cudf/types.hpp>
 
+#include <proto/task.pb.h>
+
+#include <cstddef>
 #include <stack>
 #include <stdexcept>
 #include <variant>
-
 namespace gqe {
 
 task::task(context_reference ctx_ref,
@@ -37,8 +42,6 @@ task::task(context_reference ctx_ref,
   assert(ctx_ref._task_manager_context != nullptr);
   assert(ctx_ref._query_context != nullptr);
 }
-
-void task::migrate() { throw std::logic_error("task::migrate() has not been implemented"); }
 
 std::optional<cudf::table_view> task::result() const noexcept
 {
@@ -99,7 +102,15 @@ void task::prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent
       } else if (dependent_task->stage_id() < this->stage_id()) {
         // If the dependent task belongs to a previous stage, it has already been executed by
         // another GPU, so we migrate the result to the current GPU.
-        dependent_task->migrate();
+        auto task_manager_context =
+          dynamic_cast<multi_process_task_manager_context*>(_ctx_ref._task_manager_context);
+        if (task_manager_context == nullptr) {
+          throw std::logic_error("Dependent task from previous stage is not executed.");
+        }
+        auto candidate_ranks =
+          task_manager_context->scheduler->get_execution_ranks(dependent_task.get());
+        task_manager_context->migration_client->migrate_result(dependent_task.get(),
+                                                               candidate_ranks);
       } else {
         throw std::logic_error("Dependent task belongs to a later stage than the current task");
       }

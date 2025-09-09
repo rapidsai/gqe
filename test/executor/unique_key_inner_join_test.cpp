@@ -48,7 +48,7 @@ class PerfectHashJoiner {
              std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
   operator()(cudf::table_view build_keys_table_view, cudf::table_view probe_keys_table_view)
   {
-    return perfect_join(build_keys_table_view, probe_keys_table_view);
+    return libperfect::perfect_join(build_keys_table_view, probe_keys_table_view);
   }
 };
 
@@ -343,9 +343,9 @@ TEST_P(PerfectHashInnerJoinTest, PerfectHashWithNulls)
   cudf::table_view probe_keys_table_view({probe_keys_column});
 
   if (build_valid && probe_valid) {
-    EXPECT_NO_THROW(perfect_join(build_keys_table_view, probe_keys_table_view));
+    EXPECT_NO_THROW(libperfect::perfect_join(build_keys_table_view, probe_keys_table_view));
   } else {
-    EXPECT_THROW(perfect_join(build_keys_table_view, probe_keys_table_view), std::logic_error)
+    EXPECT_THROW(libperfect::perfect_join(build_keys_table_view, probe_keys_table_view), std::logic_error)
       << "Perfect hashing requires that both sides have no nulls";
   }
 }

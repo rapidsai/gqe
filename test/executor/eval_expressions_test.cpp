@@ -426,6 +426,43 @@ TEST(EvalExpressionTest, ScalarFunctionLike)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
+TEST(EvalExpressionTest, ScalarFunctionLikeInputNullable)
+{
+  auto c_0 = cudf::test::strings_column_wrapper(
+    {"azaa", "ababaabba", "aaxa", "ababaaxxxxxxxxbb", "ababaabx"},
+    {false, true, false, true, true});
+
+  auto table = cudf::table_view{{c_0}};
+
+  auto like_expr =
+    gqe::like_expression(std::make_shared<gqe::column_reference_expression>(0), "ab%a_aa%b", "");
+  std::vector<gqe::expression const*> expressions = {&like_expr};
+
+  auto expected =
+    column_wrapper<bool>({true, false, true, true, false}, {false, true, false, true, true});
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(
+    table, expressions, /*column_reference_offset=*/0, /*use_like_shift_and=*/true);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+TEST(EvalExpressionTest, ScalarFunctionLikePrefix)
+{
+  auto c_0 = cudf::test::strings_column_wrapper{
+    "MEDIUM PLATED NICKEL", "MEDIUM POLISHED COPPER", "MEDIUM BRUSHED BRASS"};
+  auto table = cudf::table_view{{c_0}};
+
+  auto like_expr = gqe::like_expression(
+    std::make_shared<gqe::column_reference_expression>(0), "MEDIUM POLISHED%", "");
+  std::vector<gqe::expression const*> expressions = {&like_expr};
+
+  auto expected                          = column_wrapper<bool>{false, true, false};
+  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(
+    table, expressions, /*column_reference_offset=*/0, /*use_like_shift_and=*/true);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
 TEST(EvalExpressionTest, ScalarFunctionSubstr)
 {
   auto c_0   = cudf::test::strings_column_wrapper{"azaa", "ababaabba", "aaxa"};

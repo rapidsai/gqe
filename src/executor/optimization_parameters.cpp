@@ -249,6 +249,9 @@ optimization_parameters::optimization_parameters(bool only_defaults)
 
     zone_map_partition_size =
       parse_env_variable("GQE_ZONE_MAP_PARTITION_SIZE", zone_map_partition_size);
+
+    filter_use_like_shift_and =
+      parse_env_variable("GQE_FILTER_USE_LIKE_SHIFT_AND", filter_use_like_shift_and);
   }
 }
 

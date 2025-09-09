@@ -49,7 +49,9 @@ void filter_task::execute()
 
   auto input_table = dependent_tasks[0]->result().value();
 
-  auto [mask, column_cache] = evaluate_expressions(input_table, condition_expr);
+  bool use_like_shift_and   = get_query_context()->parameters.filter_use_like_shift_and;
+  auto [mask, column_cache] = evaluate_expressions(
+    input_table, condition_expr, /*column_reference_offset=*/0, use_like_shift_and);
 
   input_table = input_table.select(_projection_indices);
 

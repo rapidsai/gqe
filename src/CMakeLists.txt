@@ -47,6 +47,7 @@ add_library(
     executor/aggregate.cpp
     executor/concatenate.cpp
     executor/eval.cpp
+    executor/like.cu
     executor/filter.cpp
     executor/fetch.cpp
     executor/gen_ident_col.cu

@@ -42,8 +42,12 @@ void project_task::execute()
   assert(dependent_tasks.size() == 1);
   auto input_table = *dependent_tasks[0]->result();
 
+  bool use_like_shift_and = get_query_context()->parameters.filter_use_like_shift_and;
   auto [eval_columns, column_cache] =
-    evaluate_expressions(input_table, utility::to_const_raw_ptrs(_output_expressions));
+    evaluate_expressions(input_table,
+                         utility::to_const_raw_ptrs(_output_expressions),
+                         /*column_reference_offset=*/0,
+                         use_like_shift_and);
   cudf::table_view eval_table(eval_columns);
 
   // FIXME: For the current implementation, the result table is copied from `eval_table`, which

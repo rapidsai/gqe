@@ -11,6 +11,7 @@
  */
 
 #include <gqe/executor/eval.hpp>
+#include <gqe/executor/like.hpp>
 #include <gqe/utility/cuda.hpp>
 
 #include <cudf/binaryop.hpp>
@@ -93,7 +94,7 @@ expression_evaluator::expression_evaluator(cudf::table_view const& table,
 }
 
 [[nodiscard]] std::pair<cudf::column_view, std::unique_ptr<cudf::column>>
-expression_evaluator::evaluate() const
+expression_evaluator::evaluate(bool use_like_shift_and) const
 {
   auto table        = this->_table;
   auto column_types = this->_column_types;
@@ -276,11 +277,18 @@ expression_evaluator::evaluate() const
                 throw std::logic_error("Evaluating ILIKE expression not implemented");
               }
 
-              cudf::string_scalar const pattern{like_expr->pattern()};
               cudf::string_scalar const escape_char{like_expr->escape_character()};
 
-              append_result(
-                cudf::strings::like(table.column(col_ref->column_idx()), pattern, escape_char));
+              if (use_like_shift_and) {
+                // if GQE_FILTER_USE_LIKE_SHIFT_AND or filter_use_like_shift_and is true,
+                // we use the like_shift_and kernel for better performance
+                append_result(gqe::like(
+                  table.column(col_ref->column_idx()), like_expr->pattern(), escape_char));
+              } else {
+                cudf::string_scalar const pattern{like_expr->pattern()};
+                append_result(
+                  cudf::strings::like(table.column(col_ref->column_idx()), pattern, escape_char));
+              }
               break;
             }
             case gqe::scalar_function_expression::function_kind::substr: {
@@ -678,7 +686,8 @@ void expression_evaluator::create_literal_context(literal_expression<T> const* e
 std::pair<std::vector<cudf::column_view>, std::vector<std::unique_ptr<cudf::column>>>
 evaluate_expressions(cudf::table_view const& table,
                      std::vector<expression const*> const& exprs,
-                     cudf::size_type column_reference_offset)
+                     cudf::size_type column_reference_offset,
+                     bool use_like_shift_and)
 {
   utility::nvtx_scoped_range eval_expr_range("evaluate_expressions");
 
@@ -709,7 +718,7 @@ evaluate_expressions(cudf::table_view const& table,
       column_cache.push_back(std::move(empty_column));
     } else {
       auto evaluator       = expression_evaluator(table, expr, column_reference_offset);
-      auto [result, cache] = evaluator.evaluate();
+      auto [result, cache] = evaluator.evaluate(use_like_shift_and);
 
       evaluated_results.push_back(std::move(result));
       column_cache.push_back(std::move(cache));

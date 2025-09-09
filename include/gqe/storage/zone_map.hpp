@@ -191,10 +191,12 @@ class zone_map {
    * </pre>
    *
    * @param partial_filter The filter expression that should be evaluated.
+   * @param[in] use_like_shift_and If `true`, use shift_and kernel for computing like filter.
    * @return A vector containing information about all partitions of the zone map, including start
    * and end offsets, and if the partitions was pruned or not.
    */
-  [[nodiscard]] std::vector<partition> evaluate(const gqe::expression& partial_filter) const;
+  [[nodiscard]] std::vector<partition> evaluate(const gqe::expression& partial_filter,
+                                                bool use_like_shift_and) const;
 
   /**
    * @brief Consolidate maximal runs of partitions that are either pruned or not pruned.

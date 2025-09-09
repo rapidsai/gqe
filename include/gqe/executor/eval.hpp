@@ -74,11 +74,14 @@ class expression_evaluator : public expression_visitor {
    * Since `cudf::ast` only implements a subset of expressions that we need,
    * we evaluate unsupported subexpressions separately using a fallback strategy.
    *
+   * @param[in] use_like_shift_and If `true`, use shift_and kernel for computing like filter.
+   *
    * @return A pair of [evaluated_result, column_cache] where `evaluated_result` is the result of
    * evaluating `expression` on `table`, and `column_cache` must be kept alive for
    * `evaluated_result` to be valid.
    */
-  [[nodiscard]] std::pair<cudf::column_view, std::unique_ptr<cudf::column>> evaluate() const;
+  [[nodiscard]] std::pair<cudf::column_view, std::unique_ptr<cudf::column>> evaluate(
+    bool use_like_shift_and) const;
 
   /**
    * @copydoc gqe::expression_visitor::visit(column_reference_expression const*)
@@ -253,6 +256,7 @@ class expression_evaluator : public expression_visitor {
  * @param[in] exprs Expressions to be evaluated.
  * @param[in] column_reference_offset Offset for column reference expressions. For example,
  * if this argument is 2, col_ref(3) refers to column 1 (3 - 2).
+ * @param[in] use_like_shift_and If `true`, use shift_and kernel for computing like filter.
  *
  * @note This function uses the `cudf::ast` module to evaluate expressions efficiently.
  * Whenever an AST node is not supported by `cudf::ast`, we compute the result of
@@ -265,6 +269,7 @@ class expression_evaluator : public expression_visitor {
 std::pair<std::vector<cudf::column_view>, std::vector<std::unique_ptr<cudf::column>>>
 evaluate_expressions(cudf::table_view const& table,
                      std::vector<expression const*> const& exprs,
-                     cudf::size_type column_reference_offset = 0);
+                     cudf::size_type column_reference_offset = 0,
+                     bool use_like_shift_and                 = true);
 
 }  // namespace gqe

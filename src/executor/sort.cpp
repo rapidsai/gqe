@@ -46,8 +46,10 @@ void sort_task::execute()
   auto dependent_tasks = dependencies();
   assert(dependent_tasks.size() == 1);
 
+  bool use_like_shift_and   = get_query_context()->parameters.filter_use_like_shift_and;
   auto values               = dependent_tasks[0]->result().value();
-  auto [keys, column_cache] = evaluate_expressions(values, utility::to_const_raw_ptrs(_keys));
+  auto [keys, column_cache] = evaluate_expressions(
+    values, utility::to_const_raw_ptrs(_keys), /*column_reference_offset=*/0, use_like_shift_and);
 
   auto result =
     cudf::sort_by_key(values, cudf::table_view(keys), _column_orders, _null_precedences);

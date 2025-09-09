@@ -123,14 +123,17 @@ void aggregate_task::execute()
     value_exprs.push_back(expr.get());
     operations.push_back(kind);
   }
-  auto [value_columns, value_columns_cache] = evaluate_expressions(input_table, value_exprs);
+  bool use_like_shift_and = get_query_context()->parameters.filter_use_like_shift_and;
+  auto [value_columns, value_columns_cache] = evaluate_expressions(
+    input_table, value_exprs, /*column_reference_offset=*/0, use_like_shift_and);
 
   std::pair<std::vector<cudf::column_view>, std::vector<std::unique_ptr<cudf::column>>> eval_output;
 
   cudf::column_view active_mask;
   if (_condition != nullptr) {
     std::vector<expression const*> condition_expr{_condition.get()};
-    eval_output = evaluate_expressions(input_table, condition_expr);
+    eval_output = evaluate_expressions(
+      input_table, condition_expr, /*column_reference_offset=*/0, use_like_shift_and);
     active_mask = (eval_output.first)[0];
   }
 
@@ -173,8 +176,10 @@ void aggregate_task::execute()
                      return cudf::groupby::aggregation_request({value_column, std::move(aggs)});
                    });
 
-    auto [key_columns, key_columns_cache] =
-      evaluate_expressions(input_table, utility::to_const_raw_ptrs(_keys));
+    auto [key_columns, key_columns_cache] = evaluate_expressions(input_table,
+                                                                 utility::to_const_raw_ptrs(_keys),
+                                                                 /*column_reference_offset=*/0,
+                                                                 use_like_shift_and);
 
     auto const& device_properties =
       get_context_reference()._task_manager_context->get_device_properties();

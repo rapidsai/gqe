@@ -405,11 +405,12 @@ std::vector<std::vector<cudf::size_type>> gqe::zone_map::compute_null_counts(
   return null_counts;
 }
 
-std::vector<gqe::zone_map::partition> gqe::zone_map::evaluate(
-  const gqe::expression& partial_filter) const
+std::vector<gqe::zone_map::partition> gqe::zone_map::evaluate(const gqe::expression& partial_filter,
+                                                              bool use_like_shift_and) const
 {
   std::vector<const gqe::expression*> expressions{&partial_filter};
-  auto [mask, _]  = evaluate_expressions(_zone_map->view(), expressions);
+  auto [mask, _] = evaluate_expressions(
+    _zone_map->view(), expressions, /*column_reference_offset=*/0, use_like_shift_and);
   auto partitions = cudf::detail::make_host_vector(
     cudf::device_span<bool const>(mask[0].data<bool>(), mask[0].size()),
     cudf::get_default_stream());

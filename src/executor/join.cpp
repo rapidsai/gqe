@@ -214,8 +214,9 @@ class join_keys_container {
    * `non_equality_conditions()`.
    *
    * @param[in] condition Join condition to be parsed.
+   * @param[in] use_like_shift_and If `true`, use shift_and kernel for computing like filter.
    */
-  void add_join_condition(expression const* condition)
+  void add_join_condition(expression const* condition, bool use_like_shift_and = true)
   {
     std::vector<expression const*> left_key_exprs;
     std::vector<expression const*> right_key_exprs;
@@ -223,7 +224,8 @@ class join_keys_container {
     parse_join_condition(condition, left_key_exprs, right_key_exprs, _non_equality_conditions);
 
     // Evaluate the expressions to get the left key columns
-    auto [left_keys, left_cached_columns] = evaluate_expressions(_left, left_key_exprs);
+    auto [left_keys, left_cached_columns] = evaluate_expressions(
+      _left, left_key_exprs, /*column_reference_offset=*/0, use_like_shift_and);
     _left_keys.reserve(_left_keys.size() + left_keys.size());
     for (auto& left_key : left_keys)
       _left_keys.push_back(std::move(left_key));
@@ -233,7 +235,7 @@ class join_keys_container {
     // right table. To get the column index within the right table, we need to subtract the number
     // of columns in the left table.
     auto [right_keys, right_cached_columns] =
-      evaluate_expressions(_right, right_key_exprs, _left.num_columns());
+      evaluate_expressions(_right, right_key_exprs, _left.num_columns(), use_like_shift_and);
     _right_keys.reserve(_right_keys.size() + right_keys.size());
     for (auto& right_key : right_keys)
       _right_keys.push_back(std::move(right_key));
@@ -520,9 +522,10 @@ void join_task::execute()
   auto const& device_properties =
     get_context_reference()._task_manager_context->get_device_properties();
 
+  bool use_like_shift_and = get_query_context()->parameters.filter_use_like_shift_and;
   // Parse the join condition to get the keys
   join_keys_container join_keys(left_view, right_view);
-  join_keys.add_join_condition(_condition.get());
+  join_keys.add_join_condition(_condition.get(), use_like_shift_and);
   cudf::table_view left_keys(join_keys.left_keys());
   cudf::table_view right_keys(join_keys.right_keys());
   auto const predicates = join_keys.non_equality_conditions();

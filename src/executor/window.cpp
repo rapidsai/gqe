@@ -105,7 +105,8 @@ std::unique_ptr<cudf::table> window_partition_and_order(
   std::vector<std::unique_ptr<expression>> order_by,
   std::vector<cudf::order> order_dirs,
   window_frame_bound::type window_lower_bound,
-  window_frame_bound::type window_upper_bound)
+  window_frame_bound::type window_upper_bound,
+  bool use_like_shift_and)
 {
   if (order_by.size() > 1) {
     throw std::runtime_error("Window function cannot have more than one order_by column");
@@ -120,7 +121,10 @@ std::unique_ptr<cudf::table> window_partition_and_order(
 
   if (partition_by.size() > 0) {
     auto [partition_cols, partition_cols_cache] =
-      evaluate_expressions(input_table, utility::to_const_raw_ptrs(partition_by));
+      evaluate_expressions(input_table,
+                           utility::to_const_raw_ptrs(partition_by),
+                           /*column_reference_offset=*/0,
+                           use_like_shift_and);
     auto partition_by_table = cudf::table_view(partition_cols);
 
     // group entire table using the partition_by columns as keys
@@ -137,7 +141,10 @@ std::unique_ptr<cudf::table> window_partition_and_order(
     auto const offsets_col = cudf::column{std::move(device_offsets), rmm::device_buffer{}, 0};
 
     auto [order_table_cols, order_table_cols_cache] =
-      evaluate_expressions(groups.values.get()->view(), utility::to_const_raw_ptrs(order_by));
+      evaluate_expressions(groups.values.get()->view(),
+                           utility::to_const_raw_ptrs(order_by),
+                           /*column_reference_offset=*/0,
+                           use_like_shift_and);
     auto order_by_table = cudf::table_view(order_table_cols);
 
     sorted_table = cudf::segmented_sort_by_key(
@@ -146,12 +153,18 @@ std::unique_ptr<cudf::table> window_partition_and_order(
     // TODO: partition_by and order_by columns are currently evaluated twice: once before
     // sorting/grouping and once after (for the cuDF rolling window)
     auto [grouped_partition_keys_cols, grouped_partition_keys_cols_cache] =
-      evaluate_expressions(sorted_table.get()->view(), utility::to_const_raw_ptrs(partition_by));
+      evaluate_expressions(sorted_table.get()->view(),
+                           utility::to_const_raw_ptrs(partition_by),
+                           /*column_reference_offset=*/0,
+                           use_like_shift_and);
     grouped_cols_cache = std::move(grouped_partition_keys_cols_cache);
     grouped_cols       = std::move(grouped_partition_keys_cols);
   } else {
     auto [order_table_cols, order_table_cols_cache] =
-      evaluate_expressions(input_table, utility::to_const_raw_ptrs(order_by));
+      evaluate_expressions(input_table,
+                           utility::to_const_raw_ptrs(order_by),
+                           /*column_reference_offset=*/0,
+                           use_like_shift_and);
     auto order_by_table = cudf::table_view(order_table_cols);
 
     sorted_table = cudf::sort_by_key(input_table, order_by_table, std::move(order_dirs));
@@ -169,7 +182,10 @@ std::unique_ptr<cudf::table> window_partition_and_order(
   auto grouped_table = cudf::table_view(grouped_cols);
 
   auto const [sort_cols, sort_cols_cache] =
-    evaluate_expressions(sorted_table.get()->view(), utility::to_const_raw_ptrs(order_by));
+    evaluate_expressions(sorted_table.get()->view(),
+                         utility::to_const_raw_ptrs(order_by),
+                         /*column_reference_offset=*/0,
+                         use_like_shift_and);
   auto const sort_col_view = sort_cols[0];
 
   std::unique_ptr<cudf::column> window_col;
@@ -198,7 +214,10 @@ std::unique_ptr<cudf::table> window_partition_and_order(
     window_col = std::move(agg_results[0].results[0]);
   } else {
     auto const [aggr_cols, aggr_cols_cache] =
-      evaluate_expressions(sorted_table.get()->view(), utility::to_const_raw_ptrs(arguments));
+      evaluate_expressions(sorted_table.get()->view(),
+                           utility::to_const_raw_ptrs(arguments),
+                           /*column_reference_offset=*/0,
+                           use_like_shift_and);
     auto aggr_col_view = aggr_cols[0];
 
     auto get_window_bound = [&sort_col_view](window_frame_bound::type bound) {
@@ -227,7 +246,10 @@ std::unique_ptr<cudf::table> window_partition_and_order(
   }
 
   auto [final_col_views, final_col_views_cache] =
-    evaluate_expressions(sorted_table.get()->view(), utility::to_const_raw_ptrs(ident_cols));
+    evaluate_expressions(sorted_table.get()->view(),
+                         utility::to_const_raw_ptrs(ident_cols),
+                         /*column_reference_offset=*/0,
+                         use_like_shift_and);
 
   std::vector<std::unique_ptr<cudf::column>> final_cols;
   for (auto final_col_view : final_col_views) {
@@ -250,6 +272,7 @@ void window_task::execute()
 
   std::unique_ptr<cudf::table> window_col_table;
 
+  bool use_like_shift_and = get_query_context()->parameters.filter_use_like_shift_and;
   if (_order_by.size() > 0) {
     window_col_table = window_partition_and_order(std::move(input_table),
                                                   _aggr_func,
@@ -259,7 +282,8 @@ void window_task::execute()
                                                   std::move(_order_by),
                                                   std::move(_order_dirs),
                                                   _window_lower_bound,
-                                                  _window_upper_bound);
+                                                  _window_upper_bound,
+                                                  use_like_shift_and);
   } else {
     throw std::runtime_error("Window task needs an order-by expression\n");
   }

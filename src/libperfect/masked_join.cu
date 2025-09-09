@@ -5,6 +5,8 @@
 
 #include "masked_join.hpp"
 
+namespace libperfect {
+
 // We'll do a bunch of lookups and then we need to process the result
 // of each lookup as it happens.  The processing for us will involve
 // putting the answer into one output list or another.
@@ -99,3 +101,5 @@ perfect_join(const cudf::table_view& left_keys, const cudf::table_view& right_ke
     std::move(std::get<1>(ret)->get_buffer()));
   return std::make_pair(std::move(left_indices), std::move(right_indices));
 }
+
+}  // namespace libperfect

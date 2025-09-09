@@ -4,6 +4,8 @@
 #include <iostream>
 #include <sstream>
 
+namespace libperfect {
+
 inline void gpuAssert(cudaError_t code, const char* file, int line, bool abort = true)
 {
   if (code != cudaSuccess) {
@@ -115,3 +117,5 @@ MemoryPool& GlobalMemoryPool::get()
   static MemoryPool pool(8);
   return pool;
 }
+
+}  // namespace libperfect

@@ -4,6 +4,8 @@
 
 #include "query_common.cuh"
 
+namespace libperfect {
+
 template <typename T>
 struct AndOrPair {
   __device__ AndOrPair(T and_value, T or_value) : and_value(and_value), or_value(or_value) {}
@@ -113,3 +115,5 @@ std::conditional_t<pinned, CudaPinnedBuffer, CudaGpuBuffer> reduce_and_or_cuda(
     return reduce_and_or_cuda_helper<CudaGpuBuffer>(input, input_numel);
   }
 }
+
+}  // namespace libperfect

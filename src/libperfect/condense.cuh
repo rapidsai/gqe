@@ -3,6 +3,7 @@
 #include "query_common.cuh"
 #include "query_common.hpp"
 
+namespace libperfect {
 namespace condense {
 
 enum class WriteToInput : bool { False = false, True = true };
@@ -84,3 +85,4 @@ CudaGpuArray<cudf::size_type> condense(input_type& input)
 }
 
 }  // namespace condense
+}  // namespace libperfect

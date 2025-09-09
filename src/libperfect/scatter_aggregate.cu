@@ -5,6 +5,8 @@
 
 #include "scatter_aggregate.hpp"
 
+namespace libperfect {
+
 template <cudf::aggregation::Kind aggregation_kind, typename output_type>
 __host__ __device__ output_type get_identity()
 {
@@ -491,3 +493,5 @@ template CudaGpuBuffer scatter_aggregate(const ConstCudaGpuBufferPointer values,
                                          const cudf::aggregation::Kind aggregation_kind,
                                          int64_t max_index,
                                          const cudf::type_id output_type_id);
+
+}  // namespace libperfect

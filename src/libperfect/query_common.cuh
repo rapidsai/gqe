@@ -82,6 +82,8 @@ __device__ static T atomicMin(T* address, T const val)
                    reinterpret_cast<long long int const&>(val));
 }
 
+namespace libperfect {
+
 template <typename T>
 static int clz(T value)
 {
@@ -185,3 +187,5 @@ __device__ static T reduce_min_sync(unsigned mask, T value)
   return value;
 #endif
 }
+
+}  // namespace libperfect

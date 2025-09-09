@@ -2,6 +2,8 @@
 
 #include "query_common.hpp"
 
+namespace libperfect {
+
 template <typename input_type, typename indices_type, typename output_type>
 __global__ void index_select_kernel(input_type input,
                                     indices_type indices,
@@ -30,3 +32,5 @@ CudaGpuArray<std::remove_const_t<input_type>> index_select(
     input.get(), indices.get(), output.get(), input.numel());
   return output;
 }
+
+}  // namespace libperfect

@@ -9,6 +9,7 @@
 #include "query_common.cuh"
 #include "reduce_and_or.cuh"
 
+namespace libperfect {
 namespace xor_hash_table {
 
 enum class HasMask : bool { False = false, True = true };
@@ -1340,3 +1341,4 @@ static DynamicHashTable make_hash_table(
 }
 
 }  // namespace xor_hash_table
+}  // namespace libperfect

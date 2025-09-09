@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace libperfect {
+
 // A thread-safe memory pool for CPU memory allocation.
 class MemoryPool {
  public:
@@ -46,3 +48,5 @@ class GlobalMemoryPool {
  private:
   GlobalMemoryPool() {}
 };
+
+}  // namespace libperfect

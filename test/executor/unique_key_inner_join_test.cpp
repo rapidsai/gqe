@@ -345,7 +345,8 @@ TEST_P(PerfectHashInnerJoinTest, PerfectHashWithNulls)
   if (build_valid && probe_valid) {
     EXPECT_NO_THROW(libperfect::perfect_join(build_keys_table_view, probe_keys_table_view));
   } else {
-    EXPECT_THROW(libperfect::perfect_join(build_keys_table_view, probe_keys_table_view), std::logic_error)
+    EXPECT_THROW(libperfect::perfect_join(build_keys_table_view, probe_keys_table_view),
+                 std::logic_error)
       << "Perfect hashing requires that both sides have no nulls";
   }
 }

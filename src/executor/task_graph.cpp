@@ -845,6 +845,10 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   std::vector<std::shared_ptr<task>> first_aggregation_tasks;
   first_aggregation_tasks.reserve(input_tasks.size());
 
+  bool use_perfect_hashing =
+    relation->perfect_hashing() &&
+    _builder->_ctx_ref._query_context->parameters.aggregation_use_perfect_hash;
+
   for (auto& input_task : input_tasks) {
     auto condition = relation->condition_unsafe() ? relation->condition_unsafe()->clone()
                                                   : std::unique_ptr<expression>();
@@ -855,7 +859,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
                                        std::move(input_task),
                                        clone_aggregation_keys(first_aggregation_keys),
                                        clone_aggregation_values(first_aggregation_values),
-                                       std::move(condition)));
+                                       std::move(condition),
+                                       use_perfect_hashing));
     _builder->_current_task_id++;
   }
 

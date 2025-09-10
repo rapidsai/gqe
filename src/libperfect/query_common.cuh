@@ -74,6 +74,13 @@ __device__ static T atomicMin(T* address, T const val)
   return atomicFn<T, fn>(address, val);
 }
 
+template <typename T, std::enable_if_t<std::is_same_v<T, float>, bool> = true>
+__device__ static T atomicMin(T* address, T const val)
+{
+  constexpr auto fn = [](T x, T y) { return min(x, y); };
+  return atomicFn<T, fn>(address, val);
+}
+
 template <typename T, std::enable_if_t<std::is_same_v<T, int64_t>, bool> = true>
 __device__ static T atomicMin(T* address, T const val)
 {

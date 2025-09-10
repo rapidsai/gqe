@@ -172,6 +172,16 @@ target_link_libraries(groupby_test PUBLIC GTest::gtest_main GTest::gmock)
 target_link_libraries(groupby_test PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
 add_test(NAME groupby_test COMMAND groupby_test)
 
+add_executable(libperfect_test libperfect/unique_indices_tests.cpp
+                               libperfect/scatter_aggregate_tests.cpp
+                               )
+target_include_directories(libperfect_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(libperfect_test PUBLIC gqe)
+target_link_libraries(libperfect_test PUBLIC GTest::gtest_main GTest::gmock)
+target_link_libraries(libperfect_test PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
+target_link_libraries(libperfect_test PUBLIC libperfect)
+add_test(NAME libperfect_test COMMAND libperfect_test)
+
 if(GQE_ENABLE_CUSTOMIZED_PARQUET)
     add_executable(parquet_reader_test storage/parquet_reader.cpp)
     target_include_directories(parquet_reader_test PUBLIC ${CMAKE_SOURCE_DIR}/include)

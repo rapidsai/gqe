@@ -330,6 +330,9 @@ class CudaBufferPointer {
       case cudf::type_id::UINT64: ret = this->at<uint64_t>(index); break;
       case cudf::type_id::FLOAT32: ret = this->at<int32_t>(index); break;
       case cudf::type_id::FLOAT64: ret = this->at<int64_t>(index); break;
+      case cudf::type_id::TIMESTAMP_DAYS:
+        ret = this->at<int32_t>(index);
+        break;  // int32_t days since epoch.
       default:
 #if defined(__CUDA_ARCH__)
         // printf("Unknown cudf type in operator[]: %d\n", static_cast<int32_t>(id));
@@ -358,6 +361,9 @@ class CudaBufferPointer {
       case cudf::type_id::UINT64: this->at<uint64_t>(index) = value; break;
       case cudf::type_id::FLOAT32: this->at<int32_t>(index) = value; break;
       case cudf::type_id::FLOAT64: this->at<int64_t>(index) = value; break;
+      case cudf::type_id::TIMESTAMP_DAYS:
+        this->at<int32_t>(index) = value;
+        break;  // int32_t days since epoch.
       default:
         std::stringstream what;
         what << "Unknown cudf type in set: " << static_cast<int32_t>(id);

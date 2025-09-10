@@ -43,17 +43,20 @@ class aggregate_relation_base : public relation {
    * and then rows of the evaluated results in the same group will be combined together using `op`.
    * @param[in] condition An optional boolean expression evaluated on `input` to represent the
    * filter condition. Note: That this is currently not supported for pure reductions
+   * @param[in] perfect_hashing Whether to use perfect hashing.
    */
   aggregate_relation_base(
     std::shared_ptr<relation> input,
     std::vector<std::shared_ptr<relation>> subquery_relations,
     std::vector<std::unique_ptr<expression>> keys,
     std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values,
-    std::unique_ptr<expression> condition = nullptr)
+    std::unique_ptr<expression> condition = nullptr,
+    bool perfect_hashing                  = false)
     : relation({std::move(input)}, std::move(subquery_relations)),
       _keys(std::move(keys)),
       _values(std::move(values)),
-      _condition(std::move(condition))
+      _condition(std::move(condition)),
+      _perfect_hashing(perfect_hashing)
   {
   }
 
@@ -78,10 +81,16 @@ class aggregate_relation_base : public relation {
     return values;
   }
 
+  /**
+   * @brief Return a boolean indicating whether to use perfect hashing.
+   */
+  [[nodiscard]] bool perfect_hashing() const noexcept { return _perfect_hashing; }
+
  private:
   std::vector<std::unique_ptr<expression>> _keys;
   std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> _values;
   std::unique_ptr<expression> _condition;
+  bool _perfect_hashing;
 };
 
 /**

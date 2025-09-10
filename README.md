@@ -92,6 +92,7 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | MAX_NUM_PARTITIONS | 8 | The maximum number of read tasks that can be generated for a single table |
 | GQE_LOG_LEVEL | info | Enable log messages for this level or higher |
 | GQE_JOIN_USE_HASH_MAP_CACHE | false | Allow multiple join tasks to reuse the same hash map. Enabling this option may increase device-memory usage in some circumstances. |
+| GQE_JOIN_USE_PERFECT_HASH | true | Enable perfect hashing for join operations. |
 | GQE_READ_USE_ZERO_COPY | true | Enable zero-copy reads for in-memory table. When disabled, read tasks copy input data to a temporary output buffer. |
 | GQE_USE_CUSTOMIZED_IO | false | Whether to use the customized Parquet reader if supported. |
 | GQE_IO_BOUNCE_BUFFER_SIZE | 4 | Size in GB per worker of the page-locked CPU memory bounce buffer used for the customized Parquet reader. |
@@ -106,6 +107,7 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | GQE_USE_OVERLAP_MTX | true | Improve overlap and pipelining by using locks in memory read task. Keeping this option enabled when running with compressed columns is not optimal. |
 | GQE_USE_PARTITION_PRUNING | false | Enable partition pruning. |
 | GQE_ZONE_MAP_PARTITION_SIZE | 100'000 | Number of rows per zone map row group. Setting this to 0 disables the creation of zone maps and therefore partition pruning, even if `GQE_USE_PARTITION_PRUNING` is `true`. |
+| GQE_AGGREGATE_USE_PERFECT_HASH | true | Enable perfect hashing for groupby operations. |
 
 Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-25.10/CONTRIBUTING.md#build-cudf-from-source).
 

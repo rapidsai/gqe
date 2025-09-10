@@ -20,6 +20,7 @@
 #include <gqe/utility/logger.hpp>
 
 #include <cudf/column/column_factories.hpp>
+#include <cudf/copying.hpp>
 #include <cudf/detail/aggregation/aggregation.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/reduction.hpp>
@@ -30,6 +31,9 @@
 #include <algorithm>
 #include <cassert>
 #include <iterator>
+
+#include "../libperfect/scatter_aggregate.hpp"
+#include "../libperfect/unique_indices.hpp"
 
 namespace gqe {
 
@@ -99,12 +103,23 @@ aggregate_task::aggregate_task(
   std::shared_ptr<task> input,
   std::vector<std::unique_ptr<expression>> keys,
   std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values,
-  std::unique_ptr<expression> condition)
+  std::unique_ptr<expression> condition,
+  bool perfect_hashing)
   : task(ctx_ref, task_id, stage_id, {std::move(input)}, {}),
     _keys(std::move(keys)),
     _values(std::move(values)),
-    _condition(std::move(condition))
+    _condition(std::move(condition)),
+    _perfect_hashing(perfect_hashing)
 {
+}
+
+static bool fixed_width_columns(std::vector<cudf::column_view> const& columns)
+{
+  for (uint column_index = 0; column_index < columns.size(); column_index++) {
+    const auto& current_column = columns[column_index];
+    if (!cudf::is_fixed_width(current_column.type())) { return false; }
+  }
+  return true;
 }
 
 void aggregate_task::execute()
@@ -167,35 +182,67 @@ void aggregate_task::execute()
                      return cudf::make_column_from_scalar(*result, 1);
                    });
   } else {
-    std::vector<cudf::groupby::aggregation_request> agg_requests;
-    std::transform(value_columns.begin(),
-                   value_columns.end(),
-                   operations.begin(),
-                   std::back_inserter(agg_requests),
-                   [](cudf::column_view const& value_column, cudf::aggregation::Kind const& kind) {
-                     std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
-                     aggs.push_back(get_groupby_aggregation(kind));
-                     return cudf::groupby::aggregation_request({value_column, std::move(aggs)});
-                   });
-
     auto [key_columns, key_columns_cache] = evaluate_expressions(input_table,
                                                                  utility::to_const_raw_ptrs(_keys),
                                                                  /*column_reference_offset=*/0,
                                                                  use_like_shift_and);
 
-    auto const& device_properties =
-      get_context_reference()._task_manager_context->get_device_properties();
+    auto const can_perfect = fixed_width_columns(key_columns);
+    if (perfect_hashing() && !can_perfect) {
+      throw std::logic_error(
+        "Perfect hashing is not supported for groupby when the key columns are not fixed width.");
+    }
+    if (perfect_hashing()) {
+      auto [key_indices, group_indices] = libperfect::unique_indices(key_columns, active_mask);
+      auto key_outputs =
+        cudf::gather(cudf::table_view(key_columns),
+                     cudf::column_view(cudf::data_type(cudf::type_to_id<cudf::size_type>()),
+                                       key_indices.size(),
+                                       key_indices.data(),
+                                       nullptr,
+                                       0));  // no nulls
+      result_columns = key_outputs->release();
 
-    // In SQL standard, two NULL values are not equal, but for the purpose of grouping, two or
-    // more values with NULL should be grouped together.
-    gqe::groupby::groupby groupby_obj{cudf::table_view(key_columns)};
-    auto [key_outputs, agg_results] =
-      groupby_obj.aggregate(agg_requests, active_mask, device_properties);
-    result_columns = key_outputs->release();
+      for (uint i = 0; i < operations.size(); i++) {
+        auto const& current_value_column = value_columns[i];
+        cudf::type_id output_type_id =
+          cudf::detail::target_type(current_value_column.type(), operations[i]).id();
+        auto aggregate_results = libperfect::scatter_aggregate(current_value_column,
+                                                               group_indices,
+                                                               active_mask,
+                                                               std::nullopt,
+                                                               operations[i],
+                                                               key_indices.size(),
+                                                               output_type_id);
+        result_columns.push_back(std::make_unique<cudf::column>(std::move(aggregate_results)));
+      }
+    } else {
+      std::vector<cudf::groupby::aggregation_request> agg_requests;
+      std::transform(
+        value_columns.begin(),
+        value_columns.end(),
+        operations.begin(),
+        std::back_inserter(agg_requests),
+        [](cudf::column_view const& value_column, cudf::aggregation::Kind const& kind) {
+          std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
+          aggs.push_back(get_groupby_aggregation(kind));
+          return cudf::groupby::aggregation_request({value_column, std::move(aggs)});
+        });
 
-    for (auto& agg_result : agg_results) {
-      assert(agg_result.results.size() == 1);
-      result_columns.push_back(std::move(agg_result.results[0]));
+      auto const& device_properties =
+        get_context_reference()._task_manager_context->get_device_properties();
+
+      // In SQL standard, two NULL values are not equal, but for the purpose of grouping, two or
+      // more values with NULL should be grouped together.
+      gqe::groupby::groupby groupby_obj{cudf::table_view(key_columns)};
+      auto [key_outputs, agg_results] =
+        groupby_obj.aggregate(agg_requests, active_mask, device_properties);
+      result_columns = key_outputs->release();
+
+      for (auto& agg_result : agg_results) {
+        assert(agg_result.results.size() == 1);
+        result_columns.push_back(std::move(agg_result.results[0]));
+      }
     }
   }
 

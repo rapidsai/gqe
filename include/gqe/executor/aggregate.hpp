@@ -47,6 +47,7 @@ class aggregate_task : public task {
    * @param[in] condition An optional boolean expression evaluated on `input` to filter rows before
    * performing aggregation. Note: That this is currently only supported for groupby and not for
    * pure reductions
+   * @param[in] perfect_hashing Whether to use perfect hashing.
    */
   aggregate_task(
     context_reference ctx_ref,
@@ -55,7 +56,13 @@ class aggregate_task : public task {
     std::shared_ptr<task> input,
     std::vector<std::unique_ptr<expression>> keys,
     std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> values,
-    std::unique_ptr<expression> condition = nullptr);
+    std::unique_ptr<expression> condition = nullptr,
+    bool perfect_hashing                  = false);
+
+  /**
+   * @brief Return a boolean indicating whether to use perfect hashing.
+   */
+  [[nodiscard]] bool perfect_hashing() const noexcept { return _perfect_hashing; }
 
   /**
    * @copydoc gqe::task::execute()
@@ -66,6 +73,7 @@ class aggregate_task : public task {
   std::vector<std::unique_ptr<expression>> _keys;
   std::vector<std::pair<cudf::aggregation::Kind, std::unique_ptr<expression>>> _values;
   std::unique_ptr<expression> _condition;
+  bool _perfect_hashing;
 };
 
 }  // namespace gqe

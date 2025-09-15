@@ -1,0 +1,42 @@
+stages:
+  - test
+
+code_style:
+  stage: test
+  image: gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_aarch64
+  before_script:
+    - source /conda/bin/activate gqe
+  script:
+    - find ./include ./src ./benchmark ./test -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file --dry-run -Werror
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+tpch_queries:
+  stage: test
+  image: gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_aarch64
+  before_script:
+    - source /conda/bin/activate gqe
+  script:
+    - hostname
+    - nvidia-smi
+    - |
+      # Debug build
+      rm -rf build && mkdir build && cd build
+      cmake -DCMAKE_BUILD_TYPE=Debug -DGQE_ENABLE_CUSTOMIZED_PARQUET=ON ..
+      make -j30
+      ctest --output-on-failure --exclude-regex parquet_reader
+      cd ..
+    - |
+      # Release build
+      rm -rf build && mkdir build && cd build
+      cmake -DGQE_ENABLE_CUSTOMIZED_PARQUET=ON ..
+      make -j30
+      ctest --output-on-failure --exclude-regex parquet_reader
+      cd ..
+    - |
+      # TPC-H coverage for SF1
+      GQE_LOG_LEVEL=warn bash ./test/end_to_end/run_tpc.sh h ./build /tpch_scratch/datasets/sf1/sf1_id64/ /tpch_scratch/reference_results/sf1 /tpch_scratch/substrait_plans/df_q%d.bin
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

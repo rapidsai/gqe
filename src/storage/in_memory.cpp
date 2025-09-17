@@ -702,7 +702,7 @@ in_memory_write_task::in_memory_write_task(
 
 void in_memory_write_task::execute()
 {
-  GQE_LOG_INFO("Write task execute");
+  GQE_LOG_TRACE("Write task execute");
   prepare_dependencies();
 
   utility::nvtx_scoped_range in_memory_write_task_range("in_memory_write_task");
@@ -761,12 +761,12 @@ void in_memory_write_task::execute()
     }
 
     if (comp_format == compression_format::none) {
-      GQE_LOG_INFO("Uncompressed column size {}", cudf_column.size());
+      GQE_LOG_TRACE("Uncompressed column size {}", cudf_column.size());
       new_columns[_column_indexes[column_idx]] =
         std::make_unique<contiguous_column>(std::move(cudf_column));
     } else {
       if (not partition_pruning_enabled) {
-        GQE_LOG_INFO("Compressed column size {}", cudf_column.size());
+        GQE_LOG_TRACE("Compressed column size {}", cudf_column.size());
         new_columns[_column_indexes[column_idx]] =
           std::make_unique<compressed_column>(std::move(cudf_column),
                                               comp_format,
@@ -780,7 +780,7 @@ void in_memory_write_task::execute()
         // Get a string view of the column
         cudf::strings_column_view strings_column_view(cudf_column);
         int64_t chars_size = strings_column_view.chars_size(stream);
-        GQE_LOG_INFO("String column size {}", chars_size);
+        GQE_LOG_TRACE("String column size {}", chars_size);
         if (chars_size > std::numeric_limits<int32_t>::max()) {
           new_columns[_column_indexes[column_idx]] =
             std::make_unique<string_compressed_sliced_column<true>>(std::move(cudf_column),
@@ -801,7 +801,7 @@ void in_memory_write_task::execute()
                                                                      _column_names[column_idx]);
         }
       } else {
-        GQE_LOG_INFO("Compressed sliced column size {}", cudf_column.size());
+        GQE_LOG_TRACE("Compressed sliced column size {}", cudf_column.size());
         new_columns[_column_indexes[column_idx]] =
           std::make_unique<compressed_sliced_column>(std::move(cudf_column),
                                                      comp_format,

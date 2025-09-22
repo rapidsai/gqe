@@ -4,7 +4,11 @@
 .vscode/
 /include/substrait/
 /substrait/proto/
-.devcontainer
+.devcontainer/*
+!.devcontainer/Dockerfile
+!.devcontainer/setup-devcontainer.sh
+!.devcontainer/aarch64/**/*
+!.devcontainer/x86_64/**/*
 compile_commands.json
 /rust/target/
 /rust/producer/target/

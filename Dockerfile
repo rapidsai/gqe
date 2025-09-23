@@ -29,12 +29,15 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     openssh-client \
     openmpi-bin \
     libopenmpi-dev \
+    gdb \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Miniforge3
-RUN wget "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" -O /miniforge.sh
-RUN sh /miniforge.sh -b -p /conda
+RUN wget "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" -O /miniforge.sh \
+    && sh /miniforge.sh -b -p /conda \
+    && rm /miniforge.sh
+
 ENV PATH=${PATH}:/conda/bin
 # Enables "source activate"
 SHELL ["/bin/bash", "-c"]
@@ -47,7 +50,7 @@ RUN git clone https://github.com/rapidsai/cudf.git /cudf \
     && git submodule update --init --remote --recursive \
     && mamba env create -q --name gqe --file /config/conda/docker-$(uname -m).yml \
     && source activate gqe \
-    && PARALLEL_LEVEL=16 CUDF_CMAKE_CUDA_ARCHITECTURES="70-real;80-real;90-real;100-real;120" ./build.sh libcudf --ptds --cmake-args=\" -DCUDF_ENABLE_ARROW_S3=OFF -DBUILD_BENCHMARKS=OFF -DCUDA_ENABLE_LINEINFO=ON -Drapids-cmake-sha=c82ccbf86c53437d80a45c502e64029b7c1c7f31 \" \
+    && PARALLEL_LEVEL=16 CUDF_CMAKE_CUDA_ARCHITECTURES="80-real;90-real;100-real;120" ./build.sh libcudf --ptds --cmake-args=\" -DCUDF_ENABLE_ARROW_S3=OFF -DBUILD_BENCHMARKS=OFF -DCUDA_ENABLE_LINEINFO=ON -Drapids-cmake-sha=c82ccbf86c53437d80a45c502e64029b7c1c7f31 \" \
     && conda clean --all
 
 # Compile MLIR from source

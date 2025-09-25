@@ -889,7 +889,9 @@ void task_graph_builder::generate_task_graph_visitor::visit(
                                      _builder->_current_stage_id,
                                      std::move(concatenated_task),
                                      std::move(second_aggregation_keys),
-                                     std::move(second_aggregation_values));
+                                     std::move(second_aggregation_values),
+                                     nullptr,
+                                     use_perfect_hashing);
   _builder->_current_task_id++;
 
   // Step 4: Post processing

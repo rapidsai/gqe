@@ -51,6 +51,16 @@ class fetch_relation : public relation {
    */
   [[nodiscard]] int64_t count() const noexcept { return _count; }
 
+  /**
+   * @copydoc relation::output_data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override;
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
+
  private:
   int64_t _offset;
   int64_t _count;

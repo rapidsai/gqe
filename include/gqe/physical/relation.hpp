@@ -14,6 +14,8 @@
 
 #include <gqe/utility/helpers.hpp>
 
+#include <cudf/types.hpp>
+
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -134,12 +136,34 @@ class relation {
   }
 
   /**
+   * @brief Return the number of children
+   */
+  [[nodiscard]] std::size_t children_size() const noexcept { return _children.size(); }
+
+  /**
    * @brief Accept a visitor.
    *
    * Implement the visitor pattern (https://en.wikipedia.org/wiki/Visitor_pattern) through double
    * dispatch.
    */
   virtual void accept(relation_visitor& visitor) = 0;
+
+  /**
+   * @brief Return the output data types of this relation.
+   *
+   * @return A vector whose size is equal to the number of columns in the
+   * output relation. Element `i` of the vector records the type of column
+   * `i`.
+   */
+  [[nodiscard]] virtual std::vector<cudf::data_type> output_data_types() const = 0;
+
+  /**
+   * @brief Return a string representation (in json format) of this relation.
+   *
+   * @note The returned json string is not prettified. This is meant to be used in
+   * conjunction with tools like [PlantUML](www.plantuml.com).
+   */
+  [[nodiscard]] virtual std::string to_string() const = 0;
 
  private:
   std::vector<std::shared_ptr<relation>> _children;

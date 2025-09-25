@@ -1,0 +1,52 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+#include <gqe/physical/project.hpp>
+
+#include <gqe/logical/utility.hpp>
+
+namespace gqe {
+namespace physical {
+
+[[nodiscard]] std::vector<cudf::data_type> project_relation::output_data_types() const
+{
+  // There should only be one input relation to a projection relation
+  assert(this->children_size() == 1);
+  std::vector<cudf::data_type> data_types;
+  for (auto const& output_expression : _output_expressions) {
+    auto child_rel        = this->children_unsafe()[0];
+    auto child_rel_dtypes = child_rel->output_data_types();
+    auto exp_data_types   = output_expression->data_type(child_rel_dtypes);
+    data_types.push_back(exp_data_types);
+  }
+  return data_types;
+}
+
+std::string project_relation::to_string() const
+{
+  std::string project_relation_str = "{\"Project\" : {\n";
+  // Output expressions
+  project_relation_str +=
+    "\t\"output expressions\" : " + logical::utility::list_to_string(output_expressions_unsafe()) +
+    ",\n";
+  // Output data types
+  project_relation_str +=
+    "\t\"output data types\" : " + logical::utility::list_to_string(output_data_types()) + ",\n";
+  // Children
+  project_relation_str +=
+    "\t\"children\" : " + logical::utility::list_to_string(children_unsafe()) + "\n";
+  project_relation_str += "}}";
+  return project_relation_str;
+}
+
+}  // end of namespace physical
+}  // end of namespace gqe

@@ -89,19 +89,32 @@ class window_relation : public relation {
   window_frame_bound::type _window_upper_bound;
 
  public:
-  cudf::aggregation::Kind aggr_func() { return _aggr_func; }
-  std::vector<expression*> ident_cols_unsafe() { return utility::to_raw_ptrs(_ident_cols); }
-  std::vector<expression*> arguments_unsafe() { return utility::to_raw_ptrs(_arguments); }
-  std::vector<expression*> partition_by_unsafe() { return utility::to_raw_ptrs(_partition_by); }
-  std::vector<expression*> order_by_unsafe() { return utility::to_raw_ptrs(_order_by); }
-  std::vector<cudf::order> order_dirs() { return _order_dirs; }
-  window_frame_bound::type window_lower_bound() { return _window_lower_bound; }
-  window_frame_bound::type window_upper_bound() { return _window_upper_bound; }
+  cudf::aggregation::Kind aggr_func() const { return _aggr_func; }
+  std::vector<expression*> ident_cols_unsafe() const { return utility::to_raw_ptrs(_ident_cols); }
+  std::vector<expression*> arguments_unsafe() const { return utility::to_raw_ptrs(_arguments); }
+  std::vector<expression*> partition_by_unsafe() const
+  {
+    return utility::to_raw_ptrs(_partition_by);
+  }
+  std::vector<expression*> order_by_unsafe() const { return utility::to_raw_ptrs(_order_by); }
+  std::vector<cudf::order> order_dirs() const { return _order_dirs; }
+  window_frame_bound::type window_lower_bound() const { return _window_lower_bound; }
+  window_frame_bound::type window_upper_bound() const { return _window_upper_bound; }
 
   /**
    * @copydoc gqe::physical::relation::accept(relation_visitor&)
    */
   void accept(relation_visitor& visitor) override { visitor.visit(this); }
+
+  /**
+   * @copydoc relation::output_data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override;
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
 };
 
 }  // namespace physical

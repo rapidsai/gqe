@@ -57,6 +57,16 @@ class write_relation : public relation {
    */
   [[nodiscard]] std::vector<std::string> column_names() const noexcept { return _column_names; }
 
+  /**
+   * @copydoc relation::output_data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override;
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
+
  private:
   std::vector<std::string> _column_names;
   std::string _table_name;

@@ -77,6 +77,16 @@ class join_relation_base : public relation {
     return _projection_indices;
   }
 
+  /**
+   * @copydoc relation::output_data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override;
+
+  /**
+   * @brief Print all its members as well as its output data_types
+   */
+  [[nodiscard]] std::string print() const;
+
  private:
   join_type_type _join_type;
   std::unique_ptr<expression> _condition;
@@ -154,6 +164,11 @@ class broadcast_join_relation : public join_relation_base {
    * @copydoc gqe::physical::relation::accept(relation_visitor&)
    */
   void accept(relation_visitor& visitor) override { visitor.visit(this); }
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
 
  private:
   broadcast_policy _policy;

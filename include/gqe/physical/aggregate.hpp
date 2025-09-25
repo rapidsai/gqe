@@ -63,17 +63,17 @@ class aggregate_relation_base : public relation {
   /**
    * @brief Return the grouping keys.
    */
-  std::vector<expression*> keys_unsafe() { return utility::to_raw_ptrs(_keys); }
+  std::vector<expression*> keys_unsafe() const { return utility::to_raw_ptrs(_keys); }
 
   /**
    * @brief Returns the filter condition.
    */
-  expression* condition_unsafe() { return _condition.get(); }
+  expression* condition_unsafe() const { return _condition.get(); }
 
   /**
    * @brief Return the values to be aggregated on.
    */
-  std::vector<std::pair<cudf::aggregation::Kind, expression*>> values_unsafe()
+  std::vector<std::pair<cudf::aggregation::Kind, expression*>> values_unsafe() const
   {
     std::vector<std::pair<cudf::aggregation::Kind, expression*>> values;
     for (auto const& [kind, agg] : _values)
@@ -85,6 +85,16 @@ class aggregate_relation_base : public relation {
    * @brief Return a boolean indicating whether to use perfect hashing.
    */
   [[nodiscard]] bool perfect_hashing() const noexcept { return _perfect_hashing; }
+
+  /**
+   * @copydoc relation::output_data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override;
+
+  /**
+   * @brief Print all its member variables as well as its output data types
+   */
+  [[nodiscard]] std::string print() const;
 
  private:
   std::vector<std::unique_ptr<expression>> _keys;
@@ -107,6 +117,11 @@ class concatenate_aggregate_relation : public aggregate_relation_base {
    * @copydoc gqe::physical::relation::accept(relation_visitor&)
    */
   void accept(relation_visitor& visitor) override { visitor.visit(this); }
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
 };
 
 }  // namespace physical

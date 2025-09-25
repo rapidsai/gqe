@@ -64,6 +64,16 @@ class user_defined_relation : public relation {
     return _last_child_break_pipeline;
   }
 
+  /**
+   * @copydoc relation::output_data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override { return {}; }
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
+
  private:
   user_defined_task_functor _task_functor;
   bool _last_child_break_pipeline;

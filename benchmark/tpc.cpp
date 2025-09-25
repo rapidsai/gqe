@@ -383,6 +383,8 @@ int main(int argc, char* argv[])
     gqe::physical_plan_builder plan_builder(&catalog);
     auto physical_plan = plan_builder.build(logical_plan_with_result.get());
 
+    GQE_LOG_TRACE("Generated physical query plan: \n {}", physical_plan->to_string());
+
     gqe::task_graph_builder graph_builder(ctx_ref, &catalog);
     auto task_graph = graph_builder.build(physical_plan.get());
 

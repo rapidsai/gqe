@@ -32,6 +32,16 @@ class gen_ident_col_relation : public relation {
   gen_ident_col_relation(std::shared_ptr<relation> input) : relation({std::move(input)}, {}) {}
 
   void accept(relation_visitor& visitor) override { visitor.visit(this); }
+
+  /**
+   * @copydoc relation::output_data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override;
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
 };
 
 }  // namespace physical

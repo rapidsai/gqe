@@ -86,6 +86,18 @@ add_library(
     optimizer/rules/string_to_int_literal.cpp
     optimizer/rules/fix_partial_filter_column_references.cpp
     optimizer/statistics.cpp
+    physical/aggregate.cpp
+    physical/fetch.cpp
+    physical/filter.cpp
+    physical/gen_ident_col.cpp
+    physical/join.cpp
+    physical/project.cpp
+    physical/read.cpp
+    physical/set.cpp
+    physical/sort.cpp
+    physical/window.cpp
+    physical/user_defined.cpp
+    physical/write.cpp
     rpc/task_migration.cpp
     storage/compression.cpp
     storage/in_memory.cpp

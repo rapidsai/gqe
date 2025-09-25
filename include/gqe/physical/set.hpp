@@ -28,6 +28,16 @@ class union_all_relation : public relation {
    * @copydoc gqe::physical::relation::accept(relation_visitor&)
    */
   void accept(relation_visitor& visitor) override { visitor.visit(this); }
+
+  /**
+   * @copydoc relation::output_data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override;
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
 };
 
 }  // namespace physical

@@ -62,6 +62,16 @@ class project_relation : public relation {
     return utility::to_raw_ptrs(_output_expressions);
   }
 
+  /**
+   * @copydoc relation::output_data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override;
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
+
  private:
   std::vector<std::unique_ptr<expression>> _output_expressions;
 };

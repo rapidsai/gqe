@@ -59,17 +59,27 @@ class sort_relation_base : public relation {
   /**
    * @brief Return the keys which determine the ordering of the sort.
    */
-  std::vector<expression*> keys_unsafe() { return utility::to_raw_ptrs(_keys); }
+  std::vector<expression*> keys_unsafe() const { return utility::to_raw_ptrs(_keys); }
 
   /**
    * @brief Return the desired order for each column.
    */
-  std::vector<cudf::order> column_orders() { return _column_orders; }
+  std::vector<cudf::order> column_orders() const { return _column_orders; }
 
   /**
    * @brief Return whether a null element is smaller or larger than other elements.
    */
-  std::vector<cudf::null_order> null_precedences() { return _null_precedences; }
+  std::vector<cudf::null_order> null_precedences() const { return _null_precedences; }
+
+  /**
+   * @copydoc relation::output_data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override;
+
+  /**
+   * @brief Print all members as well as output data types
+   */
+  [[nodiscard]] std::string print() const;
 
  private:
   std::vector<std::unique_ptr<expression>> _keys;
@@ -88,6 +98,11 @@ class concatenate_sort_relation : public sort_relation_base {
    * @copydoc gqe::physical::relation::accept(relation_visitor&)
    */
   void accept(relation_visitor& visitor) override { visitor.visit(this); }
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
 };
 
 }  // namespace physical

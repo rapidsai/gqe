@@ -77,7 +77,8 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
         std::move(subqueries_physical),
         logical_read_relation->column_names(),
         logical_read_relation->table_name(),
-        partial_filter_ptr ? partial_filter_ptr->clone() : nullptr);
+        partial_filter_ptr ? partial_filter_ptr->clone() : nullptr,
+        logical_read_relation->data_types());
       break;
     }
     case logical::relation::relation_type::write: {

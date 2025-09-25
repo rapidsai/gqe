@@ -91,6 +91,7 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | MAX_NUM_WORKERS | 1 | Max number of worker threads per stage |
 | MAX_NUM_PARTITIONS | 8 | The maximum number of read tasks that can be generated for a single table |
 | GQE_LOG_LEVEL | info | Enable log messages for this level or higher |
+| GQE_LOG_FILE | info | Enable log messages written to a file path, the value should be a valid file path |
 | GQE_JOIN_USE_HASH_MAP_CACHE | false | Allow multiple join tasks to reuse the same hash map. Enabling this option may increase device-memory usage in some circumstances. |
 | GQE_JOIN_USE_PERFECT_HASH | true | Enable perfect hashing for join operations. |
 | GQE_READ_USE_ZERO_COPY | true | Enable zero-copy reads for in-memory table. When disabled, read tasks copy input data to a temporary output buffer. |

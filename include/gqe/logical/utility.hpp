@@ -12,7 +12,9 @@
 
 #pragma once
 
+#include "gqe/types.hpp"
 #include <gqe/logical/relation.hpp>
+#include <gqe/physical/relation.hpp>
 #include <gqe/utility/logger.hpp>
 
 #include <cudf/types.hpp>
@@ -20,6 +22,7 @@
 #include <regex>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -51,11 +54,15 @@ inline std::string list_to_string(std::vector<cudf::data_type> const& types)
  * @param relation_list The list of relations to convert to string
  * @return Relation list string representation
  */
-inline std::string list_to_string(std::vector<logical::relation*> relation_list)
+template <typename RelationType>
+inline typename std::enable_if<std::is_same<RelationType, logical::relation>::value ||
+                                 std::is_same<RelationType, physical::relation>::value,
+                               std::string>::type
+list_to_string(const std::vector<RelationType*>& relation_list)
 {
   std::string relation_list_string = "[";
   bool first                       = true;
-  for (auto relation : relation_list) {
+  for (const auto* relation : relation_list) {
     if (!first) relation_list_string += ", ";
     relation_list_string += relation->to_string();
     first = false;
@@ -174,6 +181,25 @@ inline std::string join_type_str(join_type_type join_type)
     default:
       throw std::runtime_error("Join type enum " + std::to_string(static_cast<int>(join_type)) +
                                " not supported");
+  }
+}
+
+/**
+ * @brief Convert `unique_keys_policy` to its string representation
+ *
+ * @param unique_keys_policy unique keys policy to return string for
+ * @return String representation of `unique_keys_policy`
+ */
+inline std::string unique_keys_policy_str(unique_keys_policy policy)
+{
+  switch (policy) {
+    case unique_keys_policy::none: return "none"; break;
+    case unique_keys_policy::left: return "left"; break;
+    case unique_keys_policy::right: return "right"; break;
+    case unique_keys_policy::either: return "either"; break;
+    default:
+      throw std::runtime_error("unique_keys_policy enum " +
+                               std::to_string(static_cast<int>(policy)) + " not supported");
   }
 }
 

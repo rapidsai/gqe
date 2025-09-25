@@ -58,10 +58,20 @@ class filter_relation : public relation {
   /**
    * @brief Return the column indices to materialize after the filter.
    */
-  [[nodiscard]] std::vector<cudf::size_type> projection_indices() const noexcept
+  [[nodiscard]] const std::vector<cudf::size_type>& projection_indices() const noexcept
   {
     return _projection_indices;
   }
+
+  /**
+   * @copydoc relation::output_data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override;
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
 
  private:
   std::unique_ptr<expression> _condition;

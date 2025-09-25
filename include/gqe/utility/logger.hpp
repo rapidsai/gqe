@@ -12,10 +12,12 @@
 
 #pragma once
 
+#include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <cstdlib>
+#include <fstream>
 #include <memory>
 
 namespace gqe::utility {
@@ -28,10 +30,26 @@ namespace gqe::utility {
 inline spdlog::logger* logger()
 {
   static std::shared_ptr<spdlog::logger> _logger = []() {
-    auto gqe_logger = spdlog::stdout_color_mt("gqe");
+    auto const log_file_path = std::getenv("GQE_LOG_FILE");
+    std::shared_ptr<spdlog::logger> gqe_logger;
+
+    if (log_file_path) {
+      std::ofstream file_test(log_file_path);
+      if (file_test.is_open()) {
+        file_test.close();
+        gqe_logger = spdlog::basic_logger_mt("gqe", log_file_path);
+        gqe_logger->info("All logs will be written to the file path {}", log_file_path);
+      } else {
+        gqe_logger = spdlog::stdout_color_mt("gqe");
+        gqe_logger->warn("GQE_LOG_FILE path {} is invalid. Falling back to console logger.",
+                         log_file_path);
+      }
+    } else {
+      gqe_logger = spdlog::stdout_color_mt("gqe");
+    }
 
     auto const log_level = std::getenv("GQE_LOG_LEVEL");
-    if (log_level) gqe_logger->set_level(spdlog::level::from_str(log_level));
+    if (log_level) { gqe_logger->set_level(spdlog::level::from_str(log_level)); }
 
     return gqe_logger;
   }();

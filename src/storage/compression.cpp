@@ -214,6 +214,8 @@ std::unique_ptr<rmm::device_buffer> compression_manager::do_decompress(
     compressed.size(),
     decompressed_data->size());
 
+  _decompression_manager->deallocate_gpu_mem();
+
   return decompressed_data;
 }
 
@@ -249,8 +251,9 @@ compression_manager::compress_batch(const std::vector<rmm::device_buffer>& devic
   size_t total_uncompressed_size = 0;
 
   auto cudf_pinned_resource = cudf::get_pinned_memory_resource();
-  void* pinned_alloc        = cudf_pinned_resource.allocate_async(
-    device_uncompressed.size() * sizeof(uint8_t*) * 2, alignof(uint8_t*), stream);
+  size_t pinned_mem_size    = device_uncompressed.size() * sizeof(uint8_t*) * 2;
+  void* pinned_alloc =
+    cudf_pinned_resource.allocate_async(pinned_mem_size, alignof(uint8_t*), stream);
   uint8_t** compressed_ptrs = reinterpret_cast<uint8_t**>(pinned_alloc);
   uint8_t const** decompressed_ptrs =
     (uint8_t const**)(compressed_ptrs + device_uncompressed.size());
@@ -287,6 +290,7 @@ compression_manager::compress_batch(const std::vector<rmm::device_buffer>& devic
     total_compressed_size += comp_size;
     compressed_sizes.push_back(comp_size);
     compressed_data_buffers[ix]->resize(comp_size, stream);
+    compressed_data_buffers[ix]->shrink_to_fit(stream);
   }
 
   if (total_compressed_size < total_uncompressed_size) {
@@ -327,6 +331,7 @@ compression_manager::compress_batch(const std::vector<rmm::device_buffer>& devic
   compressed_size = total_compressed_size;
 
   _compression_manager->deallocate_gpu_mem();
+  cudf_pinned_resource.deallocate_async(pinned_alloc, pinned_mem_size, stream);
 
   return std::make_pair(std::move(compressed_data_buffers), std::move(compression_configs));
 }

@@ -13,6 +13,7 @@
 #include <gqe/device_properties.hpp>
 #include <gqe/executor/eval.hpp>
 #include <gqe/executor/join.hpp>
+#include <gqe/executor/mark_join.hpp>
 #include <gqe/executor/unique_key_inner_join.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
@@ -92,12 +93,82 @@ unique_key_join_interface::probe(cudf::table_view const& probe,
   }
 }
 
+mark_join_interface::mark_join_interface(cudf::table_view const& build,
+                                         bool is_cached,
+                                         cudf::null_equality compare_nulls,
+                                         rmm::cuda_stream_view stream)
+  : _mark_join_interface{
+      std::make_unique<gqe::mark_join>(build, is_cached, compare_nulls, 0.5, stream)}
+{
+}
+
+std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+mark_join_interface::probe(cudf::table_view const& probe,
+                           join_type_type join_type,
+                           gqe::device_properties const& device_properties) const
+{
+  cudf::table_view empty_conds{};
+  constexpr cudf::ast::expression const* ast = nullptr;
+  return this->probe(probe, empty_conds, empty_conds, ast, join_type, device_properties);
+}
+
+std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+mark_join_interface::probe(cudf::table_view const& probe,
+                           cudf::table_view const& left_conditional,
+                           cudf::table_view const& right_conditional,
+                           cudf::ast::expression const* binary_predicate,
+                           join_type_type join_type,
+                           gqe::device_properties const& device_properties) const
+{
+  bool is_anti_join;
+
+  switch (join_type) {
+    case join_type_type::left_semi: {
+      is_anti_join = false;
+      break;
+    }
+    case join_type_type::left_anti: {
+      is_anti_join = true;
+      break;
+    }
+    default: {
+      throw std::logic_error("Unsupported join type in mark_join_interface join_type");
+    }
+  }
+  auto positions = _mark_join_interface->perform_mark_join(
+    probe, is_anti_join, left_conditional, right_conditional, binary_predicate, device_properties);
+  return positions;
+}
+
+std::unique_ptr<rmm::device_uvector<cudf::size_type>>
+mark_join_interface::compute_positions_list_from_cached_map(
+  join_type_type join_type, gqe::device_properties const& device_properties) const
+{
+  bool is_anti_join;
+  switch (join_type) {
+    case join_type_type::left_semi: {
+      is_anti_join = false;
+      break;
+    }
+    case join_type_type::left_anti: {
+      is_anti_join = true;
+      break;
+    }
+    default: throw std::logic_error("Unsupported join type in mark_join_interface");
+  }
+
+  return _mark_join_interface->compute_positions_list_from_cached_map(is_anti_join,
+                                                                      device_properties);
+}
+
 join_interface const* join_hash_map_cache::hash_map(cudf::table_view const& build_keys,
                                                     join_algorithm join_algorithm,
                                                     cudf::null_equality compare_nulls) const
 {
   std::unique_lock latch_guard(_hash_map_latch);
-
+  constexpr bool is_cached = true;
   if (!_hash_map) {
     switch (join_algorithm) {
       case join_algorithm::HASH_JOIN:
@@ -106,10 +177,23 @@ join_interface const* join_hash_map_cache::hash_map(cudf::table_view const& buil
       case join_algorithm::UNIQUE_KEY_JOIN:
         _hash_map = std::make_unique<unique_key_join_interface>(build_keys, compare_nulls);
         break;
+      case join_algorithm::MARK_JOIN:
+        _hash_map = std::make_unique<mark_join_interface>(build_keys, is_cached, compare_nulls);
+        break;
     }
   }
 
   return _hash_map.get();
+}
+
+join_interface const* join_hash_map_cache::hash_map() const
+{
+  std::unique_lock latch_guard(_hash_map_latch);
+  if (_hash_map) {
+    return _hash_map.get();
+  } else {
+    return nullptr;
+  }
 }
 
 join_task::join_task(context_reference ctx_ref,
@@ -123,7 +207,8 @@ join_task::join_task(context_reference ctx_ref,
                      std::shared_ptr<join_hash_map_cache> hash_map_cache,
                      bool materialize_output,
                      gqe::unique_keys_policy unique_keys_pol,
-                     bool perfect_hashing)
+                     bool perfect_hashing,
+                     bool mark_join)
   : task(ctx_ref, task_id, stage_id, {std::move(left), std::move(right)}, {}),
     _join_type(join_type),
     _condition(std::move(condition)),
@@ -131,7 +216,8 @@ join_task::join_task(context_reference ctx_ref,
     _hash_map_cache(std::move(hash_map_cache)),
     _materialize_output(materialize_output),
     _unique_keys_policy(unique_keys_pol),
-    _perfect_hashing(perfect_hashing)
+    _perfect_hashing(perfect_hashing),
+    _mark_join(mark_join)
 {
 }
 
@@ -233,9 +319,9 @@ class join_keys_container {
       _left_keys.push_back(std::move(left_key));
 
     // Evaluate the expressions to get the right key columns
-    // Note that the column index in `condition` references the combination of the left and the
-    // right table. To get the column index within the right table, we need to subtract the number
-    // of columns in the left table.
+    // Note that the column position in `condition` references the combination of the left and the
+    // right table. To get the column position within the right table, we need to subtract the
+    // number of columns in the left table.
     auto [right_keys, right_cached_columns] =
       evaluate_expressions(_right, right_key_exprs, _left.num_columns(), use_like_shift_and);
     _right_keys.reserve(_right_keys.size() + right_keys.size());
@@ -502,12 +588,50 @@ std::unique_ptr<cudf::table> materialize(cudf::table_view const& left,
 }
 
 /**
- * @brief Returns whether libcudf supports building the hash map separately.
+ * @brief Returns whether gqe supports building the hash map separately.
  */
-bool is_separate_hash_map_supported(join_type_type join_type)
+bool is_separate_hash_map_supported(join_type_type join_type, bool mark_join)
 {
   return join_type == join_type_type::inner || join_type == join_type_type::left ||
-         join_type == join_type_type::full;
+         join_type == join_type_type::full ||
+         (mark_join &&
+          (join_type == join_type_type::left_semi || join_type == join_type_type::left_anti));
+}
+
+/**
+ * @brief Returns whether gqe supports building the hash map separately when using
+ *  mixed join conditions.
+ */
+bool is_separate_mixed_hash_map_supported(join_type_type join_type, bool mark_join)
+{
+  return mark_join &&
+         (join_type == join_type_type::left_semi || join_type == join_type_type::left_anti);
+}
+
+/**
+ * @brief Utility function for parsing predicates.
+ * @param cache The cache used to retain the parse - the lifetime of the return is the same as the
+ * cache.
+ * @predicate_expr The expression to be parsed.
+ * @num_cols The number of columns present in the expression.
+ * @return A pointer to an expression object that can be evaluated. Lifetime depends on cache.
+ */
+cudf::ast::expression* parse_predicates(predicate_rewriter::cache_type& cache,
+                                        std::vector<expression const*> const& predicates,
+                                        std::unique_ptr<expression> predicate_expr,
+                                        cudf::size_type num_cols)
+{
+  // Have at least one join condition that is not equality condition
+  // Concatenate all non-equality join conditions
+  for (std::size_t predicate_idx = 1; predicate_idx < predicates.size(); predicate_idx++) {
+    predicate_expr = std::make_unique<logical_and_expression>(std::move(predicate_expr),
+                                                              predicates[predicate_idx]->clone());
+  }
+
+  // Convert the non-equality join condition into a cuDF AST expression
+  predicate_rewriter rewriter(num_cols, cache);
+  predicate_expr->accept(rewriter);
+  return rewriter.out_expr;
 }
 
 }  // namespace
@@ -536,8 +660,9 @@ void join_task::execute()
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_indices;
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> right_indices;
 
-  if (_hash_map_cache && is_separate_hash_map_supported(_join_type) && predicates.size() == 0) {
-    // Fast path: use the cached hash map
+  if (predicates.size() == 0 && _hash_map_cache &&
+      is_separate_hash_map_supported(_join_type, _mark_join)) {
+    // Fast path: use the cached hash map for equality-only join
     cudf::table_view build_keys;
     cudf::table_view probe_keys;
 
@@ -564,6 +689,9 @@ void join_task::execute()
         _join_type == join_type_type::inner) {
       join_algo = join_algorithm::UNIQUE_KEY_JOIN;
       GQE_LOG_TRACE("Join implementation: unique_key_join.");
+    } else if (_join_type == join_type_type::left_semi || _join_type == join_type_type::left_anti) {
+      join_algo = join_algorithm::MARK_JOIN;
+      GQE_LOG_TRACE("Join implementation: cached equality gqe::mark_join.");
     } else {
       join_algo = join_algorithm::HASH_JOIN;
       GQE_LOG_TRACE("Join implementation: hash join.");
@@ -587,6 +715,38 @@ void join_task::execute()
         left_indices  = std::move(probe_indices);
         right_indices = std::move(build_indices);
         break;
+    }
+  } else if (_hash_map_cache && is_separate_mixed_hash_map_supported(_join_type, _mark_join)) {
+    // only mark_join is supported in this path for now
+    assert(_join_type == join_type_type::left_semi || _join_type == join_type_type::left_anti);
+    assert(left_keys.num_columns() == right_keys.num_columns());
+    // Fast path mixed joins: use the cached hash map
+    cudf::table_view build_keys;
+    cudf::table_view probe_keys;
+
+    build_keys               = left_keys;
+    probe_keys               = right_keys;
+    join_algorithm join_algo = join_algorithm::MARK_JOIN;
+
+    auto const hash_map =
+      _hash_map_cache->hash_map(build_keys, join_algo, join_keys.compare_nulls());
+
+    std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_indices;
+    std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_indices;
+
+    predicate_rewriter::cache_type cache;
+    auto const predicate_ast =
+      parse_predicates(cache, predicates, predicates[0]->clone(), left_view.num_columns());
+
+    std::tie(probe_indices, build_indices) = hash_map->probe(
+      probe_keys, left_view, right_view, predicate_ast, _join_type, device_properties);
+
+    left_indices  = std::move(build_indices);
+    right_indices = std::move(probe_indices);
+    if (_join_type == join_type_type::left_semi) {
+      GQE_LOG_TRACE("Join implementation: cached mixed gqe::mark_join semi");
+    } else if (_join_type == join_type_type::left_anti) {
+      GQE_LOG_TRACE("Join implementation: cached mixed gqe::mark_join anti");
     }
   } else {
     // Fallback path: reconstruct hash map from scratch
@@ -642,12 +802,24 @@ void join_task::execute()
             cudf::left_join(left_keys, right_keys, compare_nulls);
           break;
         case join_type_type::left_semi:
-          GQE_LOG_TRACE("Join implementation: cudf::left_semi_join.");
-          left_indices = cudf::left_semi_join(left_keys, right_keys, compare_nulls);
+          if (_mark_join) {
+            GQE_LOG_TRACE("Join implementation: gqe::left_semi_mark_join");
+            left_indices =
+              gqe::left_semi_mark_join(left_keys, right_keys, device_properties, compare_nulls);
+          } else {
+            GQE_LOG_TRACE("Join implementation: cudf::left_semi_join");
+            left_indices = cudf::left_semi_join(left_keys, right_keys, compare_nulls);
+          }
           break;
         case join_type_type::left_anti:
-          GQE_LOG_TRACE("Join implementation: cudf::left_anti_join.");
-          left_indices = cudf::left_anti_join(left_keys, right_keys, compare_nulls);
+          if (_mark_join) {
+            GQE_LOG_TRACE("Join implementation: gqe::left_anti_mark_join.");
+            left_indices =
+              gqe::left_anti_mark_join(left_keys, right_keys, device_properties, compare_nulls);
+          } else {
+            GQE_LOG_TRACE("Join implementation: cudf::left_anti_join.");
+            left_indices = cudf::left_anti_join(left_keys, right_keys, compare_nulls);
+          }
           break;
         case join_type_type::full:
           GQE_LOG_TRACE("Join implementation: cudf::full_join.");
@@ -657,19 +829,9 @@ void join_task::execute()
         default: throw std::logic_error("Unknown join type for equality join");
       }
     } else {
-      // Have at least one join condition that is not equality condition
-      // Concatenate all non-equality join conditions
-      std::unique_ptr<expression> predicate_expr = predicates[0]->clone();
-      for (std::size_t predicate_idx = 1; predicate_idx < predicates.size(); predicate_idx++) {
-        predicate_expr = std::make_unique<logical_and_expression>(
-          std::move(predicate_expr), predicates[predicate_idx]->clone());
-      }
-
-      // Convert the non-equality join condition into a cuDF AST expression
       predicate_rewriter::cache_type cache;
-      predicate_rewriter rewriter(left_view.num_columns(), cache);
-      predicate_expr->accept(rewriter);
-      cudf::ast::expression const& predicate_ast = *rewriter.out_expr;
+      cudf::ast::expression const& predicate_ast =
+        *parse_predicates(cache, predicates, predicates[0]->clone(), left_view.num_columns());
 
       if (!left_keys.is_empty()) {
         // Have both equality and non-equality join conditions
@@ -688,14 +850,36 @@ void join_task::execute()
               left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
             break;
           case join_type_type::left_semi:
-            GQE_LOG_TRACE("Join implementation: cudf::mixed_left_semi_join.");
-            left_indices = cudf::mixed_left_semi_join(
-              left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
+            if (_mark_join) {
+              GQE_LOG_TRACE("Join implementation: gqe::mixed_left_semi_mark_join.");
+              left_indices = gqe::mixed_left_semi_mark_join(left_keys,
+                                                            right_keys,
+                                                            left_view,
+                                                            right_view,
+                                                            predicate_ast,
+                                                            device_properties,
+                                                            compare_nulls);
+            } else {
+              GQE_LOG_TRACE("Join implementation: cudf::mixed_left_semi_join.");
+              left_indices = cudf::mixed_left_semi_join(
+                left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
+            }
             break;
           case join_type_type::left_anti:
-            GQE_LOG_TRACE("Join implementation: cudf::mixed_left_anti_join.");
-            left_indices = cudf::mixed_left_anti_join(
-              left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
+            if (_mark_join) {
+              GQE_LOG_TRACE("Join implementation: gqe::mixed_left_anti_mark_join.");
+              left_indices = gqe::mixed_left_anti_mark_join(left_keys,
+                                                            right_keys,
+                                                            left_view,
+                                                            right_view,
+                                                            predicate_ast,
+                                                            device_properties,
+                                                            compare_nulls);
+            } else {
+              GQE_LOG_TRACE("Join implementation: cudf::mixed_left_anti_join.");
+              left_indices = cudf::mixed_left_anti_join(
+                left_keys, right_keys, left_view, right_view, predicate_ast, compare_nulls);
+            }
             break;
           case join_type_type::full:
             GQE_LOG_TRACE("Join implementation: cudf::mixed_full_join.");
@@ -735,7 +919,6 @@ void join_task::execute()
       }
     }
   }
-
   // Convert the result indices into libcudf columns
   auto left_indices_column =
     std::make_unique<cudf::column>(std::move(*left_indices), rmm::device_buffer{}, 0);
@@ -775,6 +958,7 @@ void join_task::execute()
 
   std::unique_ptr<cudf::table> join_result;
   if (_materialize_output) {
+    assert(_join_type != join_type_type::left_semi && _join_type != join_type_type::left_anti);
     join_result = materialize(left_view,
                               right_view,
                               left_indices_column->view(),
@@ -811,7 +995,9 @@ materialize_join_from_position_lists_task::materialize_join_from_position_lists_
   std::shared_ptr<task> left_table,
   std::vector<std::shared_ptr<task>> position_lists,
   join_type_type join_type,
-  std::vector<cudf::size_type> projection_indices)
+  std::vector<cudf::size_type> projection_indices,
+  std::shared_ptr<join_hash_map_cache> hash_map_cache,
+  bool mark_join)
   : task(ctx_ref,
          task_id,
          stage_id,
@@ -824,8 +1010,11 @@ materialize_join_from_position_lists_task::materialize_join_from_position_lists_
          }(),
          {}),
     _join_type(join_type),
-    _projection_indices(projection_indices)
+    _projection_indices(projection_indices),
+    _hash_map_cache(hash_map_cache),
+    _mark_join(mark_join)
 {
+  assert(join_type == join_type_type::left_semi || join_type == join_type_type::left_anti);
 }
 
 void materialize_join_from_position_lists_task::execute()
@@ -838,48 +1027,61 @@ void materialize_join_from_position_lists_task::execute()
 
   auto dependent_tasks = dependencies();
   auto left_view       = *dependent_tasks[0]->result();
-
   std::unique_ptr<cudf::column> bool_mask;
+  auto const& device_properties =
+    get_context_reference()._task_manager_context->get_device_properties();
 
-  // For left-anti join, since we want to keep rows such that the indices are in *all* position
-  // lists, we increment `counts` for each position list, and only keep rows such that the count ==
-  // the number of position lists.
-  std::unique_ptr<cudf::column> counts;
+  if (_hash_map_cache && _mark_join) {
+    auto hash_map = dynamic_cast<mark_join_interface const*>(_hash_map_cache->hash_map());
+    assert(hash_map);
+    auto positions =
+      hash_map->compute_positions_list_from_cached_map(_join_type, device_properties);
+    auto position_column =
+      std::make_unique<cudf::column>(std::move(*positions), rmm::device_buffer{}, 0);
 
-  if (_join_type == join_type_type::left_anti) {
-    counts = cudf::make_column_from_scalar(
-      cudf::numeric_scalar<int32_t>(0),  // Scalar value to fill with (0 in this case)
-      left_view.num_rows()               // Number of rows in the new column
-    );
-  } else {
     bool_mask =
       cudf::make_column_from_scalar(cudf::numeric_scalar<bool>(false), left_view.num_rows());
-  }
+    detail::set_boolean_mask(bool_mask->mutable_view(), *position_column);
+  } else {
+    // For left-anti join, since we want to keep rows such that the indices are in *all* position
+    // lists, we increment `counts` for each position list, and only keep rows such that the count
+    // == the number of position lists.
+    std::unique_ptr<cudf::column> counts;
 
-  for (std::size_t partition_idx = 1; partition_idx < dependent_tasks.size(); partition_idx++) {
-    auto child_table = *dependent_tasks[partition_idx]->result();
-    GQE_EXPECTS(child_table.num_columns() == 1,
-                "materialize_join_from_position_lists_task expects position list table to have a "
-                "single column");
-
-    auto index_column = child_table.column(0);
-
-    // Note that we can use `set_boolean_mask` and `increment_counts` because indices from the
-    // position lists are unique
-    if (_join_type == join_type_type::left_semi) {
-      detail::set_boolean_mask(bool_mask->mutable_view(), index_column);
+    if (_join_type == join_type_type::left_anti) {
+      counts = cudf::make_column_from_scalar(
+        cudf::numeric_scalar<int32_t>(0),  // Scalar value to fill with (0 in this case)
+        left_view.num_rows()               // Number of rows in the new column
+      );
     } else {
-      detail::increment_counts(counts->mutable_view(), index_column);
+      bool_mask =
+        cudf::make_column_from_scalar(cudf::numeric_scalar<bool>(false), left_view.num_rows());
+    }
+
+    for (std::size_t partition_idx = 1; partition_idx < dependent_tasks.size(); partition_idx++) {
+      auto child_table = *dependent_tasks[partition_idx]->result();
+      GQE_EXPECTS(child_table.num_columns() == 1,
+                  "materialize_join_from_position_lists_task expects position list table to have a "
+                  "single column");
+
+      auto position_column = child_table.column(0);
+
+      // Note that we can use `set_boolean_mask` and `increment_counts` because indices from the
+      // position lists are unique
+      if (_join_type == join_type_type::left_semi) {
+        detail::set_boolean_mask(bool_mask->mutable_view(), position_column);
+      } else {
+        detail::increment_counts(counts->mutable_view(), position_column);
+      }
+    }
+
+    if (_join_type == join_type_type::left_anti) {
+      bool_mask = cudf::binary_operation(counts->view(),
+                                         cudf::numeric_scalar<int32_t>(dependent_tasks.size() - 1),
+                                         cudf::binary_operator::EQUAL,
+                                         cudf::data_type(cudf::type_id::BOOL8));
     }
   }
-
-  if (_join_type == join_type_type::left_anti) {
-    bool_mask = cudf::binary_operation(counts->view(),
-                                       cudf::numeric_scalar<int32_t>(dependent_tasks.size() - 1),
-                                       cudf::binary_operator::EQUAL,
-                                       cudf::data_type(cudf::type_id::BOOL8));
-  }
-
   auto materialized_result =
     cudf::apply_boolean_mask(left_view.select(_projection_indices), bool_mask->view());
 

@@ -51,6 +51,9 @@ struct optimization_parameters {
   bool join_use_perfect_hash =
     true;  ///< Allow inner join to be optimized for unique build-side keys with perfect hashing.
            ///< Perfect hashing requires that both sides have no nulls.
+  bool join_use_mark_join =
+    true;  // Allow semi and anti left joins to be optimized with the mark join algorithm when the
+           // LHS input is smaller than the RHS. If disabled, falls back to cuDF.
   bool read_zero_copy_enable =
     true;  ///< Enable zero-copy reads for in-memory table. When disabled, read tasks copy input
            ///< data to a temporary output buffer.

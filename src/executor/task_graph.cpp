@@ -498,6 +498,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   bool perfect_hashing = _builder->_ctx_ref._query_context->parameters.join_use_perfect_hash &&
                          relation->perfect_hashing();
 
+  bool mark_join = _builder->_ctx_ref._query_context->parameters.join_use_mark_join;
+
   if (relation->policy() == physical::broadcast_policy::right) {
     // Generate the right children tasks
     auto right_tasks = _builder->generate_tasks(children[1]);
@@ -515,8 +517,15 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     auto concatenated_right_task = _builder->concatenate(std::move(right_tasks), false);
 
     if (cache_enabled) {
-      hash_map_cache =
-        std::make_shared<gqe::join_hash_map_cache>(gqe::join_hash_map_cache::build_location::right);
+      // semi/anti joins always build on left side
+      if (relation_join_type == join_type_type::left_semi ||
+          relation_join_type == join_type_type::left_anti) {
+        hash_map_cache = std::make_shared<gqe::join_hash_map_cache>(
+          gqe::join_hash_map_cache::build_location::left);
+      } else {
+        hash_map_cache = std::make_shared<gqe::join_hash_map_cache>(
+          gqe::join_hash_map_cache::build_location::right);
+      }
     }
 
     // Generate the join tasks
@@ -532,7 +541,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
                                                              hash_map_cache,
                                                              true,
                                                              unique_keys_pol,
-                                                             perfect_hashing));
+                                                             perfect_hashing,
+                                                             mark_join));
       _builder->_current_task_id++;
     }
   } else {
@@ -584,7 +594,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
                                                        hash_map_cache,
                                                        !separate_materialization,
                                                        unique_keys_pol,
-                                                       perfect_hashing));
+                                                       perfect_hashing,
+                                                       mark_join));
       _builder->_current_task_id++;
     }
 
@@ -599,7 +610,10 @@ void task_graph_builder::generate_task_graph_visitor::visit(
         std::move(concatenated_left_task),
         std::move(join_tasks),
         relation_join_type,
-        relation->projection_indices()));
+        relation->projection_indices(),
+        hash_map_cache,
+        mark_join));
+
       _builder->_current_task_id++;
     } else {
       for (auto& join_task : join_tasks) {

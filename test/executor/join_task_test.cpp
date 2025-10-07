@@ -84,21 +84,45 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
       std::make_shared<gqe::column_reference_expression>(0),
       std::make_shared<gqe::column_reference_expression>(2));
 
+    // this mimics separate_materialization in task_graph.cpp
+    const bool late_materialize =
+      join_type == gqe::join_type_type::left_semi || join_type == gqe::join_type_type::left_anti;
     std::shared_ptr<gqe::join_hash_map_cache> hash_map_cache = nullptr;
     if (strategy == cache_strategy::use_cache) {
-      hash_map_cache =
-        std::make_shared<gqe::join_hash_map_cache>(gqe::join_hash_map_cache::build_location::right);
+      if (join_type == gqe::join_type_type::left_semi ||
+          join_type == gqe::join_type_type::left_anti) {
+        hash_map_cache = std::make_shared<gqe::join_hash_map_cache>(
+          gqe::join_hash_map_cache::build_location::left);
+      } else {
+        hash_map_cache = std::make_shared<gqe::join_hash_map_cache>(
+          gqe::join_hash_map_cache::build_location::right);
+      }
     }
 
-    join_task = std::make_unique<gqe::join_task>(ctx_ref,
+    join_task = std::make_shared<gqe::join_task>(ctx_ref,
                                                  join_task_id,
                                                  stage_id,
                                                  left_task,
                                                  right_task,
                                                  join_type,
                                                  std::move(join_condition),
-                                                 std::move(projection_indices),
-                                                 std::move(hash_map_cache));
+                                                 projection_indices,
+                                                 hash_map_cache,
+                                                 !late_materialize);
+
+    if (late_materialize) {
+      std::vector<std::shared_ptr<gqe::task>> tasks{{join_task}};
+      late_materialization = std::make_shared<gqe::materialize_join_from_position_lists_task>(
+        ctx_ref,
+        join_task_id,
+        stage_id,
+        std::move(left_task),  // left table
+        std::move(tasks),      // positions lists
+        join_type,             // join type
+        projection_indices,    // projection indices
+        hash_map_cache,        // hash map
+        true);                 // use mark join
+    }
   }
 
   static void verify_inner_join(std::optional<cudf::table_view> join_result)
@@ -210,7 +234,8 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
-  std::unique_ptr<gqe::join_task> join_task;
+  std::shared_ptr<gqe::join_task> join_task;
+  std::shared_ptr<gqe::materialize_join_from_position_lists_task> late_materialization;
 };
 
 TEST_F(SingleKeyColumnJoinTest, InnerJoin)
@@ -249,32 +274,33 @@ TEST_F(SingleKeyColumnJoinTest, LeftSemiJoin)
 {
   construct_join_task(gqe::join_type_type::left_semi, {0, 1}, cache_strategy::recompute);
   join_task->execute();
-
-  verify_left_semi_join(join_task->result());
+  late_materialization->execute();
+  verify_left_semi_join(late_materialization->result());
 }
 
 TEST_F(SingleKeyColumnJoinTest, LeftSemiJoinCache)
 {
   construct_join_task(gqe::join_type_type::left_semi, {0, 1}, cache_strategy::use_cache);
   join_task->execute();
-
-  verify_left_semi_join(join_task->result());
+  late_materialization->execute();
+  verify_left_semi_join(late_materialization->result());
 }
 
 TEST_F(SingleKeyColumnJoinTest, LeftAntiJoin)
 {
   construct_join_task(gqe::join_type_type::left_anti, {0, 1}, cache_strategy::recompute);
   join_task->execute();
-
-  verify_left_anti_join(join_task->result());
+  late_materialization->execute();
+  verify_left_anti_join(late_materialization->result());
 }
 
 TEST_F(SingleKeyColumnJoinTest, LeftAntiJoinCache)
 {
   construct_join_task(gqe::join_type_type::left_anti, {0, 1}, cache_strategy::use_cache);
   join_task->execute();
+  late_materialization->execute();
 
-  verify_left_anti_join(join_task->result());
+  verify_left_anti_join(late_materialization->result());
 }
 
 TEST_F(SingleKeyColumnJoinTest, FullJoin)
@@ -531,7 +557,8 @@ class NonEqualityJoinConditionTest : public ::testing::Test {
   }
   void construct_join_task(gqe::join_type_type join_type,
                            std::vector<cudf::size_type> projection_indices,
-                           std::unique_ptr<gqe::expression> join_condition)
+                           std::unique_ptr<gqe::expression> join_condition,
+                           cache_strategy strategy = cache_strategy::recompute)
   {
     int64_column_wrapper left_key({2, 1, 1, 3, 4, 1});
     int64_column_wrapper left_payload({0, 1, 2, 3, 4, 5});
@@ -558,20 +585,51 @@ class NonEqualityJoinConditionTest : public ::testing::Test {
     auto right_task = std::make_shared<gqe::test::executed_task>(
       ctx_ref, right_task_id, stage_id, std::move(right_table));
 
-    join_task = std::make_unique<gqe::join_task>(ctx_ref,
+    const bool late_materialize =
+      join_type == gqe::join_type_type::left_semi || join_type == gqe::join_type_type::left_anti;
+
+    std::shared_ptr<gqe::join_hash_map_cache> hash_map_cache = nullptr;
+    if (strategy == cache_strategy::use_cache) {
+      if (join_type == gqe::join_type_type::left_semi ||
+          join_type == gqe::join_type_type::left_anti) {
+        hash_map_cache = std::make_shared<gqe::join_hash_map_cache>(
+          gqe::join_hash_map_cache::build_location::left);
+      } else {
+        hash_map_cache = std::make_shared<gqe::join_hash_map_cache>(
+          gqe::join_hash_map_cache::build_location::right);
+      }
+    }
+
+    join_task = std::make_shared<gqe::join_task>(ctx_ref,
                                                  join_task_id,
                                                  stage_id,
                                                  left_task,
                                                  right_task,
                                                  join_type,
                                                  std::move(join_condition),
-                                                 std::move(projection_indices));
+                                                 projection_indices,
+                                                 hash_map_cache,
+                                                 !late_materialize);
+    if (late_materialize) {
+      std::vector<std::shared_ptr<gqe::task>> tasks{{join_task}};
+      late_materialization = std::make_shared<gqe::materialize_join_from_position_lists_task>(
+        ctx_ref,
+        join_task_id,
+        stage_id,
+        std::move(left_task),  // left table
+        tasks,                 // positions lists
+        join_type,             // join type
+        projection_indices,    // projection indices
+        hash_map_cache,        // hash map
+        true);                 // use mark join
+    }
   }
 
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
-  std::unique_ptr<gqe::join_task> join_task;
+  std::shared_ptr<gqe::join_task> join_task;
+  std::shared_ptr<gqe::materialize_join_from_position_lists_task> late_materialization;
 };
 
 TEST_F(NonEqualityJoinConditionTest, MixedConditionsInnerJoin)
@@ -657,8 +715,43 @@ TEST_F(NonEqualityJoinConditionTest, MixedConditionsLeftSemiJoin)
   construct_join_task(gqe::join_type_type::left_semi, {0, 1}, std::move(join_condition));
 
   join_task->execute();
+  late_materialization->execute();
 
-  auto join_result = join_task->result();
+  auto join_result = late_materialization->result();
+  ASSERT_EQ(join_result.has_value(), true);
+  auto join_result_sorted = cudf::sort(*join_result);
+
+  int64_column_wrapper ref_result_col0({1, 1, 1, 2});
+  int64_column_wrapper ref_result_col1({1, 2, 5, 0});
+
+  std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+  ref_result_columns.push_back(ref_result_col0.release());
+  ref_result_columns.push_back(ref_result_col1.release());
+
+  auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+  CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+}
+
+TEST_F(NonEqualityJoinConditionTest, MixedConditionsLeftSemiJoinCache)
+{
+  auto join_condition = std::make_unique<gqe::logical_and_expression>(
+    std::make_shared<gqe::equal_expression>(std::make_shared<gqe::column_reference_expression>(0),
+                                            std::make_shared<gqe::column_reference_expression>(2)),
+    std::make_shared<gqe::not_expression>(std::make_shared<gqe::greater_equal_expression>(
+      std::make_shared<gqe::column_reference_expression>(1),
+      std::make_shared<gqe::multiply_expression>(
+        std::make_shared<gqe::column_reference_expression>(3),
+        std::make_shared<gqe::literal_expression<int64_t>>(2)))));
+
+  construct_join_task(
+    gqe::join_type_type::left_semi, {0, 1}, std::move(join_condition), cache_strategy::use_cache);
+
+  join_task->execute();
+  late_materialization->execute();
+
+  auto join_result = late_materialization->result();
   ASSERT_EQ(join_result.has_value(), true);
   auto join_result_sorted = cudf::sort(*join_result);
 
@@ -689,8 +782,9 @@ TEST_F(NonEqualityJoinConditionTest, MixedConditionsLeftAntiJoin)
   construct_join_task(gqe::join_type_type::left_anti, {0, 1}, std::move(join_condition));
 
   join_task->execute();
+  late_materialization->execute();
 
-  auto join_result = join_task->result();
+  auto join_result = late_materialization->result();
   ASSERT_EQ(join_result.has_value(), true);
   auto join_result_sorted = cudf::sort(*join_result);
 
@@ -826,8 +920,9 @@ TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsLeftSemiJoin)
   construct_join_task(gqe::join_type_type::left_semi, {0, 1}, std::move(join_condition));
 
   join_task->execute();
+  late_materialization->execute();
 
-  auto join_result = join_task->result();
+  auto join_result = late_materialization->result();
   ASSERT_EQ(join_result.has_value(), true);
   auto join_result_sorted = cudf::sort(*join_result);
 
@@ -856,8 +951,9 @@ TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsLeftAntiJoin)
   construct_join_task(gqe::join_type_type::left_anti, {0, 1}, std::move(join_condition));
 
   join_task->execute();
+  late_materialization->execute();
 
-  auto join_result = join_task->result();
+  auto join_result = late_materialization->result();
   ASSERT_EQ(join_result.has_value(), true);
   auto join_result_sorted = cudf::sort(*join_result);
 

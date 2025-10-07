@@ -53,6 +53,7 @@ add_library(
     executor/filter.cpp
     executor/fetch.cpp
     executor/gen_ident_col.cu
+    executor/mark_join.cu
     executor/unique_key_inner_join.cu
     executor/join.cpp
     executor/join.cu

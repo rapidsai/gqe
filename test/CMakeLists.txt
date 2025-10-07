@@ -29,6 +29,13 @@ target_link_libraries(join_task_test PUBLIC GTest::gtest_main GTest::gmock)
 target_link_libraries(join_task_test PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
 add_test(NAME join_task COMMAND join_task_test)
 
+add_executable(mark_join_test executor/mark_join_test.cpp)
+target_include_directories(mark_join_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(mark_join_test PUBLIC gqe)
+target_link_libraries(mark_join_test PUBLIC GTest::gtest_main GTest::gmock)
+target_link_libraries(mark_join_test PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
+add_test(NAME mark_join COMMAND mark_join_test)
+
 add_executable(unique_key_inner_join_test executor/unique_key_inner_join_test.cpp)
 target_include_directories(unique_key_inner_join_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(unique_key_inner_join_test PUBLIC gqe)

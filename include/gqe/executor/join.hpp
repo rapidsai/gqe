@@ -14,6 +14,7 @@
 
 #include <gqe/context_reference.hpp>
 #include <gqe/device_properties.hpp>
+#include <gqe/executor/mark_join.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/executor/unique_key_inner_join.hpp>
 #include <gqe/expression/expression.hpp>
@@ -37,6 +38,15 @@ class join_interface {
   probe(cudf::table_view const& probe,
         join_type_type join_type,
         gqe::device_properties const& device_properties) const = 0;
+
+  virtual std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+                    std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+  probe(cudf::table_view const& probe,
+        cudf::table_view const& left_conditional,
+        cudf::table_view const& right_conditional,
+        cudf::ast::expression const* binary_predicate,
+        join_type_type join_type,
+        gqe::device_properties const& device_properties) const = 0;
 };
 
 class hash_join_interface : public join_interface {
@@ -51,6 +61,18 @@ class hash_join_interface : public join_interface {
   probe(cudf::table_view const& probe,
         join_type_type join_type,
         gqe::device_properties const& device_properties) const override;
+
+  std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+            std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+  probe(cudf::table_view const& probe,
+        cudf::table_view const& left_conditional,
+        cudf::table_view const& right_conditional,
+        cudf::ast::expression const* binary_predicate,
+        join_type_type join_type,
+        gqe::device_properties const& device_properties) const override
+  {
+    throw std::logic_error("Unsupported join type: mixed hash join");
+  }
 
  private:
   mutable std::unique_ptr<cudf::hash_join> _hash_join_interface;
@@ -69,8 +91,50 @@ class unique_key_join_interface : public join_interface {
         join_type_type join_type,
         gqe::device_properties const& device_properties) const override;
 
+  std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+            std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+  probe(cudf::table_view const& probe,
+        cudf::table_view const& left_conditional,
+        cudf::table_view const& right_conditional,
+        cudf::ast::expression const* binary_predicate,
+        join_type_type join_type,
+        gqe::device_properties const& device_properties) const override
+  {
+    throw std::logic_error("Unsupported join type: mixed unique key join");
+  }
+
  private:
   mutable std::unique_ptr<gqe::unique_key_join> _unique_key_join_interface;
+};
+
+class mark_join_interface : public join_interface {
+ public:
+  ~mark_join_interface() override = default;
+  mark_join_interface(cudf::table_view const& build,
+                      bool is_cached,
+                      cudf::null_equality compare_nulls,
+                      rmm::cuda_stream_view stream = rmm::cuda_stream_default);
+
+  std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+            std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+  probe(cudf::table_view const& probe,
+        join_type_type join_type,
+        gqe::device_properties const& device_properties) const override;
+
+  std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+            std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+  probe(cudf::table_view const& probe,
+        cudf::table_view const& left_conditional,
+        cudf::table_view const& right_conditional,
+        cudf::ast::expression const* binary_predicate,
+        join_type_type join_type,
+        gqe::device_properties const& device_properties) const override;
+
+  std::unique_ptr<rmm::device_uvector<cudf::size_type>> compute_positions_list_from_cached_map(
+    join_type_type join_type, gqe::device_properties const& device_properties) const;
+
+ private:
+  mutable std::unique_ptr<gqe::mark_join> _mark_join_interface;
 };
 
 /**
@@ -79,6 +143,8 @@ class unique_key_join_interface : public join_interface {
 enum class join_algorithm {
   HASH_JOIN,        ///< Regular hash join (uses `cudf::hash_join`)
   UNIQUE_KEY_JOIN,  ///< Unique key inner join (uses `gqe::unique_key_inner_join`)
+  MARK_JOIN,        //< Mark join implementation type for left_{semi,anti} joins (uses
+                    // gqe::left_{semi,anti}_join)
 };
 
 /**
@@ -125,6 +191,12 @@ class join_hash_map_cache {
   join_interface const* hash_map(cudf::table_view const& build_keys,
                                  join_algorithm join_algorithm,
                                  cudf::null_equality compare_nulls) const;
+
+  /**
+   * @brief Gets the existing hash map.
+   * @return Returns the hash map, or a nullptr if the map has not been initialized.
+   */
+  join_interface const* hash_map() const;
 
  private:
   build_location _build_side;
@@ -183,7 +255,8 @@ class join_task : public task {
             std::shared_ptr<join_hash_map_cache> hash_map_cache = nullptr,
             bool materialize_output                             = true,
             gqe::unique_keys_policy unique_keys_pol             = gqe::unique_keys_policy::none,
-            bool perfect_hashing                                = false);
+            bool perfect_hashing                                = false,
+            bool mark_join                                      = true);
 
   /**
    * @copydoc gqe::task::execute()
@@ -207,6 +280,7 @@ class join_task : public task {
   bool _materialize_output;
   gqe::unique_keys_policy _unique_keys_policy;
   bool _perfect_hashing;
+  bool _mark_join;
 };
 
 namespace detail {
@@ -246,6 +320,9 @@ void increment_counts(cudf::mutable_column_view counts, cudf::column_view indice
  *
  * This task is used for materializing the join output when broadcasting the left side in a left
  * semi/anti join. Note that this task does not check the positions are valid.
+ *
+ * In the case that the hash map cache is initialized, this function will also compute the positions
+ * lists directly instead of pulling the indices list from prior tasks.
  */
 class materialize_join_from_position_lists_task : public task {
  public:
@@ -261,19 +338,24 @@ class materialize_join_from_position_lists_task : public task {
    * supported.
    * @param[in] projection_indices Column indices to materialize.
    */
-  materialize_join_from_position_lists_task(context_reference ctx_ref,
-                                            int32_t task_id,
-                                            int32_t stage_id,
-                                            std::shared_ptr<task> left_table,
-                                            std::vector<std::shared_ptr<task>> position_lists,
-                                            join_type_type join_type,
-                                            std::vector<cudf::size_type> projection_indices);
+  materialize_join_from_position_lists_task(
+    context_reference ctx_ref,
+    int32_t task_id,
+    int32_t stage_id,
+    std::shared_ptr<task> left_table,
+    std::vector<std::shared_ptr<task>> position_lists,
+    join_type_type join_type,
+    std::vector<cudf::size_type> projection_indices,
+    std::shared_ptr<join_hash_map_cache> hash_map_cache = nullptr,
+    bool mark_join                                      = false);
 
   void execute() override;
 
  private:
   join_type_type _join_type;
   std::vector<cudf::size_type> _projection_indices;
+  std::shared_ptr<join_hash_map_cache> _hash_map_cache;
+  bool _mark_join;
 };
 
 }  // namespace gqe

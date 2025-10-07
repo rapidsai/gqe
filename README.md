@@ -94,6 +94,7 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | GQE_LOG_FILE | info | Enable log messages written to a file path, the value should be a valid file path |
 | GQE_JOIN_USE_HASH_MAP_CACHE | false | Allow multiple join tasks to reuse the same hash map. Enabling this option may increase device-memory usage in some circumstances. |
 | GQE_JOIN_USE_PERFECT_HASH | true | Enable perfect hashing for join operations. |
+| GQE_JOIN_USE_MARK_JOIN | true | Uses the mark join implementation for left semi and anti joins. Disable to fall back to cuDF. |
 | GQE_READ_USE_ZERO_COPY | true | Enable zero-copy reads for in-memory table. When disabled, read tasks copy input data to a temporary output buffer. |
 | GQE_USE_CUSTOMIZED_IO | false | Whether to use the customized Parquet reader if supported. |
 | GQE_IO_BOUNCE_BUFFER_SIZE | 4 | Size in GB per worker of the page-locked CPU memory bounce buffer used for the customized Parquet reader. |

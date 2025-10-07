@@ -206,6 +206,8 @@ optimization_parameters::optimization_parameters(bool only_defaults)
     aggregation_use_perfect_hash =
       parse_env_variable("GQE_AGGREGATION_USE_PERFECT_HASH", aggregation_use_perfect_hash);
 
+    join_use_mark_join = parse_env_variable("GQE_JOIN_USE_MARK_JOIN", join_use_mark_join);
+
     read_zero_copy_enable = parse_env_variable("GQE_READ_USE_ZERO_COPY", read_zero_copy_enable);
 
     use_customized_io = parse_env_variable("GQE_USE_CUSTOMIZED_IO", use_customized_io);

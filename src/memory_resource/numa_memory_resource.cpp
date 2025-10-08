@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -69,9 +69,9 @@ void* numa_memory_resource::do_allocate(std::size_t bytes, rmm::cuda_stream_view
   };
 
   void* ptr = ::mmap(
-    nullptr, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | hugetlbfs_flags, 0, 0);
+    nullptr, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | hugetlbfs_flags, -1, 0);
   if (ptr == MAP_FAILED) {
-    GQE_LOG_ERROR("mmap failed with: ", std::strerror(errno));
+    GQE_LOG_ERROR("mmap failed with: {}", std::strerror(errno));
     throw std::bad_alloc();
   }
 
@@ -85,7 +85,7 @@ void* numa_memory_resource::do_allocate(std::size_t bytes, rmm::cuda_stream_view
   };
 
   if (::madvise(ptr, bytes, advice_flag) == -1) {
-    GQE_LOG_ERROR("madvise failed with: ", std::strerror(errno));
+    GQE_LOG_ERROR("madvise failed with: {}", std::strerror(errno));
     throw std::bad_alloc();
   }
 
@@ -97,7 +97,7 @@ void* numa_memory_resource::do_allocate(std::size_t bytes, rmm::cuda_stream_view
               _numa_node_set.bits(),
               _numa_node_set.max_count,
               MPOL_MF_STRICT) == -1) {
-    GQE_LOG_ERROR("mbind failed with: ", std::strerror(errno));
+    GQE_LOG_ERROR("mbind failed with: {}", std::strerror(errno));
     throw std::bad_alloc();
   }
 
@@ -105,7 +105,7 @@ void* numa_memory_resource::do_allocate(std::size_t bytes, rmm::cuda_stream_view
     // Register the memory with CUDA for pinned access
     auto status = cudaHostRegister(ptr, aligned_bytes, cudaHostRegisterDefault);
     if (cudaSuccess != status) {
-      GQE_LOG_ERROR("cudaHostRegister failed with: ", cudaGetErrorString(status));
+      GQE_LOG_ERROR("cudaHostRegister failed with: {}", cudaGetErrorString(status));
       ::munmap(ptr, aligned_bytes);
       throw std::bad_alloc();
     }
@@ -122,7 +122,7 @@ void numa_memory_resource::do_deallocate(void* ptr, std::size_t bytes, rmm::cuda
     // Unregister the memory from CUDA
     auto status = cudaHostUnregister(ptr);
     if (cudaSuccess != status) {
-      GQE_LOG_ERROR("cudaHostUnregister failed with: ", cudaGetErrorString(status));
+      GQE_LOG_ERROR("cudaHostUnregister failed with: {}", cudaGetErrorString(status));
     }
   }
 
@@ -130,7 +130,7 @@ void numa_memory_resource::do_deallocate(void* ptr, std::size_t bytes, rmm::cuda
   auto aligned_bytes = round_to_next_page(bytes, _page_kind.size());
 
   if (::munmap(ptr, aligned_bytes) == -1) {
-    GQE_LOG_ERROR("munmap failed with: ", std::strerror(errno));
+    GQE_LOG_ERROR("munmap failed with: {}", std::strerror(errno));
     throw std::bad_alloc();
   }
 }

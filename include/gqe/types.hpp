@@ -32,6 +32,7 @@ enum class io_engine_type { automatic, io_uring, psync };
 
 /**
  * @brief Enum to specify the type of a join.
+ * check here for more details: https://substrait.io/relations/logical_relations/#join-types
  */
 enum class join_type_type { inner, left, left_semi, left_anti, full, single };
 

@@ -17,6 +17,8 @@
 #include <gqe/executor/filter.hpp>
 #include <gqe/executor/gen_ident_col.hpp>
 #include <gqe/executor/join.hpp>
+#include <gqe/executor/partition.hpp>
+#include <gqe/executor/partition_merge.hpp>
 #include <gqe/executor/project.hpp>
 #include <gqe/executor/read.hpp>
 #include <gqe/executor/sort.hpp>
@@ -26,6 +28,7 @@
 #include <gqe/executor/write.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
+#include <gqe/logical/utility.hpp>
 #include <gqe/physical/aggregate.hpp>
 #include <gqe/physical/fetch.hpp>
 #include <gqe/physical/filter.hpp>
@@ -34,6 +37,7 @@
 #include <gqe/physical/project.hpp>
 #include <gqe/physical/read.hpp>
 #include <gqe/physical/set.hpp>
+#include <gqe/physical/shuffle.hpp>
 #include <gqe/physical/sort.hpp>
 #include <gqe/physical/user_defined.hpp>
 #include <gqe/physical/window.hpp>
@@ -52,8 +56,27 @@
 #include <stack>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
 
 namespace gqe {
+
+namespace {
+
+template <typename ExprCls>
+inline std::enable_if_t<
+  std::is_same_v<std::remove_const_t<std::remove_pointer_t<ExprCls>>, expression>,
+  std::vector<std::unique_ptr<expression>>>
+clone_expressions(std::vector<ExprCls> exprs)
+{
+  std::vector<std::unique_ptr<expression>> cloned_exprs;
+
+  for (auto expr : exprs)
+    cloned_exprs.push_back(expr->clone());
+
+  return cloned_exprs;
+}
+
+}  // namespace
 
 task_graph_builder::task_graph_builder(context_reference ctx_ref, catalog const* catalog)
   : _ctx_ref(ctx_ref), _catalog(catalog)
@@ -621,6 +644,128 @@ void task_graph_builder::generate_task_graph_visitor::visit(
       }
     }
   }
+
+  update_cache(relation);
+}
+
+std::vector<std::shared_ptr<task>> task_graph_builder::generate_partition_tasks(
+  physical::relation* child_relation, std::vector<expression*> const& exprs_to_hash)
+{
+  auto child_tasks = generate_tasks(child_relation);
+
+  auto const num_shuffle_partitions = _ctx_ref._query_context->parameters.num_shuffle_partitions;
+
+  std::vector<std::shared_ptr<task>> partition_tasks;
+
+  for (auto& child_task : child_tasks) {
+    partition_tasks.push_back(std::make_shared<partition_task>(_ctx_ref,
+                                                               _current_task_id,
+                                                               _current_stage_id,
+                                                               child_task,
+                                                               clone_expressions(exprs_to_hash),
+                                                               num_shuffle_partitions));
+    _current_task_id++;
+  }
+
+  insert_pipeline_breaker(partition_tasks);
+
+  return partition_tasks;
+}
+
+void task_graph_builder::generate_task_graph_visitor::visit(
+  physical::shuffle_join_relation* relation)
+{
+  if (is_cached(relation)) return;
+  GQE_LOG_TRACE("task_graph_builder::generate_task_graph_visitor::visit(shuffle_join_relation)");
+  auto const relation_join_type = relation->join_type();
+  if (relation_join_type == join_type_type::full || relation_join_type == join_type_type::single)
+    throw std::logic_error("shuffle join does not support full join or single join");
+
+  auto const children = relation->children_unsafe();
+
+  // Generate the left children tasks
+  auto left_tasks = _builder->generate_tasks(children[0]);
+  // Generate the right children tasks
+  auto right_tasks = _builder->generate_tasks(children[1]);
+
+  gqe::unique_keys_policy unique_keys_pol =
+    _builder->_ctx_ref._query_context->parameters.join_use_unique_keys
+      ? relation->unique_keys_policy()
+      : gqe::unique_keys_policy::none;
+  bool perfect_hashing = _builder->_ctx_ref._query_context->parameters.join_use_perfect_hash &&
+                         relation->perfect_hashing();
+
+  // Generate the partition merge tasks and join tasks
+  auto const num_shuffle_partitions =
+    _builder->_ctx_ref._query_context->parameters.num_shuffle_partitions;
+  // Make sure the physical plan is valid
+  assert(dynamic_cast<partition_task*>(left_tasks[0].get()) != nullptr ||
+         (int)left_tasks.size() == num_shuffle_partitions);
+  assert(dynamic_cast<partition_task*>(right_tasks[0].get()) != nullptr ||
+         (int)right_tasks.size() == num_shuffle_partitions);
+
+  for (int32_t partition_idx = 0; partition_idx < num_shuffle_partitions; partition_idx++) {
+    std::shared_ptr<task> left_input_task;
+    std::shared_ptr<task> right_input_task;
+    // check if the left_tasks are partition_task, we only need to check the first task
+    if (dynamic_cast<partition_task*>(left_tasks[0].get())) {
+      auto left_tasks_cloned = left_tasks;
+      // Generate the partition merge tasks
+      left_input_task = std::make_shared<partition_merge_task>(_builder->_ctx_ref,
+                                                               _builder->_current_task_id,
+                                                               _builder->_current_stage_id,
+                                                               left_tasks_cloned,
+                                                               partition_idx);
+      _builder->_current_task_id++;
+    } else {
+      left_input_task = left_tasks[partition_idx];
+    }
+    // check if the right_tasks are partition_task, we only need to check the first task
+    if (dynamic_cast<partition_task*>(right_tasks[0].get())) {
+      auto right_tasks_cloned = right_tasks;
+      right_input_task        = std::make_shared<partition_merge_task>(_builder->_ctx_ref,
+                                                                _builder->_current_task_id,
+                                                                _builder->_current_stage_id,
+                                                                right_tasks_cloned,
+                                                                partition_idx);
+
+      _builder->_current_task_id++;
+    } else {
+      right_input_task = right_tasks[partition_idx];
+    }
+    // Generate the join tasks
+    _generated_tasks.push_back(std::make_shared<join_task>(_builder->_ctx_ref,
+                                                           _builder->_current_task_id,
+                                                           _builder->_current_stage_id,
+                                                           std::move(left_input_task),
+                                                           std::move(right_input_task),
+                                                           relation_join_type,
+                                                           relation->condition()->clone(),
+                                                           relation->projection_indices(),
+                                                           /*hash_map_cache=*/nullptr,
+                                                           /*materialize_output=*/true,
+                                                           unique_keys_pol,
+                                                           perfect_hashing));
+    _builder->_current_task_id++;
+  }
+
+  update_cache(relation);
+}
+
+void task_graph_builder::generate_task_graph_visitor::visit(physical::shuffle_relation* relation)
+{
+  if (is_cached(relation)) return;
+
+  GQE_LOG_TRACE("task_graph_builder::generate_task_graph_visitor::visit(shuffle_relation)");
+  GQE_LOG_TRACE("Shuffle columns for shuffle relation: {}",
+                logical::utility::list_to_string(relation->shuffle_cols_unsafe()));
+
+  auto const children = relation->children_unsafe();
+  assert(children.size() == 1);
+
+  // Generate the children tasks and the partition tasks
+  _generated_tasks =
+    _builder->generate_partition_tasks(children[0], relation->shuffle_cols_unsafe());
 
   update_cache(relation);
 }

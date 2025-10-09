@@ -59,9 +59,12 @@ std::string join_relation_base::print() const
     "\t\"project indices\" : " +
     logical::utility::list_to_string(_projection_indices.begin(), _projection_indices.end()) +
     ",\n";
-  // Children
-  join_mem_string +=
-    "\t\"children\" : " + logical::utility::list_to_string(children_unsafe()) + ",\n";
+  // Unique keys policy
+  join_mem_string += "\t\"unique keys policy\" : \"" +
+                     logical::utility::unique_keys_policy_str(unique_keys_policy()) + "\",\n";
+  // Perfect hashing
+  std::string perfect_hashing_str = perfect_hashing() ? "enabled" : "disabled";
+  join_mem_string += "\t\"perfect hashing\" : \"" + perfect_hashing_str + "\",\n";
   return join_mem_string;
 }
 
@@ -69,15 +72,23 @@ std::string broadcast_join_relation::to_string() const
 {
   std::string join_relation_string = "{\"Broadcast Join\" : {\n";
   join_relation_string += print();
-  // Unique keys policy
-  join_relation_string += "\t\"unique keys policy\" : \"" +
-                          logical::utility::unique_keys_policy_str(unique_keys_policy()) + "\",\n";
   // Broadcast policy
   std::string broadcast_policy_str = policy() == broadcast_policy::left ? "left" : "right";
   join_relation_string += "\t\"broadcast policy\" : \"" + broadcast_policy_str + "\",\n";
-  // Perfect hashing
-  std::string perfect_hashing_str = perfect_hashing() ? "enabled" : "disabled";
-  join_relation_string += "\t\"perfect hashing\" : \"" + perfect_hashing_str + "\"\n";
+  // Children
+  join_relation_string +=
+    "\t\"children\" : " + logical::utility::list_to_string(children_unsafe()) + "\n";
+  join_relation_string += "}}";
+  return join_relation_string;
+}
+
+std::string shuffle_join_relation::to_string() const
+{
+  std::string join_relation_string = "{\"Shuffle Join\" : {\n";
+  join_relation_string += print();
+  // Children
+  join_relation_string +=
+    "\t\"children\" : " + logical::utility::list_to_string(children_unsafe()) + "\n";
   join_relation_string += "}}";
   return join_relation_string;
 }

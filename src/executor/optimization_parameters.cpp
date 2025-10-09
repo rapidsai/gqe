@@ -257,6 +257,9 @@ optimization_parameters::optimization_parameters(bool only_defaults)
 
     filter_use_like_shift_and =
       parse_env_variable("GQE_FILTER_USE_LIKE_SHIFT_AND", filter_use_like_shift_and);
+
+    num_shuffle_partitions =
+      parse_env_variable("GQE_NUM_SHUFFLE_PARTITIONS", num_shuffle_partitions);
   }
 }
 

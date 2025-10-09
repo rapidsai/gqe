@@ -89,7 +89,8 @@ struct optimization_parameters {
     true;  ///< Allow like filter to be optimized for using shift_and in the middle patterns.
            ///< Like_shift_and requires that the max length of middle patterns is <= 64 chars.
   bool aggregation_use_perfect_hash =
-    true;  ///< Allow aggregation to be optimized with perfect hashing.
+    true;                              ///< Allow aggregation to be optimized with perfect hashing.
+  int32_t num_shuffle_partitions = 2;  ///< Number of shuffle partitions for shuffle join.
 };
 
 }  // namespace gqe

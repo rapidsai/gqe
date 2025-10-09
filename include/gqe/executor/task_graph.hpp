@@ -94,6 +94,10 @@ class task_graph_builder {
   std::shared_ptr<task> concatenate(std::vector<std::shared_ptr<task>> input_tasks,
                                     bool is_pipeline_breaker = true);
 
+  // Helper function for generating partition tasks for shuffle join
+  std::vector<std::shared_ptr<task>> generate_partition_tasks(
+    physical::relation* child_relation, std::vector<expression*> const& partition_condition);
+
   // A physical relation visitor used for generating a task graph for the physical relation and its
   // descendants.
   //
@@ -105,6 +109,7 @@ class task_graph_builder {
     void visit(physical::read_relation* relation) override;
     void visit(physical::write_relation* relation) override;
     void visit(physical::broadcast_join_relation* relation) override;
+    void visit(physical::shuffle_join_relation* relation) override;
     void visit(physical::project_relation* relation) override;
     void visit(physical::concatenate_sort_relation* relation) override;
     void visit(physical::filter_relation* relation) override;
@@ -114,6 +119,7 @@ class task_graph_builder {
     void visit(physical::union_all_relation* relation) override;
     void visit(physical::user_defined_relation* relation) override;
     void visit(physical::gen_ident_col_relation* relation) override;
+    void visit(physical::shuffle_relation* relation) override;
 
     // Check the task cache in `_builder`. If the relation is found in the cache, the retrieved
     // tasks are copied to `_generated_tasks`, and the function returns true. Otherwise, the

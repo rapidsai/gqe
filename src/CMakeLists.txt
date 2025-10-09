@@ -65,6 +65,8 @@ add_library(
     executor/window.cpp
     executor/write.cpp
     executor/task_graph.cpp
+    executor/partition.cpp
+    executor/partition_merge.cpp
     expression/binary_op.cpp
     expression/cast.cpp
     expression/if_then_else.cpp
@@ -99,6 +101,7 @@ add_library(
     physical/window.cpp
     physical/user_defined.cpp
     physical/write.cpp
+    physical/shuffle.cpp
     rpc/task_migration.cpp
     storage/compression.cpp
     storage/in_memory.cpp

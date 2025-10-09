@@ -27,6 +27,7 @@ namespace physical {
 class read_relation;
 class write_relation;
 class broadcast_join_relation;
+class shuffle_join_relation;
 class project_relation;
 class concatenate_sort_relation;
 class filter_relation;
@@ -36,6 +37,7 @@ class union_all_relation;
 class user_defined_relation;
 class window_relation;
 class gen_ident_col_relation;
+class shuffle_relation;
 
 /**
  * @brief Base interface for a physical relation visitor.
@@ -54,6 +56,10 @@ struct relation_visitor {
   virtual void visit(broadcast_join_relation* relation)
   {
     throw std::logic_error("Visiting broadcast_join_relation is not implemented");
+  }
+  virtual void visit(shuffle_join_relation* relation)
+  {
+    throw std::logic_error("Visiting shuffle_join_relation is not implemented");
   }
   virtual void visit(project_relation* relation)
   {
@@ -90,6 +96,10 @@ struct relation_visitor {
   virtual void visit(gen_ident_col_relation* relation)
   {
     throw std::logic_error("Visiting gen_ident_col_relation is not implemented");
+  }
+  virtual void visit(shuffle_relation* relation)
+  {
+    throw std::logic_error("Visiting shuffle_relation is not implemented");
   }
 };
 

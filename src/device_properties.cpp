@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -36,15 +36,19 @@ std::vector<rmm::cuda_device_id> get_all_devices()
 
 namespace gqe {
 
-device_properties::device_properties(const std::vector<rmm::cuda_device_id>& visible_devices)
+device_properties const& device_properties::instance()
 {
-  for (auto const& device : visible_devices) {
+  static device_properties instance;
+  return instance;
+}
+
+device_properties::device_properties()
+{
+  for (auto const& device : get_all_devices()) {
     cudaDeviceProp deviceProp;
     GQE_CUDA_TRY(cudaGetDeviceProperties(&deviceProp, device.value()));
     _device_properties_cache.insert(std::make_pair(device.value(), deviceProp));
   }
 }
-
-device_properties::device_properties() : device_properties(get_all_devices()) {}
 
 }  // namespace gqe

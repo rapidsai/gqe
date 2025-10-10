@@ -534,8 +534,7 @@ bool in_memory_read_task::is_zero_copy_possible(
     GQE_LOG_DEBUG("Zero-copy read is disabled by the query context parameters");
     return false;
   }
-  if (!memory_kind::is_gpu_accessible(
-        get_context_reference()._task_manager_context->get_device_properties(), _memory_kind)) {
+  if (!memory_kind::is_gpu_accessible(_memory_kind)) {
     GQE_LOG_WARN(
       "Zero-copy read is not possible because the GPU cannot access pageable memory on this "
       "system");

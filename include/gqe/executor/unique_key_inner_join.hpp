@@ -12,8 +12,6 @@
 
 #pragma once
 
-#include <gqe/device_properties.hpp>
-
 #include <cudf/types.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/memory_resource.hpp>
@@ -72,7 +70,6 @@ class unique_key_join {
    * an inner join between two tables.
    *
    * @param probe The probe table, from which the keys are probed
-   * @param device_properties The GQE device properties cache.
    * @param stream CUDA stream used for device memory operations and kernel launches
    * @param mr Device memory resource used to allocate the returned indices' device memory.
    *
@@ -85,7 +82,6 @@ class unique_key_join {
   [[nodiscard]] std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
                           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
   inner_join(cudf::table_view const& probe,
-             gqe::device_properties const& device_properties,
              rmm::cuda_stream_view stream      = cudf::get_default_stream(),
              rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()) const;
 
@@ -107,7 +103,6 @@ class unique_key_join {
  * @param[in] probe The probe table, from which the keys are probed
  * @param[in] compare_nulls Controls whether null join-key values should match or not
  * @param[in] load_factor The load factor of the hash table
- * @param[in] device_properties The GQE device properties cache.
  * @param[in] stream CUDA stream used for device memory operations and kernel launches
  * @param[in] mr Device memory resource used to allocate the returned indices' device memory
  *
@@ -120,7 +115,6 @@ std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
 unique_key_inner_join(
   cudf::table_view const& build,
   cudf::table_view const& probe,
-  gqe::device_properties const& device_properties,
   cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
   float load_factor                 = 0.5,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),

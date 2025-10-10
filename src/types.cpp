@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/device_properties.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/types.hpp>
 
@@ -136,24 +137,26 @@ std::size_t page_kind::size() const noexcept
   return 0;
 }
 
-bool memory_kind::is_gpu_accessible(const device_properties& device_prop, memory_kind::type type)
+bool memory_kind::is_gpu_accessible(memory_kind::type type)
 {
   // Check if zero copy is legal
-  auto check_pageable_access = device_prop.get<device_properties::property::pageableMemoryAccess>();
+  auto check_pageable_access =
+    device_properties::instance().get<device_properties::property::pageableMemoryAccess>();
 
   return std::visit(
-    utility::overloaded{[&](memory_kind::system) { return check_pageable_access; },
-                        [&](memory_kind::numa) { return check_pageable_access; },
-                        [&](memory_kind::pinned) -> bool {
-                          return device_prop.get<device_properties::property::unifiedAddressing>();
-                        },
-                        [&](memory_kind::numa_pinned) -> bool {
-                          return device_prop.get<device_properties::property::unifiedAddressing>();
-                        },
-                        [](memory_kind::device) { return true; },
-                        [&](memory_kind::managed) -> bool {
-                          return device_prop.get<device_properties::property::managedMemory>();
-                        }},
+    utility::overloaded{
+      [&](memory_kind::system) { return check_pageable_access; },
+      [&](memory_kind::numa) { return check_pageable_access; },
+      [&](memory_kind::pinned) -> bool {
+        return device_properties::instance().get<device_properties::property::unifiedAddressing>();
+      },
+      [&](memory_kind::numa_pinned) -> bool {
+        return device_properties::instance().get<device_properties::property::unifiedAddressing>();
+      },
+      [](memory_kind::device) { return true; },
+      [&](memory_kind::managed) -> bool {
+        return device_properties::instance().get<device_properties::property::managedMemory>();
+      }},
     type);
 }
 

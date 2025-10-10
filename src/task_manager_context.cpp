@@ -31,9 +31,7 @@
 #include <rmm/mr/device/owning_wrapper.hpp>
 
 namespace gqe {
-task_manager_context::task_manager_context(std::unique_ptr<rmm::mr::device_memory_resource> mr,
-                                           device_properties device_prop)
-  : _device_properties{device_prop}
+task_manager_context::task_manager_context(std::unique_ptr<rmm::mr::device_memory_resource> mr)
 {
   _mr = std::move(mr);
   rmm::mr::set_current_device_resource(_mr.get());
@@ -55,9 +53,8 @@ multi_process_task_manager_context::multi_process_task_manager_context(
   std::unique_ptr<gqe::task_migration_client> migration_client,
   std::unique_ptr<gqe::task_migration_service> migration_service,
   gqe::rpc_server&& server,
-  std::unique_ptr<gqe::pgas_memory_resource> upstream_mr,
-  device_properties device_prop)
-  : task_manager_context(std::move(device_prop)),
+  std::unique_ptr<gqe::pgas_memory_resource> upstream_mr)
+  : task_manager_context(),
     comm(std::move(comm)),
     scheduler(std::move(scheduler)),
     migration_client(std::move(migration_client)),

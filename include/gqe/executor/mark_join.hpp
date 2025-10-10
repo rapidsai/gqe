@@ -15,8 +15,6 @@
 #include <cudf/ast/expressions.hpp>
 #include <cudf/types.hpp>
 
-#include <gqe/device_properties.hpp>
-
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
@@ -94,7 +92,6 @@ class mark_join {
     cudf::table_view const& left_conditional,
     cudf::table_view const& right_conditional,
     cudf::ast::expression const* binary_predicate,
-    gqe::device_properties const& device_properties,
     rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
     rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref()) const;
 
@@ -105,13 +102,11 @@ class mark_join {
    * lifetime.
    *
    * @param is_anti_join Determines if result is based on semi join or anti join.
-   * @param device_properties Used to calculate kernel grid configuration
    * @param stream CUDA stream used for device memory operations and kernel launches
    * @param mr Device memory resource used to allocate the returned positions' device memory.
    */
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> compute_positions_list_from_cached_map(
     bool is_anti_join,
-    gqe::device_properties const& device_properties,
     rmm::cuda_stream_view stream      = cudf::get_default_stream(),
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()) const;
 
@@ -122,7 +117,6 @@ class mark_join {
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_semi_mark_join(
   cudf::table_view const& left_keys,
   cudf::table_view const& right_keys,
-  gqe::device_properties const& device_properties,
   cudf::null_equality compare_nulls = cudf::null_equality::UNEQUAL,
   double load_factor                = 0.5,
   rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
@@ -131,7 +125,6 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_semi_mark_join(
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_anti_mark_join(
   cudf::table_view const& left_keys,
   cudf::table_view const& right_keys,
-  gqe::device_properties const& device_properties,
   cudf::null_equality compare_nulls = cudf::null_equality::UNEQUAL,
   double load_factor                = 0.5,
   rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
@@ -143,7 +136,6 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_semi_mark_join(
   cudf::table_view const& left_conditional,
   cudf::table_view const& right_conditional,
   cudf::ast::expression const& binary_predicate,
-  gqe::device_properties const& device_properties,
   cudf::null_equality compare_nulls = cudf::null_equality::UNEQUAL,
   double load_factor                = 0.5,
   rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
@@ -155,7 +147,6 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_anti_mark_join(
   cudf::table_view const& left_conditional,
   cudf::table_view const& right_conditional,
   cudf::ast::expression const& binary_predicate,
-  gqe::device_properties const& device_properties,
   cudf::null_equality compare_nulls = cudf::null_equality::UNEQUAL,
   double load_factor                = 0.5,
   rmm::cuda_stream_view stream      = rmm::cuda_stream_default,

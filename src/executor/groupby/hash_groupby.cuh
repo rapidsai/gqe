@@ -543,13 +543,11 @@ auto create_sparse_results_table(cudf::table_view const& flattened_values,
 }
 
 template <typename FuncType>
-size_t find_shmem_size(FuncType func,
-                       int block_size,
-                       int grid_size,
-                       gqe::device_properties const& device_properties)
+size_t find_shmem_size(FuncType func, int block_size, int grid_size)
 {
   auto device_id = utility::current_cuda_device_id();
-  int num_sms    = device_properties.get<device_properties::multiProcessorCount>(device_id);
+  int num_sms =
+    device_properties::instance().get<device_properties::multiProcessorCount>(device_id);
   auto active_blocks_per_sm = gqe::utility::divide_round_up(grid_size, num_sms);
 
   size_t dynamic_smem_size;
@@ -568,13 +566,11 @@ void launch_compute_aggregates(int block_size,
                                cudf::mutable_table_device_view output_values,
                                cudf::size_type num_input_rows,
                                cudf::aggregation::Kind const* aggs,
-                               gqe::device_properties const& device_properties,
                                rmm::cuda_stream_view stream)
 {
   auto compute_aggregates_fn_ptr =
     compute_aggregates<shared_set_num_elements, cardinality_threshold>;
-  size_t d_shmem_size =
-    find_shmem_size(compute_aggregates_fn_ptr, block_size, grid_size, device_properties);
+  size_t d_shmem_size = find_shmem_size(compute_aggregates_fn_ptr, block_size, grid_size);
 
   // For each aggregation, need two pointers to arrays in shmem
   // One where the aggregation is performed, one indicating the validity of the aggregation
@@ -610,8 +606,7 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
   cuco::empty_key<cudf::size_type> empty_key_sentinel,
   KeyEqual d_key_equal,
   RowHasher d_row_hash,
-  cudf::column_view const& active_mask,
-  gqe::device_properties const& device_properties)
+  cudf::column_view const& active_mask)
 {
   auto const [flattened_values, agg_kinds, aggs] = gqe::flatten_single_pass_aggs(requests);
 
@@ -654,8 +649,7 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
                                                                 KeyEqual,
                                                                 RowHasher,
                                                                 decltype(bucket_extent)>;
-  int grid_size =
-    utility::detect_launch_grid_size(device_properties, compute_mapping_indices_fn_ptr, block_size);
+  int grid_size = utility::detect_launch_grid_size(compute_mapping_indices_fn_ptr, block_size);
   int needed_active_blocks = gqe::utility::divide_round_up(num_input_rows, block_size);
   grid_size                = std::min(grid_size, needed_active_blocks);
 
@@ -714,7 +708,6 @@ rmm::device_uvector<cudf::size_type> compute_single_pass_set_aggs(
     *d_sparse_table,
     num_input_rows,
     d_aggs.data(),
-    device_properties,
     stream);
 
   if (direct_aggregations.value(stream)) {
@@ -763,7 +756,6 @@ rmm::device_uvector<cudf::size_type> groupby(
   cudf::table_view const& keys,
   cudf::host_span<cudf::groupby::aggregation_request const> requests,
   cudf::column_view const& active_mask,
-  gqe::device_properties const& device_properties,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
@@ -806,8 +798,7 @@ rmm::device_uvector<cudf::size_type> groupby(
                                                  empty_key_sentinel,
                                                  d_key_equal,
                                                  d_row_hash,
-                                                 active_mask,
-                                                 device_properties);
+                                                 active_mask);
 
   gqe::sparse_to_dense_results(keys,
                                requests,
@@ -826,14 +817,12 @@ std::pair<std::unique_ptr<cudf::table>, std::vector<cudf::groupby::aggregation_r
   cudf::table_view const& keys,
   cudf::host_span<cudf::groupby::aggregation_request const> requests,
   cudf::column_view const& active_mask,
-  gqe::device_properties const& device_properties,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
   cudf::detail::result_cache dense_results(requests.size());
 
-  auto gather_map =
-    groupby(&dense_results, keys, requests, active_mask, device_properties, stream, mr);
+  auto gather_map = groupby(&dense_results, keys, requests, active_mask, stream, mr);
 
   auto unique_keys = cudf::detail::gather(keys,
                                           gather_map,

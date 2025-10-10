@@ -13,6 +13,7 @@
 #include <gqe/executor/partition_merge.hpp>
 
 #include <gqe/executor/partition.hpp>
+#include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/logger.hpp>
 

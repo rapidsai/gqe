@@ -16,6 +16,7 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/json_formatter.hpp>
 #include <gqe/expression/literal.hpp>
+#include <gqe/utility/cuda.hpp>
 
 #include <cudf/aggregation.hpp>
 #include <cudf/binaryop.hpp>

@@ -24,8 +24,6 @@
 #include <cudf/ast/detail/expression_evaluator.cuh>
 #include <cudf/ast/detail/expression_parser.hpp>
 
-#include <gqe/device_properties.hpp>
-
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
@@ -363,7 +361,6 @@ class mark_join {
                     cudf::table_view const& left_conditional,
                     cudf::table_view const& right_conditional,
                     cudf::ast::expression const* binary_predicate,
-                    gqe::device_properties const& device_properties,
                     rmm::cuda_stream_view stream,
                     rmm::device_async_resource_ref mr) const;
 
@@ -378,7 +375,6 @@ class mark_join {
    */
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> _compute_positions_list_from_cached_map(
     bool is_anti_join,
-    gqe::device_properties const& device_properties,
     rmm::cuda_stream_view stream      = cudf::get_default_stream(),
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()) const;
 
@@ -403,7 +399,6 @@ class mark_join {
                      cudf::table_device_view const& probe_equality_keys_view,
                      comparator_adapter_type const& comparator_adapter,
                      uint32_t shared_memory_per_thread,
-                     gqe::device_properties const& device_properties,
                      rmm::cuda_stream_view stream,
                      rmm::device_async_resource_ref mr) const;
 };

@@ -13,6 +13,7 @@
 #include <gqe/executor/partition.hpp>
 
 #include <gqe/expression/column_reference.hpp>
+#include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/logger.hpp>
 

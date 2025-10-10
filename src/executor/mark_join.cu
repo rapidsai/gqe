@@ -289,7 +289,6 @@ mark_join::perform_mark_join(cudf::table_view const& probe,
                              cudf::table_view const& left_conditional,
                              cudf::table_view const& right_conditional,
                              cudf::ast::expression const* binary_predicate,
-                             gqe::device_properties const& device_properties,
                              rmm::cuda_stream_view stream,
                              rmm::device_async_resource_ref mr) const
 {
@@ -316,7 +315,6 @@ mark_join::perform_mark_join(cudf::table_view const& probe,
                               *probe_equality_keys_view,
                               comparator_adapter,
                               shared_memory_per_thread,
-                              device_properties,
                               stream,
                               mr);
   } else {
@@ -338,7 +336,6 @@ mark_join::perform_mark_join(cudf::table_view const& probe,
                                 *probe_equality_keys_view,
                                 comparator_adapter,
                                 shared_memory_per_thread,
-                                device_properties,
                                 stream,
                                 mr);
     } else {
@@ -352,7 +349,6 @@ mark_join::perform_mark_join(cudf::table_view const& probe,
                                 *probe_equality_keys_view,
                                 comparator_adapter,
                                 shared_memory_per_thread,
-                                device_properties,
                                 stream,
                                 mr);
     }
@@ -397,7 +393,6 @@ mark_join::_perform_mark_join(cudf::table_device_view const& build_equality_keys
                               cudf::table_device_view const& probe_equality_keys_view,
                               comparator_adapter_type const& comparator_adapter,
                               uint32_t shared_memory_per_thread,
-                              gqe::device_properties const& device_properties,
                               rmm::cuda_stream_view stream,
                               rmm::device_async_resource_ref mr) const
 {
@@ -418,8 +413,8 @@ mark_join::_perform_mark_join(cudf::table_device_view const& build_equality_keys
                                                  comparator_adapter_type,
                                                  decltype(mark_set_ref),
                                                  decltype(probe_iter)>(this->is_low_selectivity());
-  int probe_grid_size    = utility::detect_launch_grid_size(
-    device_properties, mark_probe_kernel, block_size, shared_memory_per_block);
+  int probe_grid_size =
+    utility::detect_launch_grid_size(mark_probe_kernel, block_size, shared_memory_per_block);
 
   rmm::device_scalar<cudf::size_type> mark_counter(0, stream, mr);
   mark_probe_kernel<<<probe_grid_size, block_size, shared_memory_per_block, stream>>>(
@@ -448,8 +443,8 @@ mark_join::_perform_mark_join(cudf::table_device_view const& build_equality_keys
     rmm::device_scalar<cudf::size_type> mark_scan_offset(0, stream, mr);
 
     auto mark_scan_kernel = mark_scan<block_size, mark_set_key_type, decltype(mark_set_ref)>;
-    int scan_grid_size    = utility::detect_launch_grid_size(
-      device_properties, mark_probe_kernel, block_size, shared_memory_per_block);
+    int scan_grid_size =
+      utility::detect_launch_grid_size(mark_probe_kernel, block_size, shared_memory_per_block);
 
     mark_scan_kernel<<<scan_grid_size, block_size, 0, stream>>>(
       mark_set_ref, positions.data(), mark_scan_offset.data(), is_anti_join);
@@ -463,7 +458,6 @@ mark_join::_perform_mark_join(cudf::table_device_view const& build_equality_keys
 
 std::unique_ptr<rmm::device_uvector<cudf::size_type>>
 mark_join::_compute_positions_list_from_cached_map(bool is_anti_join,
-                                                   gqe::device_properties const& device_properties,
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr) const
 {
@@ -476,8 +470,7 @@ mark_join::_compute_positions_list_from_cached_map(bool is_anti_join,
   rmm::device_scalar<cudf::size_type> mark_scan_offset(0, stream, mr);
 
   auto mark_scan_kernel = mark_scan<block_size, mark_set_key_type, decltype(mark_set_ref)>;
-  int scan_grid_size =
-    utility::detect_launch_grid_size(device_properties, mark_scan_kernel, block_size);
+  int scan_grid_size    = utility::detect_launch_grid_size(mark_scan_kernel, block_size);
 
   mark_scan_kernel<<<scan_grid_size, block_size, 0, stream>>>(
     mark_set_ref, build_positions.data(), mark_scan_offset.data(), is_anti_join);
@@ -509,34 +502,25 @@ mark_join::perform_mark_join(cudf::table_view const& probe,
                              cudf::table_view const& left_conditional,
                              cudf::table_view const& right_conditional,
                              cudf::ast::expression const* binary_predicate,
-                             gqe::device_properties const& device_properties,
                              rmm::cuda_stream_view stream,
                              rmm::device_async_resource_ref mr) const
 {
-  return _impl->perform_mark_join(probe,
-                                  is_anti_join,
-                                  left_conditional,
-                                  right_conditional,
-                                  binary_predicate,
-                                  device_properties,
-                                  stream,
-                                  mr);
+  return _impl->perform_mark_join(
+    probe, is_anti_join, left_conditional, right_conditional, binary_predicate, stream, mr);
 }
 
 std::unique_ptr<rmm::device_uvector<cudf::size_type>>
 mark_join::compute_positions_list_from_cached_map(bool is_anti_join,
-                                                  gqe::device_properties const& device_properties,
                                                   rmm::cuda_stream_view stream,
                                                   rmm::device_async_resource_ref mr) const
 {
-  return _impl->_compute_positions_list_from_cached_map(is_anti_join, device_properties);
+  return _impl->_compute_positions_list_from_cached_map(is_anti_join);
 }
 
 // wrapper functions for mark_join
 static inline std::unique_ptr<rmm::device_uvector<cudf::size_type>> uniform_left_mark_join(
   cudf::table_view const& left_equality,
   cudf::table_view const& right_equality,
-  gqe::device_properties const& device_properties,
   cudf::null_equality compare_nulls,
   bool is_anti_join,
   double load_factor,
@@ -554,7 +538,6 @@ static inline std::unique_ptr<rmm::device_uvector<cudf::size_type>> uniform_left
                                               cudf::table_view({}),
                                               cudf::table_view({}),
                                               binary_predicate,
-                                              device_properties,
                                               stream,
                                               mr);
   return std::move(positions.second);
@@ -563,7 +546,6 @@ static inline std::unique_ptr<rmm::device_uvector<cudf::size_type>> uniform_left
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_semi_mark_join(
   cudf::table_view const& left_equality,
   cudf::table_view const& right_equality,
-  gqe::device_properties const& device_properties,
   cudf::null_equality compare_nulls,
   double load_factor,
   rmm::cuda_stream_view stream,
@@ -574,20 +556,13 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_semi_mark_join(
   GQE_LOG_TRACE("mark join left semi eq cols={} right eq cols={}",
                 left_equality.num_columns(),
                 right_equality.num_columns());
-  return uniform_left_mark_join(left_equality,
-                                right_equality,
-                                device_properties,
-                                compare_nulls,
-                                is_anti_join,
-                                load_factor,
-                                stream,
-                                mr);
+  return uniform_left_mark_join(
+    left_equality, right_equality, compare_nulls, is_anti_join, load_factor, stream, mr);
 }
 
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_anti_mark_join(
   cudf::table_view const& left_equality,
   cudf::table_view const& right_equality,
-  gqe::device_properties const& device_properties,
   cudf::null_equality compare_nulls,
   double load_factor,
   rmm::cuda_stream_view stream,
@@ -599,14 +574,8 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_anti_mark_join(
                 left_equality.num_columns(),
                 right_equality.num_columns());
 
-  return uniform_left_mark_join(left_equality,
-                                right_equality,
-                                device_properties,
-                                compare_nulls,
-                                is_anti_join,
-                                load_factor,
-                                stream,
-                                mr);
+  return uniform_left_mark_join(
+    left_equality, right_equality, compare_nulls, is_anti_join, load_factor, stream, mr);
 }
 
 static inline std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_mark_join(
@@ -615,7 +584,6 @@ static inline std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_m
   cudf::table_view const& left_conditional,
   cudf::table_view const& right_conditional,
   cudf::ast::expression const& binary_predicate,
-  gqe::device_properties const& device_properties,
   cudf::null_equality compare_nulls,
   bool is_anti_join,
   double load_factor,
@@ -629,7 +597,6 @@ static inline std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_m
                                               left_conditional,
                                               right_conditional,
                                               &binary_predicate,
-                                              device_properties,
                                               stream,
                                               mr);
   return std::move(positions.second);
@@ -641,7 +608,6 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_semi_mark_join(
   cudf::table_view const& left_conditional,
   cudf::table_view const& right_conditional,
   cudf::ast::expression const& binary_predicate,
-  gqe::device_properties const& device_properties,
   cudf::null_equality compare_nulls,
   double load_factor,
   rmm::cuda_stream_view stream,
@@ -662,7 +628,6 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_semi_mark_join(
                               left_conditional,
                               right_conditional,
                               binary_predicate,
-                              device_properties,
                               compare_nulls,
                               is_anti_join,
                               load_factor,
@@ -676,7 +641,6 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_anti_mark_join(
   cudf::table_view const& left_conditional,
   cudf::table_view const& right_conditional,
   cudf::ast::expression const& binary_predicate,
-  gqe::device_properties const& device_properties,
   cudf::null_equality compare_nulls,
   double load_factor,
   rmm::cuda_stream_view stream,
@@ -697,7 +661,6 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_anti_mark_join(
                               left_conditional,
                               right_conditional,
                               binary_predicate,
-                              device_properties,
                               compare_nulls,
                               is_anti_join,
                               load_factor,

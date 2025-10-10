@@ -27,11 +27,11 @@
 namespace gqe {
 
 /**
- * @brief Wrapper class for caching and accessing device properties. Intended to be accessed through
- * the task manager context.
+ * @brief Singleton wrapper class for caching and accessing device properties.
  *
  */
-struct device_properties {
+class device_properties {
+ public:
   /**
    * @brief Enum specifying accessible and enabled device properties
    *
@@ -39,19 +39,19 @@ struct device_properties {
   enum property { multiProcessorCount, pageableMemoryAccess, unifiedAddressing, managedMemory };
 
   /**
-   * @brief Construct a new device properties object given a set of visible devices. By default,
-   * properties of all visible devices are cached.
-   * @warning We assume that set of visible_devices does not change during execution.
+   * @brief Get the singleton instance of device_properties.  Properties of all visible devices are
+   * cached.
+   * @warning We assume that set of visible devices does not change during execution.
    *
-   * @param visible_devices
+   * @return device_properties& Reference to the singleton instance
    */
-  explicit device_properties(const std::vector<rmm::cuda_device_id>&
-                               visible_devices);  // query and cache all visible device properties
-  device_properties();                            // query and cache all visible device properties
-  device_properties(const device_properties&)            = default;
-  device_properties(device_properties&&)                 = default;
-  device_properties& operator=(const device_properties&) = default;
-  device_properties& operator=(device_properties&&)      = default;
+  static device_properties const& instance();
+
+  // Delete copy constructor and assignment operator
+  device_properties(const device_properties&)            = delete;
+  device_properties& operator=(const device_properties&) = delete;
+  device_properties(device_properties&&)                 = delete;
+  device_properties& operator=(device_properties&&)      = delete;
 
   /**
    * @brief Get some property p for device.
@@ -64,6 +64,11 @@ struct device_properties {
   auto get(rmm::cuda_device_id device = utility::current_cuda_device_id()) const;
 
  private:
+  /**
+   * @brief Private constructor for singleton pattern
+   */
+  explicit device_properties();
+
   std::unordered_map<int, cudaDeviceProp> _device_properties_cache;
 
   template <property p>

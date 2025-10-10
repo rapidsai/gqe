@@ -177,7 +177,6 @@ class unique_key_join {
    * an inner join between two tables.
    *
    * @param probe The probe table, from which the keys are probed
-   * @param device_properties The GQE device properties cache.
    * @param stream CUDA stream used for device memory operations and kernel launches
    * @param mr Device memory resource used to allocate the returned indices' device memory.
    *
@@ -188,7 +187,6 @@ class unique_key_join {
   [[nodiscard]] std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
                           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
   inner_join(cudf::table_view const& probe,
-             gqe::device_properties const& device_properties,
              rmm::cuda_stream_view stream      = cudf::get_default_stream(),
              rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()) const;
 

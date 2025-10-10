@@ -13,7 +13,6 @@
 #pragma once
 
 #include <gqe/context_reference.hpp>
-#include <gqe/device_properties.hpp>
 #include <gqe/executor/mark_join.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/executor/unique_key_inner_join.hpp>
@@ -35,9 +34,7 @@ class join_interface {
 
   virtual std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
                     std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe,
-        join_type_type join_type,
-        gqe::device_properties const& device_properties) const = 0;
+  probe(cudf::table_view const& probe, join_type_type join_type) const = 0;
 
   virtual std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
                     std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
@@ -45,8 +42,7 @@ class join_interface {
         cudf::table_view const& left_conditional,
         cudf::table_view const& right_conditional,
         cudf::ast::expression const* binary_predicate,
-        join_type_type join_type,
-        gqe::device_properties const& device_properties) const = 0;
+        join_type_type join_type) const = 0;
 };
 
 class hash_join_interface : public join_interface {
@@ -58,9 +54,7 @@ class hash_join_interface : public join_interface {
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe,
-        join_type_type join_type,
-        gqe::device_properties const& device_properties) const override;
+  probe(cudf::table_view const& probe, join_type_type join_type) const override;
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
@@ -68,8 +62,7 @@ class hash_join_interface : public join_interface {
         cudf::table_view const& left_conditional,
         cudf::table_view const& right_conditional,
         cudf::ast::expression const* binary_predicate,
-        join_type_type join_type,
-        gqe::device_properties const& device_properties) const override
+        join_type_type join_type) const override
   {
     throw std::logic_error("Unsupported join type: mixed hash join");
   }
@@ -87,9 +80,7 @@ class unique_key_join_interface : public join_interface {
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe,
-        join_type_type join_type,
-        gqe::device_properties const& device_properties) const override;
+  probe(cudf::table_view const& probe, join_type_type join_type) const override;
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
@@ -97,8 +88,7 @@ class unique_key_join_interface : public join_interface {
         cudf::table_view const& left_conditional,
         cudf::table_view const& right_conditional,
         cudf::ast::expression const* binary_predicate,
-        join_type_type join_type,
-        gqe::device_properties const& device_properties) const override
+        join_type_type join_type) const override
   {
     throw std::logic_error("Unsupported join type: mixed unique key join");
   }
@@ -117,9 +107,7 @@ class mark_join_interface : public join_interface {
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe,
-        join_type_type join_type,
-        gqe::device_properties const& device_properties) const override;
+  probe(cudf::table_view const& probe, join_type_type join_type) const override;
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
@@ -127,11 +115,10 @@ class mark_join_interface : public join_interface {
         cudf::table_view const& left_conditional,
         cudf::table_view const& right_conditional,
         cudf::ast::expression const* binary_predicate,
-        join_type_type join_type,
-        gqe::device_properties const& device_properties) const override;
+        join_type_type join_type) const override;
 
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> compute_positions_list_from_cached_map(
-    join_type_type join_type, gqe::device_properties const& device_properties) const;
+    join_type_type join_type) const;
 
  private:
   mutable std::unique_ptr<gqe::mark_join> _mark_join_interface;

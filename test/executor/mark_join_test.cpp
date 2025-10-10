@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-#include <gqe/device_properties.hpp>
 #include <gqe/executor/mark_join.hpp>
 
 #include <cudf/ast/expressions.hpp>
@@ -66,7 +65,6 @@ class mark_join_test : public ::testing::Test {
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, sorted->view().column(0));
   }
 
-  gqe::device_properties const device_properties;
   rmm::cuda_stream_view stream;
   rmm::mr::device_memory_resource* mr;
 };
@@ -88,8 +86,8 @@ TEST_F(semi_equality, one_column)
   auto left_equi  = cudf::table_view{{left_equi_col0}};
   auto right_equi = cudf::table_view{{right_equi_col0}};
 
-  auto result = gqe::left_semi_mark_join(
-    left_equi, right_equi, device_properties, cudf::null_equality::EQUAL, 0.5, stream, mr);
+  auto result =
+    gqe::left_semi_mark_join(left_equi, right_equi, cudf::null_equality::EQUAL, 0.5, stream, mr);
   stream.synchronize();
 
   column_wrapper<cudf::size_type> expected{0, 1, 3};
@@ -109,8 +107,8 @@ TEST_F(semi_equality, two_column)
   auto left_equi  = cudf::table_view{{left_equi_col0, left_equi_col1}};
   auto right_equi = cudf::table_view{{right_equi_col0, right_equi_col1}};
 
-  auto result = gqe::left_semi_mark_join(
-    left_equi, right_equi, device_properties, cudf::null_equality::EQUAL, 0.5, stream, mr);
+  auto result =
+    gqe::left_semi_mark_join(left_equi, right_equi, cudf::null_equality::EQUAL, 0.5, stream, mr);
   stream.synchronize();
 
   column_wrapper<cudf::size_type> expected{1};
@@ -126,8 +124,8 @@ TEST_F(anti_equality, one_column)
   auto left_equi  = cudf::table_view{{left_equi_col0}};
   auto right_equi = cudf::table_view{{right_equi_col0}};
 
-  auto result = gqe::left_anti_mark_join(
-    left_equi, right_equi, device_properties, cudf::null_equality::EQUAL, 0.5, stream, mr);
+  auto result =
+    gqe::left_anti_mark_join(left_equi, right_equi, cudf::null_equality::EQUAL, 0.5, stream, mr);
   stream.synchronize();
 
   column_wrapper<cudf::size_type> expected{2, 4};
@@ -157,7 +155,6 @@ TEST_F(semi_mixed, one_equality_one_condition)
                                                left_cond,
                                                right_cond,
                                                binary_predicate,
-                                               device_properties,
                                                cudf::null_equality::EQUAL,
                                                0.5,
                                                stream,
@@ -191,7 +188,6 @@ TEST_F(semi_mixed, asymmetric_condition)
                                                left_cond,
                                                right_cond,
                                                binary_predicate,
-                                               device_properties,
                                                cudf::null_equality::EQUAL,
                                                0.5,
                                                stream,
@@ -232,7 +228,6 @@ TEST_F(semi_mixed, mixed_data_types)
                                                left_cond,
                                                right_cond,
                                                predicate,
-                                               device_properties,
                                                cudf::null_equality::EQUAL,
                                                0.5,
                                                stream,
@@ -271,7 +266,6 @@ TEST_F(semi_mixed, nullable_columns)
                                                left_cond,
                                                right_cond,
                                                binary_predicate,
-                                               device_properties,
                                                cudf::null_equality::EQUAL,
                                                0.5,
                                                stream,
@@ -313,7 +307,6 @@ TEST_F(semi_mixed, test_write_buffer_flush)
                                                left_cond,
                                                right_cond,
                                                binary_predicate,
-                                               device_properties,
                                                cudf::null_equality::EQUAL,
                                                0.5,
                                                stream,
@@ -349,7 +342,6 @@ TEST_F(anti_mixed, one_equality_one_cond)
                                                left_cond,
                                                right_cond,
                                                binary_predicate,
-                                               device_properties,
                                                cudf::null_equality::EQUAL,
                                                0.5,
                                                stream,

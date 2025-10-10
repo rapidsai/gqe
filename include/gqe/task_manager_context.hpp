@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -13,7 +13,6 @@
 #pragma once
 
 #include <cudf/table/table.hpp>
-#include <gqe/device_properties.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/memory_resource/pgas_memory_resource.hpp>
 #include <gqe/rpc/task_migration.hpp>
@@ -60,8 +59,7 @@ struct task_manager_context {
    * @warning Constructing an object of this type will set the current device resource to @param mr
    */
   explicit task_manager_context(std::unique_ptr<rmm::mr::device_memory_resource> mr =
-                                  std::make_unique<rmm::mr::cuda_async_memory_resource>(),
-                                device_properties device_prop = device_properties());
+                                  std::make_unique<rmm::mr::cuda_async_memory_resource>());
 
   /**
    * @brief Destructs a task manager context.
@@ -73,16 +71,10 @@ struct task_manager_context {
   task_manager_context(task_manager_context&&)                 = default;
   task_manager_context& operator=(const task_manager_context&) = delete;
   task_manager_context& operator=(task_manager_context&&)      = default;
-  device_properties const& get_device_properties() const { return _device_properties; };
   virtual void finalize();
 
  protected:
-  device_properties _device_properties;
   std::unique_ptr<rmm::mr::device_memory_resource> _mr;
-
-  // protected constructor so child classes, in this case multi_process_task_manager_context,
-  // dont have to pass in a memory resource in initializer list
-  task_manager_context(device_properties device_prop) : _device_properties(device_prop) {};
 
  public:
   shared_stream copy_engine_stream;
@@ -95,8 +87,7 @@ struct multi_process_task_manager_context : public task_manager_context {
     std::unique_ptr<gqe::task_migration_client> migration_client,
     std::unique_ptr<gqe::task_migration_service> migration_service,
     gqe::rpc_server&& server,
-    std::unique_ptr<gqe::pgas_memory_resource> upstream_mr,
-    device_properties device_prop = device_properties());
+    std::unique_ptr<gqe::pgas_memory_resource> upstream_mr);
 
   static std::unique_ptr<multi_process_task_manager_context> default_init(MPI_Comm mpi_comm);
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -12,7 +12,6 @@
 
 #pragma once
 
-#include <gqe/device_properties.hpp>
 #include <rmm/cuda_device.hpp>
 
 #include <cstdint>
@@ -262,7 +261,7 @@ using type = std::variant<memory_kind::system,
 /**
  * @brief Return whether the GPU can directly access the memory kind
  */
-bool is_gpu_accessible(const device_properties& device_prop, memory_kind::type type);
+bool is_gpu_accessible(memory_kind::type type);
 
 }  // namespace memory_kind
 

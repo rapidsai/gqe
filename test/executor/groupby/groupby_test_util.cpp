@@ -75,9 +75,7 @@ void test_single_agg(cudf::column_view const& keys,
 
   gqe::groupby::groupby groupby_obj{cudf::table_view({keys})};
   cudf::column_view active_mask;
-  auto device_properties = gqe::device_properties{};
-  auto result            = groupby_obj.aggregate(
-    requests, active_mask, device_properties, cudf::test::get_default_stream());
+  auto result = groupby_obj.aggregate(requests, active_mask, cudf::test::get_default_stream());
 
   auto const sort_order  = cudf::sorted_order(result.first->view(), column_order, precedence);
   auto const sorted_keys = cudf::gather(result.first->view(), *sort_order);

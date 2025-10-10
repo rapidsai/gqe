@@ -16,7 +16,6 @@
 
 #include "hash_groupby.cuh"
 
-#include <gqe/device_properties.hpp>
 #include <gqe/executor/groupby.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/logger.hpp>
@@ -81,17 +80,15 @@ groupby::groupby(cudf::table_view const& keys) : _keys{keys} {};
 std::pair<std::unique_ptr<cudf::table>, std::vector<cudf::groupby::aggregation_result>>
 groupby::aggregate(cudf::host_span<cudf::groupby::aggregation_request const> requests,
                    cudf::column_view const& active_mask,
-                   gqe::device_properties const& device_properties,
                    rmm::mr::device_memory_resource* mr)
 {
-  return aggregate(requests, active_mask, device_properties, cudf::get_default_stream(), mr);
+  return aggregate(requests, active_mask, cudf::get_default_stream(), mr);
 }
 
 // Compute aggregation requests
 std::pair<std::unique_ptr<cudf::table>, std::vector<cudf::groupby::aggregation_result>>
 groupby::aggregate(cudf::host_span<cudf::groupby::aggregation_request const> requests,
                    cudf::column_view const& active_mask,
-                   gqe::device_properties const& device_properties,
                    rmm::cuda_stream_view stream,
                    rmm::mr::device_memory_resource* mr)
 {
@@ -111,7 +108,7 @@ groupby::aggregate(cudf::host_span<cudf::groupby::aggregation_request const> req
 
   if (_keys.num_rows() == 0) { return {empty_like(_keys), empty_results(requests)}; }
 
-  return gqe::groupby::hash::groupby(_keys, requests, active_mask, device_properties, stream, mr);
+  return gqe::groupby::hash::groupby(_keys, requests, active_mask, stream, mr);
 }
 
 }  // namespace groupby

@@ -13,7 +13,6 @@
 #include "unique_key_inner_join.cuh"
 
 #include <gqe/catalog.hpp>
-#include <gqe/device_properties.hpp>
 #include <gqe/executor/unique_key_inner_join.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
@@ -215,7 +214,6 @@ cudf::size_type perform_join(Set const& build_set,
                              cudf::table_view const& probe_keys,
                              cudf::size_type* probe_indices,
                              cudf::null_equality compare_nulls,
-                             gqe::device_properties const& device_properties,
                              rmm::cuda_stream_view stream = cudf::get_default_stream())
 {
   auto probe_keys_view      = cudf::table_device_view::create(probe_keys, stream);
@@ -244,8 +242,7 @@ cudf::size_type perform_join(Set const& build_set,
 
   auto probe_hash_set_kernel =
     probe_hash_set<block_size, decltype(build_set_ref), decltype(probe_iter)>;
-  int grid_size =
-    utility::detect_launch_grid_size(device_properties, probe_hash_set_kernel, block_size);
+  int grid_size = utility::detect_launch_grid_size(probe_hash_set_kernel, block_size);
 
   auto const in_rows_per_block = gqe::utility::divide_round_up(probe_keys.num_rows(), grid_size);
   rmm::device_scalar<cudf::size_type> global_offset(0, stream);
@@ -269,7 +266,6 @@ unique_key_inner_join_impl(Set const& build_set,
                            cudf::table_view build_keys,
                            cudf::table_view probe_keys,
                            cudf::null_equality compare_nulls,
-                           gqe::device_properties const& device_properties,
                            rmm::cuda_stream_view stream,
                            rmm::device_async_resource_ref mr)
 {
@@ -283,7 +279,6 @@ unique_key_inner_join_impl(Set const& build_set,
                                                 probe_keys,
                                                 probe_indices.data(),
                                                 compare_nulls,
-                                                device_properties,
                                                 stream);
 
   build_indices.resize(out_rows_total, stream);
@@ -338,7 +333,6 @@ unique_key_join::unique_key_join(cudf::table_view const& build,
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 unique_key_join::inner_join(cudf::table_view const& probe,
-                            gqe::device_properties const& device_properties,
                             rmm::cuda_stream_view stream,
                             rmm::device_async_resource_ref mr) const
 {
@@ -362,7 +356,7 @@ unique_key_join::inner_join(cudf::table_view const& probe,
               "Mismatch in joining column data types");
 
   auto [build_indices, probe_indices] = unique_key_inner_join_impl(
-    this->_build_set, this->_build, probe, this->_nulls_equal, device_properties, stream, mr);
+    this->_build_set, this->_build, probe, this->_nulls_equal, stream, mr);
 
   return std::pair(std::move(probe_indices), std::move(build_indices));
 }
@@ -392,11 +386,10 @@ unique_key_join::~unique_key_join() = default;
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 unique_key_join::inner_join(cudf::table_view const& probe,
-                            gqe::device_properties const& device_properties,
                             rmm::cuda_stream_view stream,
                             rmm::device_async_resource_ref mr) const
 {
-  return _impl->inner_join(probe, device_properties, stream, mr);
+  return _impl->inner_join(probe, stream, mr);
 }
 
 bool unique_key_join_supported(cudf::table_view const& keys)
@@ -410,7 +403,6 @@ std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 unique_key_inner_join(cudf::table_view const& build,
                       cudf::table_view const& probe,
-                      gqe::device_properties const& device_properties,
                       cudf::null_equality compare_nulls,
                       float load_factor,
                       rmm::cuda_stream_view stream,
@@ -423,7 +415,7 @@ unique_key_inner_join(cudf::table_view const& build,
   }
 
   auto join_obj = gqe::unique_key_join(build, compare_nulls, load_factor, stream, mr);
-  auto [probe_indices, build_indices] = join_obj.inner_join(probe, device_properties, stream, mr);
+  auto [probe_indices, build_indices] = join_obj.inner_join(probe, stream, mr);
   return std::pair(std::move(build_indices), std::move(probe_indices));
 }
 }  // namespace gqe

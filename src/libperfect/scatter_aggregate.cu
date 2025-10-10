@@ -3,6 +3,7 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/aggregation/aggregation.hpp>
+#include <gqe/device_properties.hpp>
 #include <optional>
 
 #include "scatter_aggregate.hpp"
@@ -25,7 +26,8 @@ __host__ __device__ output_type get_identity()
   }
 }
 
-template <cudf::aggregation::Kind aggregation_kind,
+template <int thread_count,
+          cudf::aggregation::Kind aggregation_kind,
           int scatter_size,
           bool has_row_mask,
           bool has_output_map,
@@ -36,23 +38,24 @@ template <cudf::aggregation::Kind aggregation_kind,
           typename output_type>
 //__launch_bounds__(maxThreadsPerBlock, minBlocksPerMultiprocessor)
 //__launch_bounds__(THREADS_PER_BLOCK, 1)
-__global__ void scatter_register_aggregate_kernel(const value_type values,
-                                                  const index_type indices,
-                                                  const row_mask_type row_mask,
-                                                  const output_map_type output_map,
-                                                  int64_t length,
-                                                  output_type output)
+__global__ void scatter_private_shmem_aggregate_kernel(const value_type values,
+                                                       const index_type indices,
+                                                       const row_mask_type row_mask,
+                                                       const output_map_type output_map,
+                                                       int64_t length,
+                                                       output_type output)
 {
-  auto block_count           = gridDim.x;
-  auto threads_per_block     = blockDim.x;
-  auto block_index           = blockIdx.x;
-  auto thread_in_block_index = threadIdx.x;
-  auto thread_in_grid_index  = threads_per_block * block_index + thread_in_block_index;
+  auto block_count                 = gridDim.x;
+  constexpr auto threads_per_block = thread_count;
+  auto block_index                 = blockIdx.x;
+  auto thread_in_block_index       = threadIdx.x;
+  auto thread_in_grid_index        = threads_per_block * block_index + thread_in_block_index;
 
   // Zero all storage.
-  typename std::pointer_traits<output_type>::element_type sum[scatter_size];
+  __shared__
+    typename std::pointer_traits<output_type>::element_type sum[thread_count][scatter_size];
   for (size_t i = 0; i < scatter_size; i++) {
-    sum[i] =
+    sum[thread_in_block_index][i] =
       get_identity<aggregation_kind, typename std::pointer_traits<output_type>::element_type>();
   }
   __shared__ typename std::pointer_traits<output_type>::element_type block_sum[scatter_size];
@@ -62,7 +65,7 @@ __global__ void scatter_register_aggregate_kernel(const value_type values,
   }
   __syncthreads();
 
-  // Do register sums.
+  // Do private_shmem sums.
   for (size_t i = thread_in_grid_index; i < length; i += threads_per_block * block_count) {
     if constexpr (has_row_mask) {
       if (!row_mask[i]) { continue; }
@@ -70,45 +73,38 @@ __global__ void scatter_register_aggregate_kernel(const value_type values,
     auto index_to_write = indices[i];
     if constexpr (has_output_map) { index_to_write = output_map[index_to_write]; }
     if constexpr (aggregation_kind == cudf::aggregation::SUM) {
-      sum[index_to_write] += values[i];
+      sum[thread_in_block_index][index_to_write] += values[i];
     } else if constexpr (aggregation_kind == cudf::aggregation::MIN) {
-      sum[index_to_write] =
-        min(sum[index_to_write],
+      sum[thread_in_block_index][index_to_write] =
+        min(sum[thread_in_block_index][index_to_write],
             static_cast<typename std::pointer_traits<output_type>::element_type>(values[i]));
     } else if constexpr (aggregation_kind == cudf::aggregation::PRODUCT) {
-      sum[index_to_write] *= values[i];
+      sum[thread_in_block_index][index_to_write] *= values[i];
     } else if constexpr (aggregation_kind == cudf::aggregation::COUNT_VALID ||
                          aggregation_kind == cudf::aggregation::COUNT_ALL) {
-      sum[index_to_write]++;
+      sum[thread_in_block_index][index_to_write]++;
     } else {
       static_assert(aggregation_kind < 0);  // Support the other aggregation types.
     }
   }
 
-  // Aggregate registers into shmem.
+  // Aggregate private_shmems into shmem.
   for (size_t i = 0; i < scatter_size; i++) {
     if constexpr (aggregation_kind == cudf::aggregation::SUM ||
                   aggregation_kind == cudf::aggregation::COUNT_VALID ||
                   aggregation_kind == cudf::aggregation::COUNT_ALL) {
-      if constexpr (std::is_same_v<typename std::pointer_traits<output_type>::element_type, int> ||
-                    std::is_same_v<typename std::pointer_traits<output_type>::element_type,
-                                   unsigned>) {
-        auto warp_sum = reduce_add_sync(0xffffffff, sum[i]);
-        if (threadIdx.x % 32 == 0) { atomicAdd(&block_sum[i], warp_sum); }
-      } else {
-        atomicAdd(&block_sum[i], sum[i]);
-      }
+      atomicAdd(&block_sum[i], sum[thread_in_block_index][i]);
     } else if constexpr (aggregation_kind == cudf::aggregation::MIN) {
       if constexpr (std::is_same_v<typename std::pointer_traits<output_type>::element_type, int> ||
                     std::is_same_v<typename std::pointer_traits<output_type>::element_type,
                                    unsigned>) {
-        auto warp_sum = reduce_min_sync(0xffffffff, sum[i]);
-        if (threadIdx.x % 32 == 0) { atomicMin(&block_sum[i], warp_sum); }
+        auto warp_sum = reduce_min_sync(0xffffffff, sum[thread_in_block_index][i]);
+        if (thread_in_block_index % 32 == 0) { atomicMin(&block_sum[i], warp_sum); }
       } else {
-        atomicMin(&block_sum[i], sum[i]);
+        atomicMin(&block_sum[i], sum[thread_in_block_index][i]);
       }
     } else if constexpr (aggregation_kind == cudf::aggregation::PRODUCT) {
-      atomicProduct(&block_sum[i], sum[i]);
+      atomicProduct(&block_sum[i], sum[thread_in_block_index][i]);
     } else {
       static_assert(aggregation_kind < 0);  // Support the other aggregation types.
     }
@@ -276,30 +272,59 @@ CudaGpuArray<output_type> scatter_aggregate_helper(const value_type values,
 {
   // TODO: Optimize the below logic for performance, figuring out
   // which algorithm to run for each case.
-  constexpr auto block_count  = 1024;
-  constexpr auto thread_count = 512;
+  // Get SM count using memoized device properties.
+  int sm_count =
+    gqe::device_properties::instance().get<gqe::device_properties::multiProcessorCount>();
+  constexpr auto BLOCKS_PER_SM = 64;
+
+  auto block_count            = BLOCKS_PER_SM * sm_count;
+  constexpr auto thread_count = 64;
   CudaGpuArray<output_type> result(max_index);
   result.fill(get_identity<aggregation_kind, output_type>());
   // This code causes hard to trace bug in gqe-python tpch q17 with
   // sf100.  It's unclear if the code is even faster than shmem
   // aggregate.
   if (max_index <= 1) {
-    scatter_register_aggregate_kernel<aggregation_kind, 1, has_row_mask, has_output_map>
+    scatter_private_shmem_aggregate_kernel<thread_count,
+                                           aggregation_kind,
+                                           1,
+                                           has_row_mask,
+                                           has_output_map>
       <<<block_count, thread_count>>>(values, indices, row_mask, output_map, length, result.get());
   } else if (max_index <= 2) {
-    scatter_register_aggregate_kernel<aggregation_kind, 2, has_row_mask, has_output_map>
+    scatter_private_shmem_aggregate_kernel<thread_count,
+                                           aggregation_kind,
+                                           2,
+                                           has_row_mask,
+                                           has_output_map>
       <<<block_count, thread_count>>>(values, indices, row_mask, output_map, length, result.get());
   } else if (max_index <= 4) {
-    scatter_register_aggregate_kernel<aggregation_kind, 4, has_row_mask, has_output_map>
+    scatter_private_shmem_aggregate_kernel<thread_count,
+                                           aggregation_kind,
+                                           4,
+                                           has_row_mask,
+                                           has_output_map>
       <<<block_count, thread_count>>>(values, indices, row_mask, output_map, length, result.get());
   } else if (max_index <= 8) {
-    scatter_register_aggregate_kernel<aggregation_kind, 8, has_row_mask, has_output_map>
+    scatter_private_shmem_aggregate_kernel<thread_count,
+                                           aggregation_kind,
+                                           8,
+                                           has_row_mask,
+                                           has_output_map>
       <<<block_count, thread_count>>>(values, indices, row_mask, output_map, length, result.get());
   } else if (max_index <= 16) {
-    scatter_register_aggregate_kernel<aggregation_kind, 16, has_row_mask, has_output_map>
+    scatter_private_shmem_aggregate_kernel<thread_count,
+                                           aggregation_kind,
+                                           16,
+                                           has_row_mask,
+                                           has_output_map>
       <<<block_count, thread_count>>>(values, indices, row_mask, output_map, length, result.get());
   } else if (max_index <= 32) {
-    scatter_register_aggregate_kernel<aggregation_kind, 32, has_row_mask, has_output_map>
+    scatter_private_shmem_aggregate_kernel<thread_count,
+                                           aggregation_kind,
+                                           32,
+                                           has_row_mask,
+                                           has_output_map>
       <<<block_count, thread_count>>>(values, indices, row_mask, output_map, length, result.get());
   } else if (sizeof(output_type) * max_index <= 32768) {
     // 32k fits into 48k shmem for sure.

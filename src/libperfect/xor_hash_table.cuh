@@ -884,9 +884,7 @@ class HashTable {
       div_round_up(left_keys_count, static_cast<decltype(left_keys_count)>(THREADS_PER_BLOCK));
 
     if constexpr (insert_output == InsertOutput::True) {
-      // auto cuda_tensor_options = torch::TensorOptions()
-      //                            .dtype(torch::CppTypeToScalarType<hash_key_type>())
-      //                            .device(torch::kCUDA);
+      // TODO: If the hash table is much larger than the number of keys, avoid calling condense.
       if (perfect_hashing) {
         hash_insert_kernel<has_mask, check_equality, PerfectHashing::True>
           <<<left_block_count, THREADS_PER_BLOCK>>>(

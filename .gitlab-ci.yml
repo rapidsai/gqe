@@ -1,18 +1,31 @@
 stages:
   - test
 
+variables:
+  GQE_DEFAULT_IMAGE: "gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_x86_64"
+  GQE_MR_IMAGE: "gitlab-master.nvidia.com:5005/devtech-compute/gqe:$CI_COMMIT_REF_SLUG"
+
+  DOCKER_IMAGE: $GQE_DEFAULT_IMAGE
+
 code_style:
   stage: test
-  image: gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_x86_64
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: 
+        - Dockerfile
+        - conda/docker-aarch64.yml
+        - conda/docker-x86_64.yml
+      variables:
+        DOCKER_IMAGE: $GQE_MR_IMAGE
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  image: $DOCKER_IMAGE
   before_script:
     - source /conda/bin/activate gqe
   script:
     - >
       find ./include ./src ./benchmark ./test -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file --dry-run -Werror ||
       { find ./include ./src ./benchmark ./test -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file -i; git diff | tee format_diff.patch; exit 1; }
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   artifacts:
     paths:
       - format_diff.patch
@@ -21,7 +34,17 @@ code_style:
 
 tpch_queries:
   stage: test
-  image: gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_x86_64
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: 
+        - Dockerfile
+        - conda/docker-aarch64.yml
+        - conda/docker-x86_64.yml
+      variables:
+        DOCKER_IMAGE: $GQE_MR_IMAGE
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  image: $DOCKER_IMAGE
   before_script:
     - source /conda/bin/activate gqe
   script:
@@ -45,6 +68,4 @@ tpch_queries:
     - |
       # TPC-H coverage for SF1
       GQE_LOG_LEVEL=warn bash ./test/end_to_end/run_tpc.sh h ./build /tpch_scratch/datasets/sf1/sf1_id64/ /tpch_scratch/reference_results/sf1 /tpch_scratch/substrait_plans/df_q%d.bin
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+

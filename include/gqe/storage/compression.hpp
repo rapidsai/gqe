@@ -164,6 +164,13 @@ class compression_manager {
   nvcomp::DecompressionConfig configure_decompression(
     nvcomp::CompressionConfig const& compression_config);
 
+  // FIXME: We have two do_decompress functions. See issue:
+  // https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/196
+  std::unique_ptr<rmm::device_buffer> do_decompress(void const* compressed,
+                                                    size_t compressed_size,
+                                                    rmm::cuda_stream_view supplied_stream,
+                                                    rmm::device_async_resource_ref mr);
+
   /**
    * @brief Function to fetch the compression format used by the compression manager.
    *

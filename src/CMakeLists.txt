@@ -45,6 +45,7 @@ add_library(
     memory_resource/pinned_memory_resource.cpp
     memory_resource/system_memory_resource.cpp
     memory_resource/pgas_memory_resource.cpp
+    memory_resource/boost_shared_memory_resource.cpp
     executor/groupby/groupby.cu
     executor/aggregate.cpp
     executor/concatenate.cpp

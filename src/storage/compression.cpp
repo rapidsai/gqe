@@ -336,6 +336,46 @@ compression_manager::compress_batch(const std::vector<rmm::device_buffer>& devic
   return std::make_pair(std::move(compressed_data_buffers), std::move(compression_configs));
 }
 
+std::unique_ptr<rmm::device_buffer> compression_manager::do_decompress(
+  void const* compressed,
+  size_t compressed_size,
+  rmm::cuda_stream_view supplied_stream,
+  rmm::device_async_resource_ref mr)
+{
+  GQE_LOG_TRACE(
+    "Starting decompression for column '{}': compressed_size={}, compression_algorithm={}, "
+    "data_type={}, chunk_size={}, cudf_type={}",
+    _column_name,
+    compressed_size,
+    compression_format_to_string(_comp_format),
+    static_cast<int>(_data_type),
+    _compression_chunk_size,
+    cudf_type_to_string(_cudf_type.id()));
+
+  rmm::device_buffer device_memory_compressed{
+    static_cast<uint8_t const*>(compressed), compressed_size, supplied_stream, mr};
+  auto comp_buffer = static_cast<uint8_t const*>(device_memory_compressed.data());
+
+  auto manager       = create_manager(supplied_stream, mr);
+  auto decomp_config = manager->configure_decompression(comp_buffer);
+  auto decompressed_buffer =
+    std::make_unique<rmm::device_buffer>(decomp_config.decomp_data_size, supplied_stream, mr);
+
+  manager->decompress(
+    static_cast<uint8_t*>(decompressed_buffer->data()), comp_buffer, decomp_config);
+  manager->deallocate_gpu_mem();
+
+  GQE_LOG_TRACE(
+    "Decompression completed for column '{}' using compression algorithm {}: compressed_size={}, "
+    "decompressed_size={}",
+    _column_name,
+    compression_format_to_string(_comp_format),
+    compressed_size,
+    decompressed_buffer->size());
+
+  return decompressed_buffer;
+}
+
 void compression_manager::print_usage() const
 {
   GQE_LOG_ERROR(

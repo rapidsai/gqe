@@ -68,6 +68,9 @@ struct optimization_parameters {
            ///< Char type requires less memory to store and kernels on this type
            ///< are more efficient (ex. gather), but it cannot perform any string
            ///< operations (ex. `like` , `contains`).
+
+  bool use_in_memory_table_multigpu =
+    false;  ///< Use inter-process shared memory for the in-memory table.
   compression_format in_memory_table_compression_format =
     compression_format::none;  ///< Compression format for the in-memory table.
   nvcompType_t in_memory_table_compression_data_type =

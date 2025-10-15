@@ -20,6 +20,7 @@ pgas_memory_resource::pgas_memory_resource(std::size_t bytes) : _allocated{false
 {
   // _local_base_ptr must be 256 bytes aligned, which is required by RMM. See
   // https://docs.rapids.ai/api/rmm/stable/librmm_docs/memory_resources/#_CPPv4N3rmm2mr22device_memory_resourceE
+  GQE_LOG_TRACE("Initializing pgas_memory_resource with bytes={}", bytes);
   std::size_t constexpr allocation_alignment = 256;
   _local_base_ptr                            = nvshmem_align(allocation_alignment, _bytes);
   if (!_local_base_ptr) { throw std::runtime_error("pgas_memory_resource allocation failed."); }

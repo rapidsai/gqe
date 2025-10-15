@@ -156,6 +156,9 @@ bool memory_kind::is_gpu_accessible(memory_kind::type type)
       [](memory_kind::device) { return true; },
       [&](memory_kind::managed) -> bool {
         return device_properties::instance().get<device_properties::property::managedMemory>();
+      },
+      [&](memory_kind::boost_shared) -> bool {
+        return device_properties::instance().get<device_properties::property::unifiedAddressing>();
       }},
     type);
 }

@@ -24,8 +24,12 @@
 #include <gqe/storage/zone_map.hpp>
 #include <gqe/types.hpp>
 
+#include <boost/container/vector.hpp>
+#include <boost/interprocess/managed_shared_memory.hpp>
+#include <boost/interprocess/offset_ptr.hpp>
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_view.hpp>
+#include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 
@@ -45,7 +49,70 @@ class in_memory_writeable_view;
 class row_group;
 using row_group_with_partitions = std::pair<const row_group*, std::vector<zone_map::partition>>;
 
-enum class in_memory_column_type { CONTIGUOUS, COMPRESSED, COMPRESSED_SLICED };
+enum class in_memory_column_type {
+  CONTIGUOUS,
+  COMPRESSED,
+  COMPRESSED_SLICED,
+  SHARED_CONTIGUOUS,
+  SHARED_COMPRESSED
+};
+
+/**
+ * @brief Column with boost data structures that can be safely allocated and
+ * accessed on inter-process CPU shared memory.
+ *
+ * It currently only supports fixed width types and strings.
+ */
+class shared_column {
+ public:
+  explicit shared_column(cudf::column_view col,
+                         boost::interprocess::managed_shared_memory& segment,
+                         rmm::cuda_stream_view stream,
+                         rmm::device_async_resource_ref mr);
+
+  cudf::column_view view() const;
+
+  ~shared_column();
+
+ private:
+  using SharedColumnAllocator =
+    boost::interprocess::allocator<shared_column,
+                                   boost::interprocess::managed_shared_memory::segment_manager>;
+  cudf::data_type _type{cudf::type_id::EMPTY};
+  cudf::size_type _size{};
+  boost::interprocess::offset_ptr<std::byte> _data{};                // pointer to device data
+  boost::interprocess::offset_ptr<cudf::bitmask_type> _null_mask{};  // pointer to device null mask
+  mutable cudf::size_type _null_count{};
+  boost::container::vector<shared_column, SharedColumnAllocator> _children;
+  rmm::device_async_resource_ref _mr;
+  std::size_t _data_size{};
+  std::size_t _null_mask_size{};
+};
+
+/**
+ * @brief Table with boost data structures that can be safely allocated and
+ * accessed on inter-process CPU shared memory.
+ */
+class shared_table {
+ public:
+  explicit shared_table(cudf::table_view table,
+                        boost::interprocess::managed_shared_memory& segment,
+                        rmm::cuda_stream_view stream,
+                        rmm::device_async_resource_ref mr);
+
+  cudf::table_view view() const;
+
+  std::unique_ptr<cudf::table> copy_to_device(rmm::cuda_stream_view stream,
+                                              rmm::device_async_resource_ref mr);
+
+ private:
+  using SharedColumnAllocator =
+    boost::interprocess::allocator<shared_column,
+                                   boost::interprocess::managed_shared_memory::segment_manager>;
+
+  boost::container::vector<shared_column, SharedColumnAllocator> _columns;
+  size_t _size;
+};
 
 /**
  * @brief Abstract base column of an in-memory table.
@@ -108,9 +175,47 @@ class contiguous_column : public column_base {
 };
 
 /**
+ * @brief Contiguous column in inter-process CPU shared memory.
+ */
+class shared_contiguous_column : public column_base {
+ public:
+  shared_contiguous_column(std::string column_name,
+                           boost::interprocess::managed_shared_memory& segment)
+    : _column_name(column_name), _segment(segment)
+  {
+  }
+
+  ~shared_contiguous_column();
+
+  shared_contiguous_column(const shared_contiguous_column&)            = delete;
+  shared_contiguous_column& operator=(const shared_contiguous_column&) = delete;
+
+  /**
+   * @copydoc gqe::storage::type()
+   */
+  in_memory_column_type type() const override { return in_memory_column_type::SHARED_CONTIGUOUS; }
+
+  /**
+   * @copydoc gqe::storage::column_base::size()
+   */
+  int64_t size() const override { return view().size(); }
+
+  /**
+   * @brief Return a cuDF compatible column view.
+   */
+  cudf::column_view view() const;
+
+ private:
+  std::string _column_name;
+  boost::interprocess::managed_shared_memory& _segment;
+};
+
+/**
  * @brief Compressed in-memory table.
  */
 class compressed_column : public column_base {
+  friend class shared_compressed_column_base;
+
  public:
   compressed_column(cudf::column&& cudf_column,
                     compression_format comp_format,
@@ -402,6 +507,89 @@ extern template class string_compressed_sliced_column<false>;
 extern template class string_compressed_sliced_column<true>;
 
 /**
+ * @brief Compressed column with boost data structures that can be safely
+ * allocated and accessed on inter-process CPU shared memory.
+ */
+class shared_compressed_column_base {
+ public:
+  shared_compressed_column_base(gqe::storage::compressed_column&& compressed_column,
+                                boost::interprocess::managed_shared_memory& segment,
+                                rmm::cuda_stream_view stream,
+                                rmm::device_async_resource_ref mr);
+
+  std::unique_ptr<cudf::column> decompress(rmm::cuda_stream_view stream,
+                                           rmm::device_async_resource_ref mr);
+
+  shared_compressed_column_base(shared_compressed_column_base&&) noexcept            = default;
+  shared_compressed_column_base& operator=(shared_compressed_column_base&&) noexcept = default;
+  shared_compressed_column_base(const shared_compressed_column_base&)                = delete;
+  shared_compressed_column_base& operator=(const shared_compressed_column_base&)     = delete;
+
+  ~shared_compressed_column_base();
+
+ public:
+  using SharedColumnAllocator =
+    boost::interprocess::allocator<shared_compressed_column_base,
+                                   boost::interprocess::managed_shared_memory::segment_manager>;
+  int64_t _size;
+  int64_t _compressed_size;
+  int64_t _compressed_null_mask_size;
+  cudf::data_type _dtype;
+  cudf::size_type _null_count;
+  compression_format _comp_format;
+  float _compression_ratio;
+  float _null_mask_compression_ratio;
+  bool _is_compressed;
+  bool _is_null_mask_compressed;
+  compression_manager _nvcomp_manager;
+
+  boost::interprocess::offset_ptr<void> _compressed_data;
+  boost::interprocess::offset_ptr<void> _compressed_null_mask;
+  boost::container::vector<shared_compressed_column_base, SharedColumnAllocator>
+    _compressed_children;
+
+  rmm::device_async_resource_ref _mr;
+};
+
+/**
+ * @brief Compressed in-memory table in inter-process CPU shared memory.
+ */
+class shared_compressed_column : public column_base {
+ public:
+  explicit shared_compressed_column(std::string name,
+                                    boost::interprocess::managed_shared_memory& segment);
+
+  ~shared_compressed_column() override;
+
+  shared_compressed_column(const shared_compressed_column&)            = delete;
+  shared_compressed_column& operator=(const shared_compressed_column&) = delete;
+
+  /**
+   * @copydoc gqe::storage::type()
+   */
+  in_memory_column_type type() const override { return in_memory_column_type::SHARED_COMPRESSED; }
+
+  /**
+   * @copydoc gqe::storage::column_base::size()
+   */
+  int64_t size() const override;
+
+  /**
+   * @brief Decompress and construct an uncompressed version of the column.
+   *
+   * @param[in] stream CUDA stream used for the decompression.
+   * @param[in] mr Memory resource used for allocating the decompressed column.
+   */
+  std::unique_ptr<cudf::column> decompress(
+    rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+ private:
+  std::string _name;
+  boost::interprocess::managed_shared_memory& _segment;
+};
+
+/**
  * In-memory row group.
  */
 class row_group {
@@ -430,7 +618,7 @@ class row_group {
    */
   [[nodiscard]] column_base& get_column(cudf::size_type column_index) const;
 
-  const gqe::zone_map* zone_map() const;
+  gqe::zone_map* zone_map() const;
 
  private:
   std::vector<std::unique_ptr<column_base>> _columns;
@@ -523,6 +711,13 @@ class in_memory_table : public table {
                   std::vector<std::string> const& column_names,
                   std::vector<cudf::data_type> const& column_types);
 
+  // We currently need to share boost_shared_memory_resource across tables
+  // because of the issue: see https://gitlab-master.nvidia.com/haog/gqe-python/-/issues/10
+  in_memory_table(memory_kind::type memory_kind,
+                  std::vector<std::string> const& column_names,
+                  std::vector<cudf::data_type> const& column_types,
+                  std::shared_ptr<rmm::mr::device_memory_resource> shared_memory_resource);
+
   /**
    * @copydoc gqe::storage::table::is_readable()
    */
@@ -566,6 +761,7 @@ class in_memory_table : public table {
   memory_kind::type _memory_kind; /**< Memory kind of this table. */
   std::unique_ptr<rmm::mr::device_memory_resource>
     _memory_resource; /**< Memory resource for allocating memory of the specified kind. */
+  std::shared_ptr<rmm::mr::device_memory_resource> _shared_memory_resource;
   std::unordered_map<std::string, cudf::size_type> _column_name_to_index;
   std::vector<cudf::data_type> _column_types;
   std::deque<row_group>
@@ -719,6 +915,8 @@ class in_memory_write_task : public write_task_base {
   in_memory_write_task& operator=(const in_memory_write_task&) = delete;
 
   void execute() override;
+  void execute_default();
+  void execute_shared_memory();
 
  private:
   rmm::mr::device_memory_resource*

@@ -123,6 +123,9 @@ class parquet_read_task : public read_task_base {
    */
   void execute() override;
 
+  void read();
+  void read_nothing(int mpi_rank);
+
  private:
   [[nodiscard]] std::string print_column_names() const;
 

@@ -219,6 +219,9 @@ optimization_parameters::optimization_parameters(bool only_defaults)
     use_opt_type_for_single_char_col =
       parse_env_variable("GQE_USE_OPT_TYPE_FOR_SINGLE_CHAR_COL", use_opt_type_for_single_char_col);
 
+    use_in_memory_table_multigpu =
+      parse_env_variable("GQE_IN_MEMORY_TABLE_USE_SHARED_MEMORY", use_in_memory_table_multigpu);
+
     in_memory_table_compression_format = parse_nvcomp_compression_format(
       "GQE_IN_MEMORY_TABLE_COMP_FORMAT", in_memory_table_compression_format);
 

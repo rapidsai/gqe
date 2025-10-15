@@ -13,6 +13,7 @@
 #include <gqe/communicator.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/logger.hpp>
+#include <gqe/utility/mpi_helpers.hpp>
 #include <nvshmem.h>
 #include <nvshmemx.h>
 
@@ -47,5 +48,18 @@ void nvshmem_communicator::init()
 void nvshmem_communicator::finalize() { nvshmemx_hostlib_finalize(); }
 
 void nvshmem_communicator::barrier_world() { nvshmem_barrier_all(); }
+
+void nvshmem_communicator::propagate_error(std::exception_ptr local_exception) const
+{
+  bool local_error = (local_exception != nullptr);
+  bool global_error;
+  GQE_MPI_TRY(MPI_Allreduce(&local_error, &global_error, 1, MPI_C_BOOL, MPI_LOR, mpi_comm()));
+
+  if (global_error) {
+    if (local_error) { std::rethrow_exception(local_exception); }
+    throw std::runtime_error("Aborting stage: failure detected on another rank");
+  }
+  return;
+}
 
 }  // namespace gqe

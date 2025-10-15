@@ -27,5 +27,30 @@ std::vector<T> all_gather_ptr(MPI_Comm comm, T send_ptr)
 std::vector<int> all_gather_int(MPI_Comm comm, int num);
 
 std::vector<std::string> all_gather_string(MPI_Comm comm, std::string const& send_str);
+
+// FIXME: We can query the communicator object to get rank easily, once we fix the issue:
+// https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/176
+// We can then remove these helper functions
+
+/**
+ * @brief Check if the current process is rank 0.
+ */
+inline bool mpi_rank_zero(MPI_Comm comm = MPI_COMM_WORLD)
+{
+  int rank;
+  GQE_MPI_TRY(MPI_Comm_rank(comm, &rank));
+  return rank == 0;
+}
+
+/**
+ * @brief Get the rank of the current process.
+ */
+inline int mpi_rank(MPI_Comm comm = MPI_COMM_WORLD)
+{
+  int rank;
+  GQE_MPI_TRY(MPI_Comm_rank(comm, &rank));
+  return rank;
+}
+
 }  // namespace multi_process
 }  // namespace gqe::utility

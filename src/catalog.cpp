@@ -104,6 +104,10 @@ void catalog::register_table(std::string const& table_name,
       [&](storage_kind::managed_memory) -> std::unique_ptr<storage::table> {
         return std::make_unique<storage::in_memory_table>(
           memory_kind::managed{}, column_names, column_types);
+      },
+      [&](storage_kind::boost_shared_memory memory) -> std::unique_ptr<storage::table> {
+        return std::make_unique<storage::in_memory_table>(
+          memory_kind::boost_shared{memory.mr}, column_names, column_types);
       }},
     storage);
 
@@ -261,6 +265,15 @@ std::unique_ptr<storage::writeable_view> catalog::writeable_view(
   }
 
   return table_storage_iter->second.storage->writeable_view();
+}
+
+std::vector<std::string> catalog::table_names() const
+{
+  std::vector<std::string> table_names;
+  for (auto const& [table_name, _] : _table_entries) {
+    table_names.push_back(table_name);
+  }
+  return table_names;
 }
 
 }  // namespace gqe

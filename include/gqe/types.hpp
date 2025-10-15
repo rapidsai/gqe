@@ -12,7 +12,9 @@
 
 #pragma once
 
+#include <gqe/memory_resource/boost_shared_memory_resource.hpp>
 #include <rmm/cuda_device.hpp>
+#include <rmm/mr/device/device_memory_resource.hpp>
 
 #include <cstdint>
 #include <functional>
@@ -249,6 +251,13 @@ struct device {
 struct managed {};
 
 /**
+ * @brief Boost shared memory.
+ */
+struct boost_shared {
+  std::shared_ptr<gqe::memory_resource::boost_shared_memory_resource> mr; /**< Memory resource. */
+};
+
+/**
  * @brief Memory kind of an in-memory table.
  */
 using type = std::variant<memory_kind::system,
@@ -256,7 +265,8 @@ using type = std::variant<memory_kind::system,
                           memory_kind::pinned,
                           memory_kind::numa_pinned,
                           memory_kind::device,
-                          memory_kind::managed>;
+                          memory_kind::managed,
+                          memory_kind::boost_shared>;
 
 /**
  * @brief Return whether the GPU can directly access the memory kind
@@ -298,6 +308,11 @@ using managed_memory = memory_kind::managed;
 using numa_pinned_memory = memory_kind::numa_pinned;
 
 /**
+ * @copydoc gqe::memory_kind::boost_shared_memory
+ */
+using boost_shared_memory = memory_kind::boost_shared;
+
+/**
  * @brief Parquet file format, optionally Hive partitioned.
  */
 struct parquet_file {
@@ -318,6 +333,7 @@ using type = std::variant<storage_kind::system_memory,
                           storage_kind::device_memory,
                           storage_kind::managed_memory,
                           storage_kind::numa_pinned_memory,
+                          storage_kind::boost_shared_memory,
                           storage_kind::parquet_file>;
 
 }  // namespace storage_kind

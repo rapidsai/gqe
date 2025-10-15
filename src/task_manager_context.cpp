@@ -28,12 +28,15 @@
 #include <rmm/aligned.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
+#include <rmm/mr/device/logging_resource_adaptor.hpp>
 #include <rmm/mr/device/owning_wrapper.hpp>
+#include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
 namespace gqe {
 task_manager_context::task_manager_context(std::unique_ptr<rmm::mr::device_memory_resource> mr)
 {
   _mr = std::move(mr);
+
   rmm::mr::set_current_device_resource(_mr.get());
 }
 
@@ -70,7 +73,7 @@ multi_process_task_manager_context::multi_process_task_manager_context(
 }
 
 std::unique_ptr<multi_process_task_manager_context>
-multi_process_task_manager_context::default_init(MPI_Comm mpi_comm)
+multi_process_task_manager_context::default_init(MPI_Comm mpi_comm, gqe::SCHEDULER_TYPE type)
 {
   auto comm = std::make_unique<nvshmem_communicator>(mpi_comm);
   comm->init();
@@ -88,8 +91,15 @@ multi_process_task_manager_context::default_init(MPI_Comm mpi_comm)
   MPI_Allreduce(&pool_size, &pool_size, 1, MPI_LONG_LONG, MPI_MIN, mpi_comm);
   GQE_LOG_INFO("Setting pool size to {}", pool_size);
 
-  auto pgas_mr           = std::make_unique<gqe::pgas_memory_resource>(pool_size);
-  auto scheduler         = std::make_unique<round_robin_scheduler>(comm->world_size());
+  auto pgas_mr = std::make_unique<gqe::pgas_memory_resource>(pool_size);
+
+  std::unique_ptr<gqe::scheduler> scheduler;
+  if (type == gqe::SCHEDULER_TYPE::ROUND_ROBIN) {
+    scheduler = std::make_unique<round_robin_scheduler>(comm->world_size());
+  } else if (type == gqe::SCHEDULER_TYPE::ALL_TO_ALL) {
+    scheduler = std::make_unique<all_to_all_scheduler>(comm->world_size());
+  }
+
   auto migration_service = std::make_unique<task_migration_service>(comm->device_id());
   auto server            = rpc_server(std::vector<grpc::Service*>{migration_service.get()});
 
@@ -103,6 +113,15 @@ multi_process_task_manager_context::default_init(MPI_Comm mpi_comm)
                                                               std::move(migration_service),
                                                               std::move(server),
                                                               std::move(pgas_mr));
+}
+
+void multi_process_task_manager_context::update_scheduler(gqe::SCHEDULER_TYPE type)
+{
+  if (type == gqe::SCHEDULER_TYPE::ROUND_ROBIN) {
+    scheduler = std::make_unique<round_robin_scheduler>(comm->world_size());
+  } else if (type == gqe::SCHEDULER_TYPE::ALL_TO_ALL) {
+    scheduler = std::make_unique<all_to_all_scheduler>(comm->world_size());
+  }
 }
 
 void multi_process_task_manager_context::finalize()

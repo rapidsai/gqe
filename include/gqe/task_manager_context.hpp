@@ -89,11 +89,18 @@ struct multi_process_task_manager_context : public task_manager_context {
     gqe::rpc_server&& server,
     std::unique_ptr<gqe::pgas_memory_resource> upstream_mr);
 
-  static std::unique_ptr<multi_process_task_manager_context> default_init(MPI_Comm mpi_comm);
+  static std::unique_ptr<multi_process_task_manager_context> default_init(
+    MPI_Comm mpi_comm, gqe::SCHEDULER_TYPE type = gqe::SCHEDULER_TYPE::ROUND_ROBIN);
 
   multi_process_task_manager_context(const multi_process_task_manager_context&) = delete;
   multi_process_task_manager_context(multi_process_task_manager_context&&)      = default;
   multi_process_task_manager_context& operator=(const multi_process_task_manager_context&) = delete;
+
+  /**
+   * @brief Update the scheduler.
+   * @param type The type of scheduler to update to.
+   */
+  void update_scheduler(gqe::SCHEDULER_TYPE type);
 
   /**
    * @brief Finalize the task manager context.

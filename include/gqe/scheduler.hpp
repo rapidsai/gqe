@@ -16,9 +16,23 @@
 
 namespace gqe {
 
+enum SCHEDULER_TYPE { ALL_TO_ALL, ROUND_ROBIN };
+
 class scheduler {
  public:
   virtual std::unordered_set<int32_t> get_execution_ranks(task* t) = 0;
+};
+
+/**
+ * @brief Scheduler that assigns all tasks to all ranks.
+ */
+class all_to_all_scheduler : public scheduler {
+ public:
+  all_to_all_scheduler(int32_t num_ranks) : _num_ranks(num_ranks) {}
+  std::unordered_set<int32_t> get_execution_ranks(task* t) override;
+
+ private:
+  int32_t _num_ranks;
 };
 
 class round_robin_scheduler : public scheduler {

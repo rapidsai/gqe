@@ -16,6 +16,15 @@
 
 namespace gqe {
 
+std::unordered_set<int32_t> all_to_all_scheduler::get_execution_ranks(task* t)
+{
+  std::unordered_set<int32_t> execution_ranks;
+  for (int32_t i = 0; i < _num_ranks; ++i) {
+    execution_ranks.insert(i);
+  }
+  return execution_ranks;
+}
+
 std::unordered_set<int32_t> round_robin_scheduler::get_execution_ranks(task* t)
 {
   auto pipeline_ids = t->pipeline_ids();

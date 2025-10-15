@@ -321,19 +321,22 @@ int main(int argc, char* argv[])
       copy_plan.add_table(parquet_name, name);
     };
 
-    std::visit(gqe::utility::overloaded{
-                 [&](const gqe::storage_kind::system_memory) { register_and_copy(); },
-                 [&](const gqe::storage_kind::numa_memory) { register_and_copy(); },
-                 [&](const gqe::storage_kind::numa_pinned_memory) { register_and_copy(); },
-                 [&](const gqe::storage_kind::pinned_memory) { register_and_copy(); },
-                 [&](const gqe::storage_kind::device_memory) { register_and_copy(); },
-                 [&](const gqe::storage_kind::managed_memory) { register_and_copy(); },
-                 [&catalog, name = std::cref(name), definition = std::cref(definition)](
-                   const gqe::storage_kind::parquet_file& pf) {
-                   catalog.register_table(
-                     name, definition, pf, gqe::partitioning_schema_kind::automatic{});
-                 }},
-               storage_kind);
+    std::visit(
+      gqe::utility::overloaded{
+        [&](const gqe::storage_kind::system_memory) { register_and_copy(); },
+        [&](const gqe::storage_kind::numa_memory) { register_and_copy(); },
+        [&](const gqe::storage_kind::numa_pinned_memory) { register_and_copy(); },
+        [&](const gqe::storage_kind::pinned_memory) { register_and_copy(); },
+        [&](const gqe::storage_kind::device_memory) { register_and_copy(); },
+        [&](const gqe::storage_kind::managed_memory) { register_and_copy(); },
+        [&](const gqe::storage_kind::boost_shared_memory) {
+          throw std::logic_error("Boost shared memory usage not implemented for this benchmark");
+        },
+        [&catalog, name = std::cref(name), definition = std::cref(definition)](
+          const gqe::storage_kind::parquet_file& pf) {
+          catalog.register_table(name, definition, pf, gqe::partitioning_schema_kind::automatic{});
+        }},
+      storage_kind);
   }
   GQE_LOG_INFO("Copying Parquet files to in-memory tables (if required).");
   copy_plan.execute_copy();

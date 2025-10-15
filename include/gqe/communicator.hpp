@@ -50,6 +50,11 @@ struct communicator {
    * @brief Get the device id of the current process.
    */
   virtual rmm::cuda_device_id device_id() const = 0;
+
+  /**
+   * @brief Error propagation across ranks.
+   */
+  virtual void propagate_error(std::exception_ptr local_exception) const = 0;
 };
 
 struct nvshmem_communicator : public communicator {
@@ -62,6 +67,7 @@ struct nvshmem_communicator : public communicator {
   int32_t num_ranks_per_device() const override { return _ranks_per_device; }
   rmm::cuda_device_id device_id() const override { return _device_id; }
   MPI_Comm mpi_comm() const { return _mpi_comm; }
+  void propagate_error(std::exception_ptr local_exception) const override;
 
  private:
   int32_t _rank;

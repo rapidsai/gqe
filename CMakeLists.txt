@@ -107,6 +107,7 @@ rapids_find_package(MPI REQUIRED)
 rapids_find_package(nvcomp CONFIG REQUIRED)
 rapids_find_package(NVSHMEM REQUIRED)
 rapids_find_package(Threads REQUIRED)
+find_package(Boost REQUIRED COMPONENTS system filesystem)
 
 # Prefer to use the config mode for Protobuf, but if the config file is not present, we fallback to
 # use the module mode.

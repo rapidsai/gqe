@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <gqe/memory_resource/boost_shared_memory_resource.hpp>
 #include <gqe/memory_resource/numa_memory_resource.hpp>
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
 #include <gqe/memory_resource/system_memory_resource.hpp>
@@ -24,6 +25,9 @@
 
 #include <unistd.h>  // sysconf
 
+#include <boost/interprocess/managed_shared_memory.hpp>
+#include <boost/interprocess/shared_memory_object.hpp>
+
 template <typename T>
 class MemoryResourceTest : public testing::Test {
  public:
@@ -32,9 +36,27 @@ class MemoryResourceTest : public testing::Test {
   std::unique_ptr<rmm::mr::device_memory_resource> mr;
 };
 
+// Specialization for boost shared memory: create and clean up the shared segment
+template <>
+class MemoryResourceTest<gqe::memory_resource::boost_shared_memory_resource>
+  : public testing::Test {
+ public:
+  MemoryResourceTest()
+  {
+    auto segment = boost::interprocess::managed_shared_memory(
+      boost::interprocess::create_only, "gqe_shared_memory", 64 * 1024);
+    mr = std::make_unique<gqe::memory_resource::boost_shared_memory_resource>();
+  }
+
+  ~MemoryResourceTest() { boost::interprocess::shared_memory_object::remove("gqe_shared_memory"); }
+
+  std::unique_ptr<rmm::mr::device_memory_resource> mr;
+};
+
 using MemoryResourceTypes = ::testing::Types<gqe::memory_resource::numa_memory_resource,
                                              gqe::memory_resource::system_memory_resource,
-                                             gqe::memory_resource::pinned_memory_resource>;
+                                             gqe::memory_resource::pinned_memory_resource,
+                                             gqe::memory_resource::boost_shared_memory_resource>;
 TYPED_TEST_SUITE(MemoryResourceTest, MemoryResourceTypes);
 
 TYPED_TEST(MemoryResourceTest, AllocateZero)

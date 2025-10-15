@@ -16,7 +16,10 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/json_formatter.hpp>
 #include <gqe/expression/literal.hpp>
+#include <gqe/storage/in_memory.hpp>
+#include <gqe/utility/boost.hpp>
 #include <gqe/utility/cuda.hpp>
+#include <gqe/utility/mpi_helpers.hpp>
 
 #include <cudf/aggregation.hpp>
 #include <cudf/binaryop.hpp>
@@ -292,12 +295,8 @@ bool gqe::zone_map::partition::operator==(const partition& other) const
          null_counts == other.null_counts;
 }
 
-gqe::zone_map::zone_map(const cudf::table_view& table, cudf::size_type partition_size)
-  : _partition_size(partition_size), _num_rows(table.num_rows())
+void check_partition_size(cudf::size_type partition_size)
 {
-  _memory_resource = std::make_unique<rmm::mr::cuda_memory_resource>();
-  _zone_map        = compute_zone_map(table, partition_size, _memory_resource.get());
-  _null_counts     = compute_null_counts(table, partition_size);
   if (partition_size == 0) {
     throw std::logic_error("Partition size for partition pruning must be larger than 0");
   }
@@ -308,6 +307,16 @@ gqe::zone_map::zone_map(const cudf::table_view& table, cudf::size_type partition
       partition_size,
       size_warning_threshold);
   }
+}
+
+gqe::zone_map::zone_map(const cudf::table_view& table, cudf::size_type partition_size)
+  : _partition_size(partition_size), _num_rows(table.num_rows())
+{
+  _memory_resource = std::make_unique<rmm::mr::cuda_memory_resource>();
+  _zone_map        = compute_zone_map(table, partition_size, _memory_resource.get());
+  _null_counts     = compute_null_counts(table, partition_size);
+
+  check_partition_size(partition_size);
 }
 
 std::unique_ptr<cudf::table> gqe::zone_map::compute_zone_map(const cudf::table_view& table,
@@ -407,7 +416,7 @@ std::vector<std::vector<cudf::size_type>> gqe::zone_map::compute_null_counts(
 }
 
 std::vector<gqe::zone_map::partition> gqe::zone_map::evaluate(const gqe::expression& partial_filter,
-                                                              bool use_like_shift_and) const
+                                                              bool use_like_shift_and)
 {
   std::vector<const gqe::expression*> expressions{&partial_filter};
   auto [mask, _] = evaluate_expressions(
@@ -508,3 +517,91 @@ void gqe::zone_map::write_to_parquet_file(const std::string_view filename) const
   writer.close();
 }
 #endif
+
+gqe::shared_zone_map::shared_zone_map(cudf::size_type partition_size,
+                                      std::string table_name,
+                                      boost::interprocess::managed_shared_memory* segment)
+  : zone_map(), _table_name(table_name), _segment(segment)
+{
+  // Initialize base class state not handled by its default constructor
+  _partition_size = partition_size;
+
+  check_partition_size(partition_size);
+}
+
+void gqe::shared_zone_map::copy_to_device(rmm::cuda_stream_view stream,
+                                          rmm::device_async_resource_ref mr)
+{
+  auto shared_zone_map =
+    gqe::utility::find_object<gqe::shared_zone_map_table>(_segment, _table_name);
+
+  _zone_map = shared_zone_map->_zone_map->copy_to_device(stream, mr);
+  _num_rows = shared_zone_map->_num_rows;
+
+  // Need to convert boost::container::vector<boost::container::vector<cudf::size_type>> to
+  // std::vector<std::vector<cudf::size_type>>
+  auto null_counts = shared_zone_map->_null_counts;
+  _null_counts.reserve(null_counts.size());
+  for (const auto& each_null_count : null_counts) {
+    std::vector<cudf::size_type> each_null_count_std(each_null_count.begin(),
+                                                     each_null_count.end());
+    _null_counts.push_back(each_null_count_std);
+  }
+
+  GQE_LOG_DEBUG("Copied shared zone map from table name {}", _table_name);
+}
+
+std::vector<gqe::zone_map::partition> gqe::shared_zone_map::evaluate(
+  const gqe::expression& partial_filter, bool use_like_shift_and)
+{
+  // TODO: pass explicit stream and mr
+  // TODO: ideally copy should be done before in-memory-read-task call
+  copy_to_device(cudf::get_default_stream(), rmm::mr::get_current_device_resource());
+  return zone_map::evaluate(partial_filter, use_like_shift_and);
+}
+
+gqe::shared_zone_map::~shared_zone_map()
+{
+  if (gqe::utility::multi_process::mpi_rank_zero()) {
+    _segment->destroy<gqe::shared_zone_map_table>(_table_name.c_str());
+  }
+}
+
+gqe::shared_zone_map_table::shared_zone_map_table(
+  const cudf::table_view& table,
+  cudf::size_type partition_size,
+  boost::interprocess::managed_shared_memory* segment,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+  : _num_rows(table.num_rows()),
+    _segment(segment),
+    _null_counts(
+      shared_zone_map_table::SharedVectorSizeTypeAllocator(segment->get_segment_manager()))
+{
+  auto temp_zone_map =
+    gqe::zone_map::compute_zone_map(table, partition_size, rmm::mr::get_current_device_resource());
+  auto std_null_counts = gqe::zone_map::compute_null_counts(table, partition_size);
+
+  // Need to convert std::vector<std::vector<cudf::size_type>> to
+  // boost::container::vector<boost::container::vector<cudf::size_type>>
+  _null_counts.reserve(std_null_counts.size());
+  for (const auto& each_null_count : std_null_counts) {
+    auto inner_alloc =
+      shared_zone_map_table::SharedSizeTypeAllocator(segment->get_segment_manager());
+    boost::container::vector<cudf::size_type, shared_zone_map_table::SharedSizeTypeAllocator>
+      each_null_count_boost(each_null_count.begin(), each_null_count.end(), inner_alloc);
+    _null_counts.push_back(std::move(each_null_count_boost));
+  }
+
+  _num_rows = table.num_rows();
+
+  // TODO: need a notion of device and host memory resources?
+  _zone_map = segment->construct<gqe::storage::shared_table>(
+    boost::interprocess::anonymous_instance)(temp_zone_map->view(), *segment, stream, mr);
+}
+
+gqe::shared_zone_map_table::~shared_zone_map_table()
+{
+  _segment->destroy_ptr(_zone_map.get());
+  _zone_map = nullptr;
+}

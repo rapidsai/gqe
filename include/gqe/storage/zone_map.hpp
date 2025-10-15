@@ -15,6 +15,18 @@
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/expression.hpp>
 
+#include <boost/container/vector.hpp>
+#include <boost/interprocess/managed_shared_memory.hpp>
+#include <boost/interprocess/offset_ptr.hpp>
+
+// Forward declarations
+namespace gqe {
+namespace storage {
+
+class shared_table;
+}  // namespace storage
+}  // namespace gqe
+
 namespace gqe {
 
 /**
@@ -142,6 +154,9 @@ class zone_map_expression_transformer : public gqe::expression_visitor {
  * input table.
  */
 class zone_map {
+  friend class shared_zone_map;
+  friend class shared_zone_map_table;
+
  public:
   /**
    * @brief Structure indicating the start offset, end offset, and null counts of a partition and
@@ -174,7 +189,8 @@ class zone_map {
   zone_map& operator=(const zone_map&) = delete;
   zone_map(zone_map&&)                 = default;
   zone_map& operator=(zone_map&&)      = default;
-  ~zone_map()                          = default;
+  virtual ~zone_map()                  = default;
+  zone_map()                           = default;
 
   /**
    * Evaluate a filter expression on the zone map and indicate for each partition of the zone map if
@@ -195,8 +211,8 @@ class zone_map {
    * @return A vector containing information about all partitions of the zone map, including start
    * and end offsets, and if the partitions was pruned or not.
    */
-  [[nodiscard]] std::vector<partition> evaluate(const gqe::expression& partial_filter,
-                                                bool use_like_shift_and) const;
+  [[nodiscard]] virtual std::vector<partition> evaluate(const gqe::expression& partial_filter,
+                                                        bool use_like_shift_and);
 
   /**
    * @brief Consolidate maximal runs of partitions that are either pruned or not pruned.
@@ -290,6 +306,69 @@ class zone_map {
   /// table, the second vector is over the partitions of the zone map. I.e., _null_counts[i][j]
   /// contains the null counts for column i in partition j.
   std::vector<std::vector<cudf::size_type>> _null_counts;
+};
+
+/**
+ * @brief A derived class of zone_map that can additionally find the shared zone map table on
+ * CPU shared memory and copy it to device memory.
+ */
+class shared_zone_map : public zone_map {
+ public:
+  explicit shared_zone_map(cudf::size_type partition_size,
+                           std::string table_name,
+                           boost::interprocess::managed_shared_memory* segment);
+
+  void copy_to_device(rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr);
+
+  std::vector<partition> evaluate(const gqe::expression& partial_filter,
+                                  bool use_like_shift_and) override;
+
+  ~shared_zone_map();
+
+ private:
+  /// The name of the shared zone map table
+  std::string _table_name;
+
+  /// The managed shared memory segment.
+  boost::interprocess::managed_shared_memory* _segment;
+};
+
+/**
+ * @brief Zone map table with boost data structures that can be safely allocated and
+ * accessed on inter-process CPU shared memory.
+ */
+class shared_zone_map_table {
+ public:
+  explicit shared_zone_map_table(
+    const cudf::table_view& table,
+    cudf::size_type partition_size,
+    boost::interprocess::managed_shared_memory* segment,
+    rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+  ~shared_zone_map_table();
+  /// The actual zone map table.
+  boost::interprocess::offset_ptr<gqe::storage::shared_table> _zone_map;
+
+  using SharedSizeTypeAllocator =
+    boost::interprocess::allocator<cudf::size_type,
+                                   boost::interprocess::managed_shared_memory::segment_manager>;
+  using SharedVectorSizeTypeAllocator = boost::interprocess::allocator<
+    boost::container::vector<cudf::size_type, SharedSizeTypeAllocator>,
+    boost::interprocess::managed_shared_memory::segment_manager>;
+
+  /// The number of rows of the input table.
+  cudf::size_type _num_rows;
+
+  /// The managed shared memory segment.
+  boost::interprocess::managed_shared_memory* _segment;
+
+  /// Per-partition null counts for each column. The first vector is over the columns of the input
+  /// table, the second vector is over the partitions of the zone map. I.e., _null_counts[i][j]
+  /// contains the null counts for column i in partition j.
+  boost::container::vector<boost::container::vector<cudf::size_type, SharedSizeTypeAllocator>,
+                           SharedVectorSizeTypeAllocator>
+    _null_counts;
 };
 
 }  // namespace gqe

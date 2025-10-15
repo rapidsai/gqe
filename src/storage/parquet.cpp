@@ -19,6 +19,7 @@
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/logger.hpp>
+#include <gqe/utility/mpi_helpers.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
@@ -42,6 +43,8 @@
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
+
+#include <mpi.h>
 
 namespace gqe {
 
@@ -302,12 +305,9 @@ parquet_read_task::partial_filter_info parquet_read_task::parse_partial_filter()
   return info;
 }
 
-void parquet_read_task::execute()
+void parquet_read_task::read()
 {
-  prepare_dependencies();
-
-  utility::nvtx_scoped_range parquet_read_task_range("parquet_read_task");
-
+  std::unique_ptr<cudf::table> result_table;
   auto info = parse_partial_filter();
 
   auto const has_non_partitioned_files = !info.non_partitioned_files.empty();
@@ -356,8 +356,6 @@ void parquet_read_task::execute()
     partitioned_table = enforce_data_types(std::move(partitioned_table), _data_types);
   }
 
-  std::unique_ptr<cudf::table> result_table;
-
   if (!has_non_partitioned_files && !has_partitioned_files) {
     // Construct an empty table
     std::vector<std::unique_ptr<cudf::column>> empty_columns;
@@ -390,6 +388,35 @@ void parquet_read_task::execute()
                 print_column_names(),
                 result_table->num_rows());
   emit_result(std::move(result_table));
+}
+
+void parquet_read_task::read_nothing(int mpi_rank)
+{
+  GQE_LOG_TRACE(
+    "Execute Parquet read task: task_id={}, stage_id={}, Rank {} does not read and emits an "
+    "empty table",
+    task_id(),
+    stage_id(),
+    mpi_rank);
+  emit_result(std::make_unique<cudf::table>());
+}
+
+void parquet_read_task::execute()
+{
+  prepare_dependencies();
+  utility::nvtx_scoped_range parquet_read_task_range("parquet_read_task");
+
+  if (get_query_context()->parameters.use_in_memory_table_multigpu) {
+    // Only a single rank reads the data
+    if (gqe::utility::multi_process::mpi_rank_zero()) {
+      read();
+    } else {
+      read_nothing(gqe::utility::multi_process::mpi_rank());
+    }
+  } else {
+    read();
+  }
+
   remove_dependencies();
 }
 

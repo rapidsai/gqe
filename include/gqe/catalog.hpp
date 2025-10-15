@@ -164,6 +164,11 @@ class catalog {
    */
   std::unique_ptr<storage::writeable_view> writeable_view(std::string const& table_name) const;
 
+  /**
+   * @brief Return the names of all tables in the catalog.
+   */
+  std::vector<std::string> table_names() const;
+
  private:
   struct table_info_type {
     std::vector<std::string> _column_names;  ///< column names in the user-defined order

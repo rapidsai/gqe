@@ -12,6 +12,7 @@
 
 #include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
+#include <gqe/memory_resource/boost_shared_memory_resource.hpp>
 #include <gqe/memory_resource/numa_memory_resource.hpp>
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
 #include <gqe/memory_resource/system_memory_resource.hpp>
@@ -21,15 +22,18 @@
 #include <gqe/storage/writeable_view.hpp>
 #include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
+#include <gqe/utility/boost.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
+#include <gqe/utility/mpi_helpers.hpp>
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/concatenate.hpp>
 #include <cudf/copying.hpp>
+#include <cudf/strings/strings_column_view.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/default_stream.hpp>
@@ -58,11 +62,151 @@
 #include <shared_mutex>  // std::shared_lock
 #include <stdexcept>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace gqe {
 
 namespace storage {
+
+shared_column::shared_column(cudf::column_view col,
+                             boost::interprocess::managed_shared_memory& segment,
+                             rmm::cuda_stream_view stream,
+                             rmm::device_async_resource_ref mr)
+  : _type(col.type()),
+    _size(col.size()),
+    _null_count(col.null_count()),
+    _children(SharedColumnAllocator(segment.get_segment_manager())),
+    _mr(mr)
+{
+  if (col.data<std::byte>() == nullptr || col.size() == 0) {
+    throw std::runtime_error("Shared column data pointer is null or size is 0");
+  }
+
+  if (!cudf::is_fixed_width(col.type()) && col.type().id() != cudf::type_id::STRING) {
+    throw std::runtime_error(
+      "Shared column only supports fixed width types and strings, does not support cudf type id " +
+      std::to_string(static_cast<int>(col.type().id())));
+  }
+
+  // Calculate size of data
+  if (col.type().id() == cudf::type_id::STRING) {
+    cudf::strings_column_view string_device_view(col);
+    _data_size = sizeof(char) * string_device_view.chars_size(stream);
+  } else {
+    _data_size = cudf::size_of(col.type()) * col.size();
+  }
+
+  // Allocate data and copy from device to host
+  _data = static_cast<std::byte*>(mr.allocate(_data_size));
+  GQE_CUDA_TRY(cudaMemcpy(_data.get(), col.data<std::byte>(), _data_size, cudaMemcpyDeviceToHost));
+
+  // Allocate and copy null mask from device to host
+  if (_null_count > 0) {
+    _null_mask_size = col.size() * sizeof(cudf::bitmask_type);
+    _null_mask      = static_cast<cudf::bitmask_type*>(mr.allocate(_null_mask_size));
+    GQE_CUDA_TRY(
+      cudaMemcpy(_null_mask.get(), col.null_mask(), _null_mask_size, cudaMemcpyDeviceToHost));
+  } else {
+    _null_mask_size = 0;
+  }
+
+  // Handle children recursively
+  auto children_size = col.num_children();
+  _children.reserve(children_size);
+  for (decltype(children_size) idx = 0; idx < children_size; ++idx) {
+    _children.emplace_back(col.child(idx), segment, stream, mr);
+  }
+}
+
+cudf::column_view shared_column::view() const
+{
+  // Safety check for dangling pointers
+  if (_data.get() == nullptr) {
+    throw std::runtime_error(
+      "shared_column: Invalid data pointer - original column may have been destroyed");
+  }
+
+  // Create child views
+  std::vector<cudf::column_view> child_views(_children.size());
+  for (decltype(_children.size()) idx = 0; idx < _children.size(); ++idx) {
+    child_views[idx] = _children[idx].view();
+  }
+
+  auto null_mask =
+    _null_count > 0 ? static_cast<const cudf::bitmask_type*>(_null_mask.get()) : nullptr;
+
+  // Create column view
+  return cudf::column_view(_type,
+                           _size,
+                           static_cast<const void*>(_data.get()),
+                           null_mask,
+                           _null_count,
+                           0,  // offset
+                           child_views);
+}
+
+shared_column::~shared_column()
+{
+  // Deallocate data and null mask if allocated
+  if (_data && _data_size > 0) {
+    _mr.deallocate(_data.get(), _data_size);
+    _data      = nullptr;
+    _data_size = 0;
+  }
+  if (_null_mask && _null_mask_size > 0) {
+    _mr.deallocate(_null_mask.get(), _null_mask_size);
+    _null_mask      = nullptr;
+    _null_mask_size = 0;
+  }
+  // Children will be destroyed recursively
+}
+
+cudf::column_view shared_contiguous_column::view() const
+{
+  auto found = gqe::utility::find_object<gqe::storage::shared_column>(&_segment, _column_name);
+  return found->view();
+}
+
+shared_contiguous_column::~shared_contiguous_column()
+{
+  if (gqe::utility::multi_process::mpi_rank_zero()) {
+    _segment.destroy<gqe::storage::shared_column>(_column_name.c_str());
+  }
+}
+
+shared_table::shared_table(cudf::table_view table,
+                           boost::interprocess::managed_shared_memory& segment,
+                           rmm::cuda_stream_view stream,
+                           rmm::device_async_resource_ref mr)
+  : _columns(SharedColumnAllocator(segment.get_segment_manager())), _size(table.num_rows())
+{
+  auto num_columns = table.num_columns();
+
+  _columns.reserve(num_columns);
+  for (int i = 0; i < num_columns; i++) {
+    _columns.emplace_back(table.column(i), segment, stream, mr);
+  }
+}
+
+cudf::table_view shared_table::view() const
+{
+  std::vector<cudf::column_view> column_views(_columns.size());
+  for (size_t i = 0; i < _columns.size(); i++) {
+    column_views[i] = _columns[i].view();
+  }
+  return cudf::table_view(column_views);
+}
+
+std::unique_ptr<cudf::table> shared_table::copy_to_device(rmm::cuda_stream_view stream,
+                                                          rmm::device_async_resource_ref mr)
+{
+  auto table_view = view();
+
+  // Creates a new table on memory resource specified in parameters
+  auto table_ptr = std::make_unique<cudf::table>(table_view, stream, mr);
+  return table_ptr;
+}
 
 contiguous_column::contiguous_column(cudf::column&& cudf_column)
   : column_base(), _data(std::move(cudf_column))
@@ -149,8 +293,152 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
   }
 }
 
+shared_compressed_column_base::shared_compressed_column_base(
+  gqe::storage::compressed_column&& compressed_column,
+  boost::interprocess::managed_shared_memory& segment,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+  : _size(compressed_column._size),
+    _compressed_size(compressed_column._compressed_data->size()),
+    _compressed_null_mask_size(
+      compressed_column._null_count > 0 ? compressed_column._compressed_null_mask->size() : 0),
+    _dtype(compressed_column._dtype),
+    _null_count(compressed_column._null_count),
+    _comp_format(compressed_column._comp_format),
+    _compression_ratio(compressed_column._compression_ratio),
+    _null_mask_compression_ratio(
+      compressed_column._null_count > 0 ? compressed_column._null_mask_compression_ratio : 0.0),
+    _is_compressed(compressed_column._is_compressed),
+    _is_null_mask_compressed(compressed_column._is_null_mask_compressed),
+    _nvcomp_manager(compressed_column._nvcomp_manager.get_comp_format(),
+                    compressed_column._nvcomp_manager.get_data_type(),
+                    compressed_column._nvcomp_manager.get_compression_chunk_size(),
+                    stream,
+                    mr,
+                    compressed_column._nvcomp_manager.get_column_name(),
+                    compressed_column._nvcomp_manager.get_cudf_type()),
+    _compressed_children(SharedColumnAllocator(segment.get_segment_manager())),
+    _mr(mr)
+{
+  // Allocate and copy main data
+  _compressed_data = mr.allocate(compressed_column._compressed_data->size());
+  GQE_CUDA_TRY(cudaMemcpy(_compressed_data.get(),
+                          compressed_column._compressed_data->data(),
+                          compressed_column._compressed_data->size(),
+                          cudaMemcpyDeviceToHost));
+
+  // Allocate and copy null mask
+  if (compressed_column._null_count > 0) {
+    _compressed_null_mask = mr.allocate(compressed_column._compressed_null_mask->size());
+    GQE_CUDA_TRY(cudaMemcpy(_compressed_null_mask.get(),
+                            compressed_column._compressed_null_mask->data(),
+                            compressed_column._compressed_null_mask->size(),
+                            cudaMemcpyDeviceToHost));
+  }
+
+  // Handle children
+  _compressed_children.reserve(compressed_column._compressed_children.size());
+  for (size_t i = 0; i < compressed_column._compressed_children.size(); ++i) {
+    auto& compressed_child = compressed_column._compressed_children[i];
+    _compressed_children.emplace_back(std::move(*compressed_child), segment, stream, mr);
+  }
+}
+
+std::unique_ptr<cudf::column> shared_compressed_column_base::decompress(
+  rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
+{
+  std::vector<std::unique_ptr<cudf::column>> decompressed_children;
+  decompressed_children.reserve(_compressed_children.size());
+
+  for (auto& compressed_child : _compressed_children) {
+    decompressed_children.push_back(compressed_child.decompress(stream, mr));
+  }
+
+  std::unique_ptr<rmm::device_buffer> decompressed_data;
+
+  if (_is_compressed) {
+    decompressed_data =
+      _nvcomp_manager.do_decompress(_compressed_data.get(), _compressed_size, stream, mr);
+  } else {
+    decompressed_data = std::make_unique<rmm::device_buffer>(
+      static_cast<const void*>(_compressed_data.get()), _compressed_size, stream, mr);
+  }
+
+  std::unique_ptr<rmm::device_buffer> decompressed_null_mask;
+  if (_null_count > 0) {
+    if (_is_null_mask_compressed) {
+      decompressed_null_mask = _nvcomp_manager.do_decompress(
+        _compressed_null_mask.get(), _compressed_null_mask_size, stream, mr);
+    } else {
+      decompressed_null_mask =
+        std::make_unique<rmm::device_buffer>(static_cast<const void*>(_compressed_null_mask.get()),
+                                             _compressed_null_mask_size,
+                                             stream,
+                                             mr);
+    }
+  } else {
+    decompressed_null_mask = std::make_unique<rmm::device_buffer>();
+  }
+
+  return std::make_unique<cudf::column>(_dtype,
+                                        _size,
+                                        std::move(*decompressed_data),
+                                        std::move(*decompressed_null_mask),
+                                        _null_count,
+                                        std::move(decompressed_children));
+}
+
+shared_compressed_column_base::~shared_compressed_column_base()
+{
+  if (_compressed_data) {
+    _mr.deallocate(_compressed_data.get(), _compressed_size);
+    _compressed_data = nullptr;
+    _compressed_size = 0;
+  }
+  if (_compressed_null_mask) {
+    _mr.deallocate(_compressed_null_mask.get(), _compressed_null_mask_size);
+    _compressed_null_mask      = nullptr;
+    _compressed_null_mask_size = 0;
+  }
+  // Children will be destroyed recursively
+}
+
+std::unique_ptr<cudf::column> shared_compressed_column::decompress(
+  rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
+{
+  auto shared_compressed_column_base =
+    gqe::utility::find_object<gqe::storage::shared_compressed_column_base>(&_segment, _name);
+  return shared_compressed_column_base->decompress(stream, mr);
+}
+
+shared_compressed_column::shared_compressed_column(
+  std::string name, boost::interprocess::managed_shared_memory& segment)
+  : _name(std::move(name)), _segment(segment)
+{
+}
+
+shared_compressed_column::~shared_compressed_column()
+{
+  if (gqe::utility::multi_process::mpi_rank_zero()) {
+    _segment.destroy<gqe::storage::shared_compressed_column_base>(_name.c_str());
+  }
+}
+
+int64_t shared_compressed_column::size() const
+{
+  // TODO: optimize and only use find once, and store pointer
+  auto shared_compressed_column_base =
+    gqe::utility::find_object<gqe::storage::shared_compressed_column_base>(&_segment, _name);
+
+  return shared_compressed_column_base->_size;
+}
+
 int64_t compressed_column::size() const { return _size; }
 
+// TODO: DRY with shared_compressed_column::decompress
+// Current difference is that this does not store data as rmm::device_buffers, as they are not safe
+// in shared memory And, children are not stored as unique_ptrs, as directly creating structures is
+// significantly less complicated with memory management
 std::unique_ptr<cudf::column> compressed_column::decompress(rmm::cuda_stream_view stream,
                                                             rmm::device_async_resource_ref mr)
 {
@@ -230,7 +518,7 @@ column_base& row_group::get_column(cudf::size_type column_index) const
   return *_columns.at(column_index);
 }
 
-const gqe::zone_map* row_group::zone_map() const { return _zone_map.get(); }
+gqe::zone_map* row_group::zone_map() const { return _zone_map.get(); }
 
 in_memory_table::in_memory_table(memory_kind::type memory_kind,
                                  std::vector<std::string> const& column_names,
@@ -248,32 +536,32 @@ in_memory_table::in_memory_table(memory_kind::type memory_kind,
   }
 
   // Create memory resource based on memory kind. The allocators must be thread-safe.
-  std::unique_ptr<rmm::mr::device_memory_resource> mr = std::visit(
-    utility::overloaded{
-      [](memory_kind::system) -> std::unique_ptr<rmm::mr::device_memory_resource> {
-        return std::make_unique<memory_resource::system_memory_resource>();
-      },
-      [](const memory_kind::numa& numa) -> std::unique_ptr<rmm::mr::device_memory_resource> {
-        return std::make_unique<memory_resource::numa_memory_resource>(numa.numa_node_set,
-                                                                       numa.page_kind);
-      },
-      [](const memory_kind::pinned&) -> std::unique_ptr<rmm::mr::device_memory_resource> {
-        return std::make_unique<memory_resource::pinned_memory_resource>();
-      },
-      [](const memory_kind::numa_pinned& numa) -> std::unique_ptr<rmm::mr::device_memory_resource> {
-        return std::make_unique<memory_resource::numa_memory_resource>(
-          numa.numa_node_set, numa.page_kind, true);
-      },
-      [](const memory_kind::device& device) -> std::unique_ptr<rmm::mr::device_memory_resource> {
-        // FIXME: specify device instead of allocating on default CUDA device
-        return std::make_unique<rmm::mr::cuda_memory_resource>();
-      },
-      [](const memory_kind::managed) -> std::unique_ptr<rmm::mr::device_memory_resource> {
-        return std::unique_ptr<rmm::mr::managed_memory_resource>();
-      }},
-    memory_kind);
-
-  _memory_resource = std::move(mr);
+  std::visit(utility::overloaded{
+               [this](memory_kind::system) {
+                 _memory_resource = std::make_unique<memory_resource::system_memory_resource>();
+               },
+               [this](const memory_kind::numa& numa) {
+                 _memory_resource = std::make_unique<memory_resource::numa_memory_resource>(
+                   numa.numa_node_set, numa.page_kind);
+               },
+               [this](const memory_kind::pinned&) {
+                 _memory_resource = std::make_unique<memory_resource::pinned_memory_resource>();
+               },
+               [this](const memory_kind::device&) {
+                 // FIXME: specify device instead of allocating on default CUDA device
+                 _memory_resource = std::make_unique<rmm::mr::cuda_memory_resource>();
+               },
+               [this](const memory_kind::managed&) {
+                 _memory_resource = std::make_unique<rmm::mr::managed_memory_resource>();
+               },
+               [this](const memory_kind::numa_pinned& numa_pinned) {
+                 _memory_resource = std::make_unique<memory_resource::numa_memory_resource>(
+                   numa_pinned.numa_node_set, numa_pinned.page_kind, true);
+               },
+               [this](const memory_kind::boost_shared& boost_shared) {
+                 _shared_memory_resource = boost_shared.mr;
+               }},
+             memory_kind);
 }
 
 bool in_memory_table::is_readable() const { return true; }
@@ -455,10 +743,26 @@ cudf::column_view in_memory_read_task::optionally_decompress_column(
       _decompressed_columns.emplace(&column, std::move(decompressed_column));
       return column_view;
     }
-    default: {
-      throw std::logic_error("Unknown column type");
+    case in_memory_column_type::SHARED_CONTIGUOUS: {
+      auto view = dynamic_cast<shared_contiguous_column&>(column).view();
+      return view;
+    }
+    case in_memory_column_type::SHARED_COMPRESSED: {
+      auto stored_decompressed_column = _decompressed_columns.find(&column);
+      if (stored_decompressed_column != _decompressed_columns.end()) {
+        return stored_decompressed_column->second->view();
+      } else {
+        auto decompressed_column =
+          dynamic_cast<shared_compressed_column&>(column).decompress(_decompression_stream);
+        const auto column_view = decompressed_column->view();
+        _decompressed_columns.emplace(&column, std::move(decompressed_column));
+        return column_view;
+      }
     }
   }
+  // Compiler complains about reaching end of non-void function, even though all cases in the
+  // switch statement are specified and each case has a return statement.
+  throw std::logic_error("Unknown column type");
 }
 
 std::vector<cudf::table_view> in_memory_read_task::slice_row_groups(
@@ -558,7 +862,8 @@ void in_memory_read_task::emit_empty_table()
   for (const auto& data_type : _data_types) {
     // cudf::make_empty_column will fail for nested types, e.g., lists and structs. In this
     // case, we have to use cudf::empty_like on an existing column, or reproduce it.
-    // TODO There is no test of the entire query execution pipeline when an empty table is returned
+    // TODO There is no test of the entire query execution pipeline when an empty table is
+    // returned
     auto empty_column = cudf::make_empty_column(data_type);
     empty_columns.push_back(std::move(empty_column));
   }
@@ -642,7 +947,8 @@ void in_memory_read_task::execute()
     slice_row_groups(row_groups_with_partitions);
 
   if (!_decompressed_columns.empty() && should_use_overlap_mtx()) {
-    // Wait on the CUDF default stream until data transfers of the shared copy engine are finished.
+    // Wait on the CUDF default stream until data transfers of the shared copy engine are
+    // finished.
     auto default_stream = cudf::get_default_stream().value();
     auto shared_ce_stream =
       get_context_reference()._task_manager_context->copy_engine_stream.stream.value();
@@ -699,7 +1005,7 @@ in_memory_write_task::in_memory_write_task(
 {
 }
 
-void in_memory_write_task::execute()
+void in_memory_write_task::execute_default()
 {
   GQE_LOG_TRACE("Write task execute");
   prepare_dependencies();
@@ -833,7 +1139,155 @@ void in_memory_write_task::execute()
                 stage_id(),
                 input_table.num_rows());
   remove_dependencies();
-  GQE_LOG_TRACE("Finished write task execute");
+}
+
+void in_memory_write_task::execute_shared_memory()
+{
+  prepare_dependencies();
+
+  utility::nvtx_scoped_range in_memory_write_task_range("in_memory_write_task");
+
+  auto const dependent_tasks = dependencies();
+  assert(dependent_tasks.size() == 1);
+
+  // Check if input schema matches output schema
+  auto num_columns = _column_indexes.size();
+
+  cudf::table_view input_table;
+
+  // Other ranks will have empty result table
+  if (gqe::utility::multi_process::mpi_rank_zero()) {
+    input_table = *dependent_tasks[0]->result();
+    if (_data_types.size() != num_columns) {
+      throw std::length_error("Data types must have the same length as the number of columns");
+    }
+    if (static_cast<decltype(num_columns)>(input_table.num_columns()) != num_columns) {
+      throw std::invalid_argument("Query result schema must match Parquet output schema");
+    }
+
+    for (decltype(num_columns) column_idx = 0; column_idx < num_columns; ++column_idx) {
+      if (_data_types[column_idx] != input_table.column(column_idx).type()) {
+        throw std::invalid_argument("Query result schema must match Parquet output schema");
+      }
+    }
+  }
+
+  // Create columns and insert data into them
+
+  // Specify the stream to enqueue copy on
+  auto stream = cudf::get_default_stream();
+
+  // FIXME: Maybe we can zero-copy construct (i.e., move to) the new columns if
+  // the input_table columns have the same memory type as the result columns.
+  // This would require us to destroy the result cache here, but that should be
+  // ok because `write` is the root task.
+  std::vector<std::unique_ptr<column_base>> new_columns(_column_indexes.size());
+
+  auto& segment =
+    static_cast<memory_resource::boost_shared_memory_resource*>(_non_owned_memory_resource)
+      ->segment();
+
+  for (decltype(num_columns) column_idx = 0; column_idx < num_columns; ++column_idx) {
+    auto comp_format = get_query_context()->parameters.in_memory_table_compression_format;
+
+    std::string shared_column_name = [&] {
+      std::ostringstream oss;
+      oss << "shared_column_" << stage_id() << "_" << task_id() << "_" << column_idx << "_"
+          << _column_names[column_idx];
+      return oss.str();
+    }();
+
+    cudf::column_view input_column = [&]() {
+      if (gqe::utility::multi_process::mpi_rank_zero()) {
+        return input_table.column(column_idx);
+      } else {
+        return cudf::column_view{};
+      }
+    }();
+
+    if (comp_format == compression_format::none) {
+      if (gqe::utility::multi_process::mpi_rank_zero()) {
+        segment.construct<gqe::storage::shared_column>(shared_column_name.c_str())(
+          input_column, segment, stream, _non_owned_memory_resource);
+      }
+
+      new_columns[_column_indexes[column_idx]] =
+        std::make_unique<shared_contiguous_column>(shared_column_name, segment);
+    } else {
+      if (gqe::utility::multi_process::mpi_rank_zero()) {
+        cudf::column cudf_column(input_column, stream, rmm::mr::get_current_device_resource());
+
+        auto const chunk_size = get_query_context()->parameters.compression_chunk_size;
+
+        auto dtype                      = input_column.type().id();
+        nvcompType_t nvcomp_data_format = get_optimal_nvcomp_data_type(dtype);
+
+        if ((comp_format == gqe::compression_format::best_compression_ratio) ||
+            (comp_format == gqe::compression_format::best_decompression_speed)) {
+          best_compression_config(
+            dtype,
+            comp_format,
+            nvcomp_data_format,
+            (comp_format == gqe::compression_format::best_compression_ratio ? 0 : 1));
+        }
+
+        // TODO: Not safe to pass the cudf::data_type to shared memory, need to investigate why
+        // It's only used for logging.
+        gqe::storage::compressed_column compressed_column(std::move(cudf_column),
+                                                          comp_format,
+                                                          stream,
+                                                          rmm::mr::get_current_device_resource(),
+                                                          nvcomp_data_format,
+                                                          chunk_size,
+                                                          _column_names[column_idx]);
+        segment.construct<gqe::storage::shared_compressed_column_base>(shared_column_name.c_str())(
+          std::move(compressed_column), segment, stream, _non_owned_memory_resource);
+      }
+
+      new_columns[_column_indexes[column_idx]] =
+        std::make_unique<shared_compressed_column>(shared_column_name, segment);
+    }
+  }
+
+  // Create row group from columns
+  // Append row group to table
+  const auto partition_size = get_query_context()->parameters.zone_map_partition_size;
+  std::unique_ptr<gqe::zone_map> zone_map;
+  if (partition_size <= 0) {
+    zone_map = nullptr;
+  } else {
+    std::string shared_table_name = "shared_zone_map_table_" + _column_names[0] +
+                                    std::to_string(stage_id()) + "_" + std::to_string(task_id());
+
+    if (gqe::utility::multi_process::mpi_rank_zero()) {
+      segment.construct<gqe::shared_zone_map_table>(shared_table_name.c_str())(
+        input_table, partition_size, &segment, stream, _non_owned_memory_resource);
+    }
+
+    zone_map = std::make_unique<gqe::shared_zone_map>(partition_size, shared_table_name, &segment);
+  }
+
+  if (gqe::utility::multi_process::mpi_rank_zero()) {
+    _statistics->add_rows(input_table.num_rows());
+  }
+
+  auto row_group = storage::row_group(std::move(new_columns), std::move(zone_map));
+  _appender(std::move(row_group));
+
+  GQE_LOG_TRACE("Execute in-memory write task: task_id={}, stage_id={}, input_size={}.",
+                task_id(),
+                stage_id(),
+                input_table.num_rows());
+  remove_dependencies();
+}
+
+void in_memory_write_task::execute()
+{
+  if (get_query_context()->parameters.use_in_memory_table_multigpu) {
+    execute_shared_memory();
+  } else {
+    execute_default();
+  }
 }
 
 in_memory_readable_view::in_memory_readable_view(in_memory_table* non_owning_table)
@@ -976,18 +1430,23 @@ std::vector<std::unique_ptr<write_task_base>> in_memory_writeable_view::get_writ
     // Create appender, which will acquire a write latch to the row groups vector
     auto appender = _non_owning_table->get_row_group_appender();
 
-    // Create a new write task
-    auto write_task =
-      std::make_unique<in_memory_write_task>(ctx_ref,
-                                             task_parameter.task_id,
-                                             stage_id,
-                                             std::move(task_parameter.input),
-                                             _non_owning_table->_memory_resource.get(),
-                                             std::move(appender),
-                                             column_indexes,
-                                             column_names,
-                                             data_types,
-                                             statistics);
+    // We currently need to share boost_shared_memory_resource across tables
+    // because of the issue: see https://gitlab-master.nvidia.com/haog/gqe-python/-/issues/10
+    auto memory_resource = ctx_ref._query_context->parameters.use_in_memory_table_multigpu
+                             ? _non_owning_table->_shared_memory_resource.get()
+                             : _non_owning_table->_memory_resource.get();
+
+    /// Create a new write task
+    auto write_task = std::make_unique<in_memory_write_task>(ctx_ref,
+                                                             task_parameter.task_id,
+                                                             stage_id,
+                                                             std::move(task_parameter.input),
+                                                             memory_resource,
+                                                             std::move(appender),
+                                                             column_indexes,
+                                                             column_names,
+                                                             data_types,
+                                                             statistics);
     write_tasks.push_back(std::move(write_task));
   }
 

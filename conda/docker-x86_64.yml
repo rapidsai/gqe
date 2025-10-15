@@ -34,4 +34,6 @@ dependencies:
   - liburing
   - libnvshmem-static==3.2.5
   - spdlog=1.15.3
-  - fmt=11.1.4
+  - fmt=11.1.4  
+  - boost-cpp
+

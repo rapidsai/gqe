@@ -281,27 +281,35 @@ void execute_task_graph_multi_process(context_reference ctx_ref, task_graph cons
       GQE_CUDA_TRY(cudaSetDevice(task_manager_context->comm->device_id().value()));
       // If the number of worker threads is 1, we could avoid the thread spawning cost by using the
       // main thread.
-      for (auto& task : tasks_current_stage) {
-        // root task of a pipeline in a stage cannot belong to more than one pipeline
-        auto curr_task = task.lock();
-        assert(curr_task != nullptr);
-        assert(curr_task->pipeline_ids().size() == 1);
-        auto const root_task_pipeline_id = *(curr_task->pipeline_ids().cbegin());
-        if (execute_locally(curr_task.get())) {
-          GQE_LOG_TRACE("Rank {}: Executing pipeline {} from stage {}.",
-                        task_manager_context->comm->rank(),
-                        root_task_pipeline_id,
-                        curr_task->stage_id());
-          task_manager_context->migration_service->register_task(curr_task.get());
-          curr_task->execute();
-        } else {
-          GQE_LOG_TRACE("Rank {}: Pipeline {} from stage {} is not executed locally.",
-                        task_manager_context->comm->rank(),
-                        root_task_pipeline_id,
-                        curr_task->stage_id());
+      std::exception_ptr stage_exception = nullptr;
+      try {
+        for (auto& task : tasks_current_stage) {
+          // root task of a pipeline in a stage cannot belong to more than one pipeline
+          auto curr_task = task.lock();
+          assert(curr_task != nullptr);
+          assert(curr_task->pipeline_ids().size() == 1);
+          auto const root_task_pipeline_id = *(curr_task->pipeline_ids().cbegin());
+          if (execute_locally(curr_task.get())) {
+            GQE_LOG_TRACE("Rank {}: Executing pipeline {} from stage {}.",
+                          task_manager_context->comm->rank(),
+                          root_task_pipeline_id,
+                          curr_task->stage_id());
+            task_manager_context->migration_service->register_task(curr_task.get());
+            curr_task->execute();
+          } else {
+            GQE_LOG_TRACE("Rank {}: Pipeline {} from stage {} is not executed locally.",
+                          task_manager_context->comm->rank(),
+                          root_task_pipeline_id,
+                          curr_task->stage_id());
+          }
         }
+        cudf::get_default_stream().synchronize();  // ensure completion of launched GPU activity
+      } catch (const std::exception&) {
+        stage_exception = std::current_exception();
       }
-      cudf::get_default_stream().synchronize();  // ensure completion of launched GPU activity
+
+      task_manager_context->comm->propagate_error(stage_exception);
+
       task_manager_context->comm
         ->barrier_world();  // ensure all ranks have completed the current stage
     } else {
@@ -346,21 +354,19 @@ void execute_task_graph_multi_process(context_reference ctx_ref, task_graph cons
 
       for (auto& worker : workers)
         worker.join();
-      task_manager_context->comm
-        ->barrier_world();  // ensure all ranks have completed the current stage
 
-      // Handle exceptions thrown in the worker threads. The main thread
-      // rethrows the first exception it encounters. The rethrown exception can
-      // be caught by the external function calling GQE.
-      //
-      // All workers _must_ be joined before rethrowing an exception to avoid a
-      // "terminate called without an active exception" error!
+      // Determine if this rank encountered an exception and propagate across ranks
+      std::exception_ptr stage_exception = nullptr;
       for (auto& exception : worker_exceptions) {
         if (exception != nullptr) {
-          task_manager_context->finalize();  // wait for other ranks to propagate the exception
-          std::rethrow_exception(exception);
+          stage_exception = exception;
+          break;
         }
       }
+
+      task_manager_context->comm->propagate_error(stage_exception);
+      task_manager_context->comm
+        ->barrier_world();  // ensure all ranks have completed the current stage
     }
 
     // Release dependencies for current stage tasks. Tasks in the current stage may be executed on

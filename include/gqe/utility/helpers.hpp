@@ -150,6 +150,15 @@ struct make_unsigned<double> {
 template <typename T>
 using make_unsigned_t = typename make_unsigned<T>::type;
 
-inline size_t default_device_memory_pool_size() { return rmm::percent_of_free_device_memory(90); }
+inline size_t default_device_memory_pool_size()
+{
+  const char* env_pool_size = std::getenv("GQE_RMM_POOL_SIZE");
+  if (env_pool_size != nullptr) {
+    size_t pool_size = std::stoull(env_pool_size);
+    GQE_LOG_INFO("Using GQE_RMM_POOL_SIZE from environment: {} bytes", pool_size);
+    return pool_size;
+  }
+  return rmm::percent_of_free_device_memory(90);
+}
 
 }  // namespace gqe::utility

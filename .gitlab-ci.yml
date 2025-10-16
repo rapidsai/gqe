@@ -65,7 +65,8 @@ tpch_queries:
     - pushd build
     - cmake -DGQE_ENABLE_CUSTOMIZED_PARQUET=ON ..
     - make -j30
-    - ctest --output-on-failure --exclude-regex parquet_reader
+    # Set the RMM pool size to 1GiB for the tests.  This is enough and allows greater concurrency for the tests.
+    - GQE_RMM_POOL_SIZE=$((1024*1024*1024)) ctest --output-on-failure --exclude-regex parquet_reader
     - popd
     # TPC-H coverage for SF1
     - GQE_LOG_LEVEL=warn bash ./test/end_to_end/run_tpc.sh h ./build /tpch_scratch/datasets/sf1/sf1_id64/ /tpch_scratch/reference_results/sf1 /tpch_scratch/substrait_plans/df_q%d.bin

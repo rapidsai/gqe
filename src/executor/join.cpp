@@ -679,6 +679,7 @@ void join_task::execute()
       GQE_LOG_TRACE("Join implementation: unique_key_join.");
     } else if (_join_type == join_type_type::left_semi || _join_type == join_type_type::left_anti) {
       join_algo = join_algorithm::MARK_JOIN;
+      assert(_hash_map_cache->build_side() == join_hash_map_cache::build_location::left);
       GQE_LOG_TRACE("Join implementation: cached equality gqe::mark_join.");
     } else {
       join_algo = join_algorithm::HASH_JOIN;
@@ -707,6 +708,7 @@ void join_task::execute()
     // only mark_join is supported in this path for now
     assert(_join_type == join_type_type::left_semi || _join_type == join_type_type::left_anti);
     assert(left_keys.num_columns() == right_keys.num_columns());
+    assert(_hash_map_cache->build_side() == join_hash_map_cache::build_location::left);
     // Fast path mixed joins: use the cached hash map
     cudf::table_view build_keys;
     cudf::table_view probe_keys;
@@ -933,7 +935,6 @@ void join_task::execute()
 
   std::unique_ptr<cudf::table> join_result;
   if (_materialize_output) {
-    assert(_join_type != join_type_type::left_semi && _join_type != join_type_type::left_anti);
     join_result = materialize(left_view,
                               right_view,
                               left_indices_column->view(),

@@ -527,9 +527,10 @@ void task_graph_builder::generate_task_graph_visitor::visit(
   bool perfect_hashing = _builder->_ctx_ref._query_context->parameters.join_use_perfect_hash &&
                          relation->perfect_hashing();
 
-  bool mark_join = _builder->_ctx_ref._query_context->parameters.join_use_mark_join;
-
   if (relation->policy() == physical::broadcast_policy::right) {
+    // current mark join cannot semantically handle broadcast-right
+    constexpr bool mark_join = false;
+
     // Generate the right children tasks
     auto right_tasks = _builder->generate_tasks(children[1]);
 
@@ -546,15 +547,8 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     auto concatenated_right_task = _builder->concatenate(std::move(right_tasks), false);
 
     if (cache_enabled) {
-      // semi/anti joins always build on left side
-      if (relation_join_type == join_type_type::left_semi ||
-          relation_join_type == join_type_type::left_anti) {
-        hash_map_cache = std::make_shared<gqe::join_hash_map_cache>(
-          gqe::join_hash_map_cache::build_location::left);
-      } else {
-        hash_map_cache = std::make_shared<gqe::join_hash_map_cache>(
-          gqe::join_hash_map_cache::build_location::right);
-      }
+      hash_map_cache =
+        std::make_shared<gqe::join_hash_map_cache>(gqe::join_hash_map_cache::build_location::right);
     }
 
     // Generate the join tasks
@@ -579,7 +573,16 @@ void task_graph_builder::generate_task_graph_visitor::visit(
         relation_join_type != join_type_type::left_semi &&
         relation_join_type != join_type_type::left_anti) {
       throw std::logic_error(
-        "Broadcast join can broadcast the left table only for inner/semi/anti join");
+        "Broadcast join does not support left broadcast for this join; only inner/semi/anti join "
+        "can broadcast the left table.");
+    }
+    const bool mark_join = _builder->_ctx_ref._query_context->parameters.join_use_mark_join;
+    // We enable cache ALWAYS with mark_join for best performance.
+    // TODO: this can be removed when perfect hashing and hash map caching are mutually compatible
+    // See https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/161
+    if (mark_join && (relation_join_type == join_type_type::left_semi ||
+                      relation_join_type == join_type_type::left_anti)) {
+      cache_enabled = true;
     }
 
     // Generate the left children tasks

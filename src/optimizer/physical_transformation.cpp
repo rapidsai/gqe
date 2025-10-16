@@ -108,13 +108,16 @@ std::shared_ptr<physical::relation> physical_plan_builder::build(
       // For left_semi and left_anti based on the broadcasted side the materialization
       // differs with performance implications, hence, we need more benchmarking to decide the
       // logic of the side to be broadcasted
+      // - Mark Join for left_{semi,anti} join is only enabled on left-side broadcast.
       //
       // So, we default the broadcast policy to broadcast_policy::right and only consider
-      // broadcast_policy::left if it's an inner join.
+      // broadcast_policy::left if it's an {inner,left_semi,left_anti} join.
       physical::broadcast_policy policy = physical::broadcast_policy::right;
 
-      // If the join type is inner join, we broadcast the smaller table.
-      if (logical_join_relation->join_type() == join_type_type::inner) {
+      // If the join type is inner/left_{semi,anti} join, we broadcast the smaller table.
+      if (logical_join_relation->join_type() == join_type_type::inner ||
+          logical_join_relation->join_type() == join_type_type::left_semi ||
+          logical_join_relation->join_type() == join_type_type::left_anti) {
         auto const left_num_rows  = _estimator(children_logical[0]).num_rows;
         auto const right_num_rows = _estimator(children_logical[1]).num_rows;
         if (left_num_rows < right_num_rows) policy = physical::broadcast_policy::left;

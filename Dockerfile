@@ -1,6 +1,7 @@
 ARG BASE_IMAGE=ubuntu:22.04
 FROM $BASE_IMAGE
 ARG DEBIAN_FRONTEND=noninteractive
+ARG PARALLEL_LEVEL
 WORKDIR /
 
 # Set visible devices and mount NVIDIA driver binary utilities inside the
@@ -15,6 +16,8 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     build-essential \
     ninja-build \
     wget \
+    sudo \
+    gosu \
     git \
     vim \
     ccache \
@@ -30,7 +33,6 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     openmpi-bin \
     libopenmpi-dev \
     gdb \
-    sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Miniforge3
@@ -50,7 +52,7 @@ RUN git clone https://github.com/rapidsai/cudf.git /cudf \
     && git submodule update --init --remote --recursive \
     && mamba env create -q --name gqe --file /config/conda/docker-$(uname -m).yml \
     && source activate gqe \
-    && PARALLEL_LEVEL=16 CUDF_CMAKE_CUDA_ARCHITECTURES="80-real;90-real;100-real;120" ./build.sh libcudf --ptds --cmake-args=\" -DCUDF_ENABLE_ARROW_S3=OFF -DBUILD_BENCHMARKS=OFF -DCUDA_ENABLE_LINEINFO=ON -Drapids-cmake-sha=c82ccbf86c53437d80a45c502e64029b7c1c7f31 \" \
+    && PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc)} CUDF_CMAKE_CUDA_ARCHITECTURES="80-real;90-real;100-real;120" ./build.sh libcudf --ptds --cmake-args=\" -DCUDF_ENABLE_ARROW_S3=OFF -DBUILD_BENCHMARKS=OFF -DCUDA_ENABLE_LINEINFO=ON -Drapids-cmake-sha=c82ccbf86c53437d80a45c502e64029b7c1c7f31 \" \
     && conda clean --all
 
 # Compile MLIR from source
@@ -73,6 +75,12 @@ RUN git clone https://github.com/llvm/llvm-project.git \
     && popd \
     && rm -rf llvm-project
 
+# Copy the entrypoint script into the image and give it execute permissions
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-# Activate the conda environment when launching the container
-RUN echo "source activate gqe" >> ~/.bashrc
+# Set the script as the entrypoint of the image
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Set the default command for the container
+CMD ["/bin/bash"]

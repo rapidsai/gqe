@@ -20,6 +20,7 @@ dependencies:
   - cmake
   - c-compiler
   - cxx-compiler
+  - conda-pack
   - clang-tools=20.1.4
   - gcc_linux-aarch64=11.*
   - sysroot_linux-aarch64==2.28

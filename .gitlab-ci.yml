@@ -63,8 +63,8 @@ tpch_queries:
     - rm -rf build
     - mkdir build
     - pushd build
-    - cmake -DGQE_ENABLE_CUSTOMIZED_PARQUET=ON ..
-    - make -j30
+    - cmake -DGQE_ENABLE_CUSTOMIZED_PARQUET=ON -G Ninja ..
+    - ninja -j30
     # Set the RMM pool size to 1GiB for the tests.  This is enough and allows greater concurrency for the tests.
     - GQE_RMM_POOL_SIZE=$((1024*1024*1024)) ctest --output-on-failure --exclude-regex parquet_reader
     - popd

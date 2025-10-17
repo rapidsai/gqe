@@ -66,6 +66,7 @@ void gqe::zone_map_expression_transformer::visitEqualExpression(
 void gqe::zone_map_expression_transformer::visitNotEqualExpression(
   const binary_op_expression* expression)
 {
+  GQE_LOG_DEBUG("Ignoring not-equal expression during zone map filter transformation");
   _transformation_map.emplace(expression, nullptr);
 }
 
@@ -128,6 +129,9 @@ void gqe::zone_map_expression_transformer::visitAndExpression(
   } else if (transformed_rhs) {
     _transformation_map.emplace(expression, transformed_rhs);
   } else {
+    GQE_LOG_DEBUG(
+      "Ignoring AND expression during zone map filter transformation because both children are "
+      "ignored");
     _transformation_map.emplace(expression, nullptr);
   }
 }
@@ -147,6 +151,9 @@ void gqe::zone_map_expression_transformer::visitOrExpression(const binary_op_exp
     _transformation_map.emplace(
       expression, std::make_shared<logical_or_expression>(transformed_lhs, transformed_rhs));
   } else {
+    GQE_LOG_DEBUG(
+      "Ignoring OR expression during zone map filter transformation because it has an ignored "
+      "child");
     _transformation_map.emplace(expression, nullptr);
   }
 }
@@ -257,6 +264,7 @@ void gqe::zone_map_expression_transformer::visit(const scalar_function_expressio
       // Q14 and Q20 contain such expressions that filter 83% and 99% of the part table,
       // respectively. However, the part table is not sorted on the filtered columns, so pruning is
       // not effective. Therefore, we ignore LIKE expressions for now.
+      GQE_LOG_DEBUG("Ignoring like expression during zone map filter transformation");
       _transformation_map.emplace(expression, nullptr);
       break;
     case gqe::scalar_function_expression::function_kind::substr: {
@@ -282,11 +290,48 @@ void gqe::zone_map_expression_transformer::visit(const unary_op_expression* expr
         _transformation_map.emplace(expression,
                                     std::make_shared<gqe::not_expression>(transformed_child));
       } else {
+        GQE_LOG_DEBUG("Ignoring unary_op_expression during zone map filter transformation");
         _transformation_map.emplace(expression, nullptr);
       }
     } break;
     default: expression_visitor::visit(expression);
   }
+}
+
+void gqe::zone_map_expression_transformer::visit(const literal_expression<int64_t>* expression)
+{
+  GQE_LOG_DEBUG("Ignoring literal_expression<int64_t> during zone map filter transformation");
+  _transformation_map.emplace(expression, nullptr);
+}
+
+void gqe::zone_map_expression_transformer::visit(const literal_expression<float>* expression)
+{
+  GQE_LOG_DEBUG("Ignoring literal_expression<float> during zone map filter transformation");
+  _transformation_map.emplace(expression, nullptr);
+}
+
+void gqe::zone_map_expression_transformer::visit(const subquery_expression* expression)
+{
+  GQE_LOG_DEBUG("Ignoring subquery_expression during zone map filter transformation");
+  _transformation_map.emplace(expression, nullptr);
+}
+
+void gqe::zone_map_expression_transformer::visit(const if_then_else_expression* expression)
+{
+  GQE_LOG_DEBUG("Ignoring if_then_else_expression during zone map filter transformation");
+  _transformation_map.emplace(expression, nullptr);
+}
+
+void gqe::zone_map_expression_transformer::visit(const cast_expression* expression)
+{
+  GQE_LOG_DEBUG("Ignoring cast_expression during zone map filter transformation");
+  _transformation_map.emplace(expression, nullptr);
+}
+
+void gqe::zone_map_expression_transformer::visit(const is_null_expression* expression)
+{
+  GQE_LOG_DEBUG("Ignoring is_null_expression during zone map filter transformation");
+  _transformation_map.emplace(expression, nullptr);
 }
 
 bool gqe::zone_map::partition::operator==(const partition& other) const

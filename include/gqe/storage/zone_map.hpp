@@ -83,6 +83,17 @@ class zone_map_expression_transformer : public gqe::expression_visitor {
   void visit(const scalar_function_expression* expression) override;
   void visit(const unary_op_expression* expression) override;
 
+  // The following visit methods are not tested. They are not needed for TPC-H and are therefore
+  // ignored.
+  void visit(const literal_expression<int64_t>* expression) override;
+  void visit(const literal_expression<float>* expression) override;
+  void visit(const subquery_expression* expression) override;
+  void visit(const if_then_else_expression* expression) override;
+  void visit(const cast_expression* expression) override;
+  void visit(const is_null_expression* expression) override;
+
+  ~zone_map_expression_transformer() override = default;
+
  private:
   // Make the constructor private, so that it can only be created by the method transform.
   // This ensures that each transformer is only used for the transformation of a single expression.

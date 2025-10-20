@@ -20,6 +20,9 @@ if ! getent passwd $USER_UID > /dev/null; then
     echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 fi
 
+# Get the actual username for this UID (in case user already existed with different name)
+ACTUAL_USERNAME=$(getent passwd $USER_UID | cut -d: -f1)
+
 # Get the actual group name for this GID
 GROUP_NAME=$(getent group $USER_GID | cut -d: -f1)
 
@@ -27,34 +30,34 @@ GROUP_NAME=$(getent group $USER_GID | cut -d: -f1)
 if chown -R $USER_UID:$USER_GID /conda 2>/dev/null; then
     echo "Using system conda environment"
     # Set up conda for the user
-    mkdir -p /home/$USERNAME/.conda
-    echo 'export PATH="/conda/bin:$PATH"' >> /home/$USERNAME/.bashrc
+    mkdir -p /home/$ACTUAL_USERNAME/.conda
+    echo 'export PATH="/conda/bin:$PATH"' >> /home/$ACTUAL_USERNAME/.bashrc
 else
     echo "Creating user-specific conda environment"
     # Create user's conda environment directory
-    mkdir -p /home/$USERNAME/.conda/envs/gqe
+    mkdir -p /home/$ACTUAL_USERNAME/.conda/envs/gqe
     
     # Pack and unpack the conda environment for the new user
     # Note: conda-pack is installed in the gqe environment
     if /conda/envs/gqe/bin/conda-pack -n gqe -o /tmp/gqe.tar.gz 2>/dev/null; then
-        tar -xzf /tmp/gqe.tar.gz -C /home/$USERNAME/.conda/envs/gqe
+        tar -xzf /tmp/gqe.tar.gz -C /home/$ACTUAL_USERNAME/.conda/envs/gqe
         rm /tmp/gqe.tar.gz
         
         # Set up conda for the user
-        echo 'export PATH="/home/'$USERNAME'/.conda/envs/gqe/bin:$PATH"' >> /home/$USERNAME/.bashrc
+        echo 'export PATH="/home/'$ACTUAL_USERNAME'/.conda/envs/gqe/bin:$PATH"' >> /home/$ACTUAL_USERNAME/.bashrc
         
         # Fix permissions
-        chown -R $USER_UID:$USER_GID /home/$USERNAME/.conda
+        chown -R $USER_UID:$USER_GID /home/$ACTUAL_USERNAME/.conda
     else
         echo "Warning: conda-pack not available, linking to system conda instead"
-        echo 'export PATH="/conda/bin:$PATH"' >> /home/$USERNAME/.bashrc        
+        echo 'export PATH="/conda/bin:$PATH"' >> /home/$ACTUAL_USERNAME/.bashrc        
     fi
 fi
 
-echo 'source activate gqe' >> /home/$USERNAME/.bashrc
+echo 'source activate gqe' >> /home/$ACTUAL_USERNAME/.bashrc
 
 # Ensure proper ownership of user's home directory
-chown -R $USER_UID:$USER_GID /home/$USERNAME
+chown -R $USER_UID:$USER_GID /home/$ACTUAL_USERNAME
 
 # Switch to the created user and execute the command
-exec gosu $USERNAME "$@"
+exec gosu $ACTUAL_USERNAME "$@"

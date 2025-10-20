@@ -38,7 +38,8 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
 # Install Miniforge3
 RUN wget "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" -O /miniforge.sh \
     && sh /miniforge.sh -b -p /conda \
-    && rm /miniforge.sh
+    && rm /miniforge.sh \
+    && /conda/bin/conda init bash --system
 
 ENV PATH=${PATH}:/conda/bin
 # Enables "source activate"
@@ -81,6 +82,9 @@ RUN chmod +x /entrypoint.sh
 
 # Set the script as the entrypoint of the image
 ENTRYPOINT ["/entrypoint.sh"]
+
+# Activate the gqe environment if it is not already activated
+RUN echo "source activate gqe" >> ~/.bashrc
 
 # Set the default command for the container
 CMD ["/bin/bash"]

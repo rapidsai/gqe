@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -184,7 +184,7 @@ class ProjectionPushdown : public ::testing::Test {
       nullptr);
 
     if (test == test_type::no_opt) {
-      auto child = std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0, 1, 2})));
+      auto child = _construct_child(temp_table, std::vector<cudf::size_type>({0, 1, 2}));
       std::vector<std::unique_ptr<gqe::expression>> project_exprs;
 
       project_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(0));
@@ -204,8 +204,7 @@ class ProjectionPushdown : public ::testing::Test {
 
     if (test == test_type::col_ref_only) {
       if (!optimized) {
-        auto child =
-          std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0, 1, 2})));
+        auto child = _construct_child(temp_table, std::vector<cudf::size_type>({0, 1, 2}));
         std::vector<std::unique_ptr<gqe::expression>> col_0_exprs;
         col_0_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(0));
 
@@ -216,15 +215,14 @@ class ProjectionPushdown : public ::testing::Test {
 
         return project;
       } else {
-        auto child = std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0})));
+        auto child = _construct_child(temp_table, std::vector<cudf::size_type>({0}));
         return child;
       }
     }
 
     if (test == test_type::col_ref_with_reordering) {
       if (!optimized) {
-        auto child =
-          std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0, 1, 2})));
+        auto child = _construct_child(temp_table, std::vector<cudf::size_type>({0, 1, 2}));
         std::vector<std::unique_ptr<gqe::expression>> col_exprs;
         col_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(1));
         col_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(0));
@@ -236,15 +234,14 @@ class ProjectionPushdown : public ::testing::Test {
 
         return project;
       } else {
-        auto child = std::move(_construct_child(temp_table, std::vector<cudf::size_type>({1, 0})));
+        auto child = _construct_child(temp_table, std::vector<cudf::size_type>({1, 0}));
         return child;
       }
     }
 
     if (test == test_type::mixed_expression) {
       if (!optimized) {
-        auto child =
-          std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0, 2, 3, 4})));
+        auto child = _construct_child(temp_table, std::vector<cudf::size_type>({0, 2, 3, 4}));
         std::vector<std::unique_ptr<gqe::expression>> project_exprs;
 
         project_exprs.emplace_back(std::make_unique<gqe::if_then_else_expression>(
@@ -260,8 +257,7 @@ class ProjectionPushdown : public ::testing::Test {
           std::move(project_exprs));
         return project;
       } else {
-        auto child =
-          std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0, 3, 4})));
+        auto child = _construct_child(temp_table, std::vector<cudf::size_type>({0, 3, 4}));
         std::vector<std::unique_ptr<gqe::expression>> project_exprs;
 
         project_exprs.emplace_back(std::make_unique<gqe::if_then_else_expression>(
@@ -287,8 +283,7 @@ class ProjectionPushdown : public ::testing::Test {
     */
     if (test == test_type::transformation_direction_up) {
       if (!optimized) {
-        auto child =
-          std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0, 1, 2})));
+        auto child = _construct_child(temp_table, std::vector<cudf::size_type>({0, 1, 2}));
 
         std::vector<std::unique_ptr<gqe::expression>> project_0_exprs;
         project_0_exprs.emplace_back(std::make_unique<gqe::column_reference_expression>(0));
@@ -311,7 +306,7 @@ class ProjectionPushdown : public ::testing::Test {
       }
 
       else {
-        auto child = std::move(_construct_child(temp_table, std::vector<cudf::size_type>({0})));
+        auto child = _construct_child(temp_table, std::vector<cudf::size_type>({0}));
 
         return child;
       }

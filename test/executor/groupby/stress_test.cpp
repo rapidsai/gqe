@@ -50,7 +50,7 @@ auto get_output_table(Keys agg_keys, Results agg_results)
     result_columns.push_back(std::move(agg_result.results[0]));
   }
 
-  return std::move(std::make_unique<cudf::table>(std::move(result_columns)));
+  return std::make_unique<cudf::table>(std::move(result_columns));
 }
 
 TEST(StressTest, Groupby)

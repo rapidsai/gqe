@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -153,8 +153,8 @@ TEST_F(RelationEqualTest, Aggregate)
                                                        duplicate_measures(measures_1));
 
   // TODO: Add more tests
-  EXPECT_FALSE(*agg_rel_0 == *agg_rel_1);
-  EXPECT_FALSE(*agg_rel_1 == *agg_rel_2);
+  EXPECT_FALSE(*agg_rel_0 == static_cast<const gqe::logical::relation&>(*agg_rel_1));
+  EXPECT_FALSE(*agg_rel_1 == static_cast<const gqe::logical::relation&>(*agg_rel_2));
   EXPECT_EQ(*agg_rel_0, *agg_rel_0_dup);
 }
 
@@ -170,9 +170,12 @@ TEST_F(RelationEqualTest, Fetch)
     std::make_unique<gqe::logical::fetch_relation>(read_rel_0, 1, 100);
   std::unique_ptr<gqe::logical::fetch_relation> fetch_3 =
     std::make_unique<gqe::logical::fetch_relation>(read_rel_0, 0, 50);
-  EXPECT_FALSE(*fetch_0 == *fetch_1);  // different input
-  EXPECT_FALSE(*fetch_0 == *fetch_2);  // different offset
-  EXPECT_FALSE(*fetch_0 == *fetch_3);  // different count
+  EXPECT_FALSE(*fetch_0 ==
+               static_cast<const gqe::logical::relation&>(*fetch_1));  // different input
+  EXPECT_FALSE(*fetch_0 ==
+               static_cast<const gqe::logical::relation&>(*fetch_2));  // different offset
+  EXPECT_FALSE(*fetch_0 ==
+               static_cast<const gqe::logical::relation&>(*fetch_3));  // different count
   EXPECT_EQ(*fetch_0, *fetch_0_dup);
 }
 
@@ -206,11 +209,16 @@ TEST_F(RelationEqualTest, Filter)
   std::unique_ptr<gqe::logical::filter_relation> filter_5 =
     std::make_unique<gqe::logical::filter_relation>(
       read_rel_1, non_empty_relations(), cond_1->clone(), projection_indices_2);
-  EXPECT_FALSE(*filter_0 == *filter_1);  // different input
-  EXPECT_FALSE(*filter_1 == *filter_2);  // different condition
-  EXPECT_FALSE(*filter_2 == *filter_3);  // different suquery_relations
-  EXPECT_FALSE(*filter_3 == *filter_4);  // different projection indices
-  EXPECT_FALSE(*filter_4 == *filter_5);  // different projection indices length
+  EXPECT_FALSE(*filter_0 ==
+               static_cast<const gqe::logical::relation&>(*filter_1));  // different input
+  EXPECT_FALSE(*filter_1 ==
+               static_cast<const gqe::logical::relation&>(*filter_2));  // different condition
+  EXPECT_FALSE(*filter_2 == static_cast<const gqe::logical::relation&>(
+                              *filter_3));  // different suquery_relations
+  EXPECT_FALSE(*filter_3 == static_cast<const gqe::logical::relation&>(
+                              *filter_4));  // different projection indices
+  EXPECT_FALSE(*filter_4 == static_cast<const gqe::logical::relation&>(
+                              *filter_5));  // different projection indices length
   EXPECT_EQ(*filter_0, *filter_0_dup);
 }
 
@@ -279,12 +287,18 @@ TEST_F(RelationEqualTest, Join)
                                                   std::move(cond_1),
                                                   gqe::join_type_type::full,
                                                   projection_indices_2);
-  EXPECT_FALSE(*join_0 == *join_1);  // different input order
-  EXPECT_FALSE(*join_1 == *join_2);  // different condition
-  EXPECT_FALSE(*join_2 == *join_3);  // different join type
-  EXPECT_FALSE(*join_3 == *join_4);  // different projection indices
-  EXPECT_FALSE(*join_4 == *join_5);  // different projection indices length
-  EXPECT_FALSE(*join_5 == *join_6);  // different subquery relations
+  EXPECT_FALSE(*join_0 ==
+               static_cast<const gqe::logical::relation&>(*join_1));  // different input order
+  EXPECT_FALSE(*join_1 ==
+               static_cast<const gqe::logical::relation&>(*join_2));  // different condition
+  EXPECT_FALSE(*join_2 ==
+               static_cast<const gqe::logical::relation&>(*join_3));  // different join type
+  EXPECT_FALSE(*join_3 == static_cast<const gqe::logical::relation&>(
+                            *join_4));  // different projection indices
+  EXPECT_FALSE(*join_4 == static_cast<const gqe::logical::relation&>(
+                            *join_5));  // different projection indices length
+  EXPECT_FALSE(*join_5 == static_cast<const gqe::logical::relation&>(
+                            *join_6));  // different subquery relations
   EXPECT_EQ(*join_0, *join_0_dup);
 }
 
@@ -309,9 +323,12 @@ TEST_F(RelationEqualTest, Project)
   auto project_0_dup = std::make_unique<gqe::logical::project_relation>(
     read_rel_0, empty_relations(), duplicate_expressions(expressions_0));
 
-  EXPECT_FALSE(*project_0 == *project_1);  // different input relation
-  EXPECT_FALSE(*project_1 == *project_2);  // different output expressions
-  EXPECT_FALSE(*project_2 == *project_3);  // different subquery relations
+  EXPECT_FALSE(*project_0 ==
+               static_cast<const gqe::logical::relation&>(*project_1));  // different input relation
+  EXPECT_FALSE(*project_1 == static_cast<const gqe::logical::relation&>(
+                               *project_2));  // different output expressions
+  EXPECT_FALSE(*project_2 == static_cast<const gqe::logical::relation&>(
+                               *project_3));  // different subquery relations
   EXPECT_EQ(*project_0, *project_0_dup);
 }
 
@@ -321,8 +338,8 @@ TEST_F(RelationEqualTest, Read)
   auto col_types_2 = {cudf::data_type(cudf::type_id::INT32), cudf::data_type(cudf::type_id::BOOL8)};
   auto read_rel_2  = std::make_shared<gqe::logical::read_relation>(
     non_empty_relations(), std::move(col_names_2), std::move(col_types_2), "t1", nullptr);
-  EXPECT_FALSE(*read_rel_0 == *read_rel_1);
-  EXPECT_FALSE(*read_rel_1 == *read_rel_2);
+  EXPECT_FALSE(*read_rel_0 == static_cast<const gqe::logical::relation&>(*read_rel_1));
+  EXPECT_FALSE(*read_rel_1 == static_cast<const gqe::logical::relation&>(*read_rel_2));
   EXPECT_EQ(*read_rel_0, *read_rel_0_dup);
 }
 
@@ -337,8 +354,10 @@ TEST_F(RelationEqualTest, Set)
   auto set_0_dup = std::make_unique<gqe::logical::set_relation>(
     read_rel_0, read_rel_2, gqe::logical::set_relation::set_operator_type::set_minus);
 
-  EXPECT_FALSE(*set_0 == *set_1);  // different input order
-  EXPECT_FALSE(*set_1 == *set_2);  // different set operation
+  EXPECT_FALSE(*set_0 ==
+               static_cast<const gqe::logical::relation&>(*set_1));  // different input order
+  EXPECT_FALSE(*set_1 ==
+               static_cast<const gqe::logical::relation&>(*set_2));  // different set operation
   EXPECT_EQ(*set_0, *set_0_dup);
 }
 
@@ -394,11 +413,15 @@ TEST_F(RelationEqualTest, Sort)
     std::vector<cudf::null_order>({cudf::null_order::BEFORE, cudf::null_order::BEFORE}),
     duplicate_expressions(sort_exprs_0));
 
-  EXPECT_FALSE(*sort_0 == *sort_1);  // different sort orders
-  EXPECT_FALSE(*sort_1 == *sort_2);  // different null orders
-  EXPECT_FALSE(*sort_2 == *sort_3);  // different sort expressions
-  EXPECT_FALSE(*sort_3 == *sort_4);  // different input
-  EXPECT_FALSE(*sort_4 == *sort_5);  // different subquery relations
+  EXPECT_FALSE(*sort_0 ==
+               static_cast<const gqe::logical::relation&>(*sort_1));  // different sort orders
+  EXPECT_FALSE(*sort_1 ==
+               static_cast<const gqe::logical::relation&>(*sort_2));  // different null orders
+  EXPECT_FALSE(*sort_2 ==
+               static_cast<const gqe::logical::relation&>(*sort_3));  // different sort expressions
+  EXPECT_FALSE(*sort_3 == static_cast<const gqe::logical::relation&>(*sort_4));  // different input
+  EXPECT_FALSE(*sort_4 == static_cast<const gqe::logical::relation&>(
+                            *sort_5));  // different subquery relations
   EXPECT_EQ(*sort_0, *sort_0_dup);
 }
 
@@ -510,13 +533,20 @@ TEST_F(RelationEqualTest, Window)
     std::vector<cudf::order>({cudf::order::ASCENDING}),
     gqe::window_frame_bound::unbounded(),
     gqe::window_frame_bound::unbounded());
-  EXPECT_FALSE(*window_0 == *window_1);  // different input
-  EXPECT_FALSE(*window_1 == *window_2);  // different aggregate kind
-  EXPECT_FALSE(*window_2 == *window_3);  // different arguments, order_by, partition_by
-  EXPECT_FALSE(*window_3 == *window_4);  // different orders
-  EXPECT_FALSE(*window_4 == *window_5);  // different bound types
-  EXPECT_FALSE(*window_5 == *window_6);  // different bound values
-  EXPECT_FALSE(*window_6 == *window_7);  // different subquery relations
+  EXPECT_FALSE(*window_0 ==
+               static_cast<const gqe::logical::relation&>(*window_1));  // different input
+  EXPECT_FALSE(*window_1 ==
+               static_cast<const gqe::logical::relation&>(*window_2));  // different aggregate kind
+  EXPECT_FALSE(*window_2 == static_cast<const gqe::logical::relation&>(
+                              *window_3));  // different arguments, order_by, partition_by
+  EXPECT_FALSE(*window_3 ==
+               static_cast<const gqe::logical::relation&>(*window_4));  // different orders
+  EXPECT_FALSE(*window_4 ==
+               static_cast<const gqe::logical::relation&>(*window_5));  // different bound types
+  EXPECT_FALSE(*window_5 ==
+               static_cast<const gqe::logical::relation&>(*window_6));  // different bound values
+  EXPECT_FALSE(*window_6 == static_cast<const gqe::logical::relation&>(
+                              *window_7));  // different subquery relations
   EXPECT_EQ(*window_0, *window_0_dup);
 }
 
@@ -536,6 +566,6 @@ TEST_F(RelationEqualTest, Write)
                                               cudf::data_type(cudf::type_id::FLOAT32)};
   auto write_0_dup                         = std::make_shared<gqe::logical::write_relation>(
     read_rel_0, std::move(col_names_0_dup), std::move(col_types_0_dup), "t0");
-  EXPECT_FALSE(*write_0 == *write_1);
+  EXPECT_FALSE(*write_0 == static_cast<const gqe::logical::relation&>(*write_1));
   EXPECT_EQ(*write_0, *write_0_dup);
 }

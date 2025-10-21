@@ -80,17 +80,44 @@ void gen_keys_from_dist(std::vector<T>& build_keys_data,
 }
 
 template <typename T, std::enable_if_t<std::is_integral_v<T>>* = nullptr>
-void gen_keys_data(std::vector<T>& build_keys_data, std::vector<T>& probe_keys_data, int num_keys)
+void gen_keys_data(std::vector<T>& build_keys_data,
+                   std::vector<T>& probe_keys_data,
+                   int num_keys,
+                   std::optional<size_t> entropy_bits)
 {
-  auto dist = std::uniform_int_distribution<T>();
+  // If the number of entropy bits is greater than the number of bits in the type, use a uniform
+  // integer distribution. Otherwise, use a uniform integer distribution that will have the
+  // requested entropy.
+  auto dist = entropy_bits && *entropy_bits < sizeof(T) * 8
+                ? std::uniform_int_distribution<T>(0, (static_cast<T>(1) << *entropy_bits) - 1)
+                : std::uniform_int_distribution<T>();
 
   gen_keys_from_dist(build_keys_data, probe_keys_data, num_keys, dist);
 }
 
 template <typename T, std::enable_if_t<std::is_floating_point<T>::value>* = nullptr>
-void gen_keys_data(std::vector<T>& build_keys_data, std::vector<T>& probe_keys_data, int num_keys)
+void gen_keys_data(std::vector<T>& build_keys_data,
+                   std::vector<T>& probe_keys_data,
+                   int num_keys,
+                   std::optional<size_t> entropy_bits)
 {
-  auto dist = std::uniform_real_distribution<T>();
+  auto dist = [entropy_bits](decltype(std::default_random_engine())& rand_gen) -> T {
+    // If the number of entropy bits is greater than the number of bits in the type, use a uniform
+    // real distribution. Otherwise, use a uniform integer distribution that will have the requested
+    // entropy.
+    if (entropy_bits && *entropy_bits < sizeof(T) * 8) {
+      auto exponent_bits =
+        5;  // All floating point representations have at least 5 bits of exponent.
+      auto mantissa_bits = *entropy_bits - exponent_bits;
+      auto mantissa      = static_cast<T>(std::uniform_int_distribution<unsigned long long>(
+        0, (1ULL << mantissa_bits) - 1)(rand_gen));
+      auto exponent      = static_cast<T>(std::uniform_int_distribution<unsigned long long>(
+        0, (1ULL << exponent_bits) - 1)(rand_gen));
+      return ldexp(mantissa, exponent);
+    } else {
+      return std::uniform_real_distribution<T>()(rand_gen);
+    }
+  };
 
   gen_keys_from_dist(build_keys_data, probe_keys_data, num_keys, dist);
 }
@@ -185,7 +212,12 @@ TYPED_TEST(UniqueKeyInnerJoinTest, Basic)
   std::vector<T> build_keys_data;
   std::vector<T> probe_keys_data;
 
-  gen_keys_data(build_keys_data, probe_keys_data, num_keys);
+  std::optional<size_t> entropy_bits;
+  if (std::is_same_v<Joiner, PerfectHashJoiner>) {
+    // Only use 20 bits of entropy for perfect hashing to avoid allocating too much memory.
+    entropy_bits = 20;
+  }
+  gen_keys_data(build_keys_data, probe_keys_data, num_keys, entropy_bits);
 
   cudf::test::fixed_width_column_wrapper<T> build_keys_column(build_keys_data.begin(),
                                                               build_keys_data.end());
@@ -223,8 +255,14 @@ TYPED_TEST(UniqueKeyInnerJoinTest, Multicol)
   std::vector<T> build_keys_col_1_data;
   std::vector<T> probe_keys_col_1_data;
 
-  gen_keys_data(build_keys_col_0_data, probe_keys_col_0_data, num_keys);
-  gen_keys_data(build_keys_col_1_data, probe_keys_col_1_data, num_keys);
+  std::optional<size_t> entropy_bits;
+  if (std::is_same_v<Joiner, PerfectHashJoiner>) {
+    // Only use 10 bits of entropy per column for perfect hashing to avoid allocating too much
+    // memory.
+    entropy_bits = 10;
+  }
+  gen_keys_data(build_keys_col_0_data, probe_keys_col_0_data, num_keys, entropy_bits);
+  gen_keys_data(build_keys_col_1_data, probe_keys_col_1_data, num_keys, entropy_bits);
 
   cudf::test::fixed_width_column_wrapper<T> build_keys_col_0(build_keys_col_0_data.begin(),
                                                              build_keys_col_0_data.end());

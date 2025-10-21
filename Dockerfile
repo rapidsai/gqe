@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=ubuntu:22.04
+ARG BASE_IMAGE=ubuntu:24.04
 FROM $BASE_IMAGE
 ARG DEBIAN_FRONTEND=noninteractive
 ARG PARALLEL_LEVEL
@@ -32,6 +32,8 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     openssh-client \
     openmpi-bin \
     libopenmpi-dev \
+    gcc-14 \
+    g++-14 \
     gdb \
     && rm -rf /var/lib/apt/lists/*
 
@@ -49,11 +51,11 @@ SHELL ["/bin/bash", "-c"]
 COPY conda/*.yml /config/conda/
 RUN git clone https://github.com/rapidsai/cudf.git /cudf \
     && cd /cudf \
-    && git checkout 0fbd451151a3f5226624448a27de75a3d81b6e4e \
+    && git checkout branch-25.10 \
     && git submodule update --init --remote --recursive \
     && mamba env create -q --name gqe --file /config/conda/docker-$(uname -m).yml \
     && source activate gqe \
-    && PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc)} CUDF_CMAKE_CUDA_ARCHITECTURES="80-real;90-real;100-real;120" ./build.sh libcudf --ptds --cmake-args=\" -DCUDF_ENABLE_ARROW_S3=OFF -DBUILD_BENCHMARKS=OFF -DCUDA_ENABLE_LINEINFO=ON -Drapids-cmake-sha=c82ccbf86c53437d80a45c502e64029b7c1c7f31 \" \
+    && PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc)} CUDF_CMAKE_CUDA_ARCHITECTURES="80-real;90-real;100-real;120" ./build.sh libcudf --ptds --cmake-args=\" -DCUDF_ENABLE_ARROW_S3=OFF -DBUILD_BENCHMARKS=OFF -DCUDA_ENABLE_LINEINFO=ON \" \
     && conda clean --all
 
 # Compile MLIR from source

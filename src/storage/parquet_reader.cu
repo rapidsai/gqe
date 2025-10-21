@@ -696,28 +696,49 @@ void io_batch::decompress(gqe::utility::bandwidth_timer& decomp_timer, rmm::cuda
     switch (codec) {
       case parquet::CompressionCodec::SNAPPY: {
         // Allocate the temporary workspace used by nvcomp
-        std::size_t temp_bytes;
-        if (nvcompBatchedSnappyDecompressGetTempSize(
-              batch_size, comp_info.max_chunk_bytes, &temp_bytes) != nvcompSuccess) {
+        std::size_t temp_bytes = 0;
+        nvcompDecompressBackend_t backend =
+          NVCOMP_DECOMPRESS_BACKEND_DEFAULT;  // This flag tells the program to use HW decompression
+                                              // if available. And if not, fallback to SW
+                                              // decompression.
+
+        // Calculate total uncompressed bytes for all chunks in this batch
+        std::size_t total_uncompressed_bytes = 0;
+        for (auto size : comp_info.uncompressed_bytes) {
+          total_uncompressed_bytes += size;
+        }
+
+        nvcompBatchedSnappyDecompressOpts_t decompress_opts{backend, 0, {0}};
+
+        if (nvcompBatchedSnappyDecompressGetTempSizeAsync(batch_size,
+                                                          comp_info.max_chunk_bytes,
+                                                          decompress_opts,
+                                                          &temp_bytes,
+                                                          total_uncompressed_bytes) !=
+            nvcompSuccess) {
           throw std::runtime_error("Customized Parquet reader: Cannot get nvcomp temp size");
         }
 
         rmm::device_buffer nvcomp_temp_workspace(temp_bytes, stream);
+        size_t* batch_bytes_device = nullptr;
+        GQE_CUDA_TRY(cudaMalloc(&batch_bytes_device, sizeof(size_t) * batch_size));
 
         if (nvcompBatchedSnappyDecompressAsync(device_compressed_ptrs->data(),
                                                device_compressed_bytes->data(),
                                                device_uncompressed_bytes->data(),
-                                               nullptr,
+                                               batch_bytes_device,
                                                batch_size,
                                                nvcomp_temp_workspace.data(),
                                                temp_bytes,
                                                device_uncompressed_ptrs->data(),
+                                               decompress_opts,
                                                nullptr,
                                                stream.value()) != nvcompSuccess) {
           throw std::runtime_error("Customized Parquet reader: Snappy decompression error");
         }
 
         stream.synchronize();
+        GQE_CUDA_TRY(cudaFree(batch_bytes_device));
         break;
       }
       case parquet::CompressionCodec::UNCOMPRESSED: {
@@ -1352,6 +1373,8 @@ table_with_metadata read_parquet_custom(std::vector<std::string> file_paths,
         auto const& meta_data    = column_chunk.meta_data;
 
         column_chunk_info column_info;
+        column_info.idx                  = 0;
+        column_info.estimated_num_blocks = 0;
         column_info.fd                   = fd;
         column_info.direct_fd            = direct_fd;
         column_info.file_offset          = meta_data.__isset.dictionary_page_offset

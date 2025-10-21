@@ -27,8 +27,10 @@
  */
 
 #include <cstdio>
+#include <cuda.h>
 #include <cudf/utilities/pinned_memory.hpp>
 #include <gqe/storage/compression.hpp>
+#include <gqe/utility/error.hpp>
 
 // Helper function to convert CUDF type ID to string for logging
 std::string cudf_type_to_string(cudf::type_id type_id)
@@ -393,55 +395,107 @@ void compression_manager::print_usage() const
 std::unique_ptr<nvcompManagerBase> compression_manager::create_manager(
   rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr) const
 {
+  int device_id = 0;
+  GQE_CUDA_TRY(cudaGetDevice(&device_id));
+
+  int decompressSupportMask = 0;
+  CUresult result           = cuDeviceGetAttribute(
+    &decompressSupportMask, CU_DEVICE_ATTRIBUTE_MEM_DECOMPRESS_ALGORITHM_MASK, device_id);
+  if (result != CUDA_SUCCESS) {
+    const char* error_string = nullptr;
+    cuGetErrorString(result, &error_string);
+    GQE_LOG_ERROR("Failed to get device attribute MEM_DECOMPRESS_ALGORITHM_MASK for device {}: {}",
+                  device_id,
+                  error_string);
+    throw std::runtime_error("Failed to get device attribute MEM_DECOMPRESS_ALGORITHM_MASK");
+  }
+  bool device_supports_decomp = static_cast<bool>(decompressSupportMask);
+
   std::unique_ptr<nvcompManagerBase> manager;
+  nvcompDecompressBackend_t backend =
+    NVCOMP_DECOMPRESS_BACKEND_DEFAULT;  // This flag tells the program to use HW decompression if
+                                        // available. And if not, fallback to SW decompression.
+
+  if (device_supports_decomp) { backend = NVCOMP_DECOMPRESS_BACKEND_HARDWARE; }
+
+  bool use_de_sort = false;  // This flag determins whether or not to sort the chunks before HW
+                             // decompression for load balancing purposes. Should be disabled when
+                             // chunks are approximately the same size.
+  int algorithm = 0;
 
   switch (_comp_format) {
     case gqe::compression_format::lz4:
       GQE_LOG_TRACE("Creating LZ4 compression manager for column '{}'", _column_name);
       manager = std::make_unique<LZ4Manager>(
-        _compression_chunk_size, nvcompBatchedLZ4Opts_t{_data_type}, stream, NoComputeNoVerify);
+        _compression_chunk_size,
+        nvcompBatchedLZ4CompressOpts_t{NVCOMP_TYPE_UCHAR, {0}},
+        nvcompBatchedLZ4DecompressOpts_t{backend, use_de_sort ? 1 : 0, {0}},
+        stream,
+        NoComputeNoVerify);
       break;
     case gqe::compression_format::snappy:
       GQE_LOG_TRACE("Creating Snappy compression manager for column '{}'", _column_name);
       manager = std::make_unique<SnappyManager>(
-        _compression_chunk_size, nvcompBatchedSnappyOpts_t{}, stream, NoComputeNoVerify);
+        _compression_chunk_size,
+        nvcompBatchedSnappyCompressOpts_t{{0}},
+        nvcompBatchedSnappyDecompressOpts_t{backend, use_de_sort ? 1 : 0, {0}},
+        stream,
+        NoComputeNoVerify);
       break;
     case gqe::compression_format::ans:
       GQE_LOG_TRACE("Creating ANS compression manager for column '{}'", _column_name);
       manager = std::make_unique<ANSManager>(
-        _compression_chunk_size, nvcompBatchedANSDefaultOpts, stream, NoComputeNoVerify);
+        _compression_chunk_size,
+        nvcompBatchedANSCompressOpts_t{nvcomp_rANS, NVCOMP_TYPE_UCHAR, {0}},
+        nvcompBatchedANSDecompressDefaultOpts,
+        stream,
+        NoComputeNoVerify);
       break;
     case gqe::compression_format::cascaded: {
       GQE_LOG_TRACE("Creating Cascaded compression manager for column '{}'", _column_name);
-      nvcompBatchedCascadedOpts_t cascaded_opts = nvcompBatchedCascadedDefaultOpts;
-      cascaded_opts.type                        = _data_type;
-      manager                                   = std::make_unique<CascadedManager>(
-        _compression_chunk_size, cascaded_opts, stream, NoComputeNoVerify);
+      nvcompBatchedCascadedCompressOpts_t cascaded_opts = nvcompBatchedCascadedCompressOpts_t{};
+      cascaded_opts.type                                = _data_type;
+      manager = std::make_unique<CascadedManager>(_compression_chunk_size,
+                                                  cascaded_opts,
+                                                  nvcompBatchedCascadedDecompressDefaultOpts,
+                                                  stream,
+                                                  NoComputeNoVerify);
       break;
     }
     case gqe::compression_format::gdeflate:
       GQE_LOG_TRACE("Creating Gdeflate compression manager for column '{}'", _column_name);
-      manager = std::make_unique<GdeflateManager>(
-        _compression_chunk_size, nvcompBatchedGdeflateOpts_t{0}, stream, NoComputeNoVerify);
+      manager =
+        std::make_unique<GdeflateManager>(_compression_chunk_size,
+                                          nvcompBatchedGdeflateCompressOpts_t{algorithm, {0}},
+                                          nvcompBatchedGdeflateDecompressDefaultOpts,
+                                          stream,
+                                          NoComputeNoVerify);
       break;
     case gqe::compression_format::deflate:
       GQE_LOG_TRACE("Creating Deflate compression manager for column '{}'", _column_name);
       manager = std::make_unique<DeflateManager>(
-        _compression_chunk_size, nvcompBatchedDeflateOpts_t{5}, stream, NoComputeNoVerify);
+        _compression_chunk_size,
+        nvcompBatchedDeflateCompressOpts_t{algorithm, {0}},
+        nvcompBatchedDeflateDecompressOpts_t{backend, use_de_sort ? 1 : 0, {0}},
+        stream,
+        NoComputeNoVerify);
       break;
     case gqe::compression_format::zstd:
       GQE_LOG_TRACE("Creating Zstd compression manager for column '{}'", _column_name);
       manager = std::make_unique<ZstdManager>(static_cast<size_t>(_compression_chunk_size),
-                                              nvcompBatchedZstdDefaultOpts,
+                                              nvcompBatchedZstdCompressDefaultOpts,
+                                              nvcompBatchedZstdDecompressDefaultOpts,
                                               stream,
                                               NoComputeNoVerify);
       break;
     case gqe::compression_format::bitcomp:
       GQE_LOG_TRACE("Creating Bitcomp compression manager for column '{}'", _column_name);
-      manager = std::make_unique<BitcompManager>(_compression_chunk_size,
-                                                 nvcompBatchedBitcompFormatOpts{0, _data_type},
-                                                 stream,
-                                                 NoComputeNoVerify);
+      manager = std::make_unique<BitcompManager>(
+        _compression_chunk_size,
+        nvcompBatchedBitcompCompressOpts_t{algorithm, _data_type, {0}},
+        nvcompBatchedBitcompDecompressDefaultOpts,
+        stream,
+        NoComputeNoVerify);
       break;
     default:
       GQE_LOG_ERROR("Unrecognized Compression Format '{}' for column '{}'",

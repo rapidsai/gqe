@@ -146,6 +146,7 @@ target_link_libraries(gqe PUBLIC uring)
 target_link_libraries(gqe PUBLIC MPI::MPI_CXX)
 target_link_libraries(gqe PUBLIC nvshmem::nvshmem_host)
 target_link_libraries(gqe PRIVATE libperfect)
+target_link_libraries(gqe PUBLIC CUDA::cuda_driver)
 
 # Download and configure Parquet format
 if(GQE_ENABLE_CUSTOMIZED_PARQUET)
@@ -196,6 +197,5 @@ if(GQE_ENABLE_QUERY_COMPILER)
     gqe
     PUBLIC
     ${COMPILER_LIBS}
-    CUDA::cuda_driver
   )
 endif()

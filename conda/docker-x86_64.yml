@@ -22,7 +22,7 @@ dependencies:
   - cxx-compiler
   - conda-pack
   - clang-tools=20.1.4
-  - gcc_linux-64=11.*
+  - gcc_linux-64=14.*
   - sysroot_linux-64==2.28
   - libprotobuf=4.*
   - pandas
@@ -30,8 +30,9 @@ dependencies:
   - pybind11=2.13.6
   - thrift-compiler=0.19
   - libthrift=0.19
-  - zlib  # libthrift checks zlib during CMake configuration, but conda-forge doesn't install it automatically
-  - nvcomp=4.1.0
+  - zlib>=1.2.13  # libthrift checks zlib during CMake configuration, but conda-forge doesn't install it automatically
+  - libnvcomp-dev==5.0.0.6
+  - libnvjitlink-dev
   - liburing
   - libnvshmem-static==3.2.5
   - spdlog=1.15.3

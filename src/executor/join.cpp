@@ -32,6 +32,7 @@
 #include <cudf/copying.hpp>
 #include <cudf/filling.hpp>
 #include <cudf/join/conditional_join.hpp>
+#include <cudf/join/filtered_join.hpp>
 #include <cudf/join/hash_join.hpp>
 #include <cudf/join/join.hpp>
 #include <cudf/join/mixed_join.hpp>
@@ -795,8 +796,14 @@ void join_task::execute()
             GQE_LOG_TRACE("Join implementation: gqe::left_semi_mark_join");
             left_indices = gqe::left_semi_mark_join(left_keys, right_keys, compare_nulls);
           } else {
-            GQE_LOG_TRACE("Join implementation: cudf::left_semi_join");
-            left_indices = cudf::left_semi_join(left_keys, right_keys, compare_nulls);
+            {
+              GQE_LOG_TRACE("Join implementation: cudf::filtered_join object and semi_join method");
+              cudf::filtered_join join_obj(right_keys,
+                                           compare_nulls,
+                                           cudf::set_as_build_table::RIGHT,
+                                           cudf::get_default_stream());
+              left_indices = join_obj.semi_join(left_keys);
+            }
           }
           break;
         case join_type_type::left_anti:
@@ -804,8 +811,15 @@ void join_task::execute()
             GQE_LOG_TRACE("Join implementation: gqe::left_anti_mark_join.");
             left_indices = gqe::left_anti_mark_join(left_keys, right_keys, compare_nulls);
           } else {
-            GQE_LOG_TRACE("Join implementation: cudf::left_anti_join.");
-            left_indices = cudf::left_anti_join(left_keys, right_keys, compare_nulls);
+            {
+              GQE_LOG_TRACE(
+                "Join implementation: cudf::filtered_join object and anti_join method.");
+              cudf::filtered_join join_obj(right_keys,
+                                           compare_nulls,
+                                           cudf::set_as_build_table::RIGHT,
+                                           cudf::get_default_stream());
+              left_indices = join_obj.anti_join(left_keys);
+            }
           }
           break;
         case join_type_type::full:

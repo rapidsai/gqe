@@ -33,7 +33,7 @@
 
 #include <substrait/algebra.pb.h>
 
-#include <cudf/unary.hpp>
+#include <cudf/fixed_point/conv.hpp>
 
 #include <cassert>
 #include <cstdint>

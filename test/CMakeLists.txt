@@ -195,8 +195,8 @@ add_test(NAME groupby_test COMMAND groupby_test)
 
 add_executable(libperfect_test libperfect/unique_indices_tests.cpp
                                libperfect/scatter_aggregate_tests.cpp
-                               ../../src/device_properties.cpp
-                               ../../src/utility/cuda.cpp
+                               ${CMAKE_CURRENT_SOURCE_DIR}/../src/device_properties.cpp
+                               ${CMAKE_CURRENT_SOURCE_DIR}/../src/utility/cuda.cpp
                                )
 target_include_directories(libperfect_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(libperfect_test PUBLIC gqe)

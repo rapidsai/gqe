@@ -78,15 +78,5 @@ RUN git clone https://github.com/llvm/llvm-project.git \
     && popd \
     && rm -rf llvm-project
 
-# Copy the entrypoint script into the image and give it execute permissions
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-# Set the script as the entrypoint of the image
-ENTRYPOINT ["/entrypoint.sh"]
-
-# Activate the gqe environment if it is not already activated
+# Activate the conda environment when launching the container
 RUN echo "source activate gqe" >> ~/.bashrc
-
-# Set the default command for the container
-CMD ["/bin/bash"]

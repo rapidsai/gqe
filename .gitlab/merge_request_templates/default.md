@@ -24,7 +24,8 @@ profiles, plots, tables, or logs (if relevant).*
 
 *The list of GQE issues this MR closes (if any).*
 
- - Issue #???
+ - Closes #???
+ - Closes #???
 
 ## Tests
 

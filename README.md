@@ -45,15 +45,18 @@ Please make sure you have a data file per table in `parquet` format for schema r
 
 
 ### Running DataFusion-Substrait producer from GQE
-First, go to the `rust/producer/` directory:
+
+Build this as part of GQE by specifying `GQE_ENABLE_SUBSTRAIT_PRODUCER`
+
 ```
-$ cd <project_root>/rust/producer/
+conda activate gqe
+mkdir build
+cd build
+cmake .. -DGQE_ENABLE_SUBSTRAIT_PRODUCER=ON
+make -j8
 ```
 
-To build the producer, run:
-```
-$ cargo build
-```
+This will install the producer in the active conda environment
 
 To generate a `Substrait` plan from a `SQL` query string, first, modify the `config/template.yaml` file.
 The config file should contain the following sections:
@@ -71,7 +74,7 @@ The information for each table should be stored in a subsection of the `tables` 
 
 To generate the `Substrait` plan file, run:
 ```
-cargo run <path_to_config_file>
+producer <path_to_config_file>
 ```
 The `.bin` file we just generated can be translated into `GQE` logical plan using the `GQE` consumer.
 

@@ -69,6 +69,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(GQE_ENABLE_CUSTOMIZED_PARQUET "Enable the customized Parquet reader" OFF)
 option(GQE_ENABLE_QUERY_COMPILER "Enable the query compiler" OFF)
+option(GQE_ENABLE_SUBSTRAIT_PRODUCER "Enable the Substrait producer" OFF)
 
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
@@ -165,4 +166,16 @@ if(PROJECT_IS_TOP_LEVEL)
 endif()
 if(PROJECT_IS_TOP_LEVEL)
   add_subdirectory(rust/gqe-sys)
+endif()
+
+if(GQE_ENABLE_SUBSTRAIT_PRODUCER)
+  set(CONDA_PREFIX "$ENV{CONDA_PREFIX}")
+  include(ExternalProject)
+  ExternalProject_Add(
+    producer
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/rust/producer
+    CONFIGURE_COMMAND ""
+      BUILD_COMMAND cargo install --root ${CONDA_PREFIX} --path ${CMAKE_CURRENT_LIST_DIR}/rust/producer
+    INSTALL_COMMAND ""
+  )
 endif()

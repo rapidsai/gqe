@@ -104,7 +104,7 @@ async fn create_context(table_confs: Vec<TableConfig>) -> Result<SessionContext>
 async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
-        panic!("Usage: cargo run <path_to_config_file>")
+        panic!("Usage: producer <path_to_config_file>")
     }
 
     let query_config = get_query_config(&args[1]);

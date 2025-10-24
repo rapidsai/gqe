@@ -50,6 +50,7 @@ tpch_queries:
   script:
     - hostname
     - nvidia-smi
+    - export CCACHE_DIR=/ccache_files
     # Debug build
     # Disable the debug build for now because https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/blob/main/src/executor/groupby/hash_groupby.cuh?ref_type=heads#L556 would throw an invalid argument error under debug mode.
     #- rm -rf build
@@ -70,4 +71,3 @@ tpch_queries:
     - popd
     # TPC-H coverage for SF1
     - GQE_LOG_LEVEL=warn bash ./test/end_to_end/run_tpc.sh h ./build /tpch_scratch/datasets/sf1/sf1_id64/ /tpch_scratch/reference_results/sf1 /tpch_scratch/substrait_plans/df_q%d.bin
-

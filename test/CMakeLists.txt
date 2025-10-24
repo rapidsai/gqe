@@ -148,6 +148,13 @@ target_link_libraries(eval_expressions_test PUBLIC GTest::gtest_main GTest::gmoc
 target_link_libraries(eval_expressions_test PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
 add_test(NAME eval_expressions COMMAND eval_expressions_test)
 
+add_executable(like_expression_test executor/like_expression_test.cpp)
+target_include_directories(like_expression_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(like_expression_test PUBLIC gqe)
+target_link_libraries(like_expression_test PUBLIC GTest::gtest_main GTest::gmock)
+target_link_libraries(like_expression_test PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
+add_test(NAME like_expression COMMAND like_expression_test)
+
 add_executable(window_task_test executor/window_task_test.cpp)
 target_include_directories(window_task_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(window_task_test PUBLIC gqe)

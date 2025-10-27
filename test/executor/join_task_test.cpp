@@ -51,14 +51,29 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
-  void construct_join_task(gqe::join_type_type join_type,
-                           std::vector<cudf::size_type> projection_indices,
-                           cache_strategy strategy)
+  const std::vector<int64_t> left_key_data{2, 1, 1, 3, 4, 1};
+  const std::vector<int64_t> left_payload_data{0, 1, 2, 3, 4, 5};
+  const std::vector<int64_t> right_key_data{3, 1, 5, 1, 2};
+  const std::vector<int64_t> right_payload_data{0, 1, 2, 3, 4};
+
+  std::vector<cudf::size_type> get_projection_indices(gqe::join_type_type join_type)
   {
-    int64_column_wrapper left_key({2, 1, 1, 3, 4, 1});
-    int64_column_wrapper left_payload({0, 1, 2, 3, 4, 5});
-    int64_column_wrapper right_key({3, 1, 5, 1, 2});
-    int64_column_wrapper right_payload({0, 1, 2, 3, 4});
+    switch (join_type) {
+      case gqe::join_type_type::inner:  // fallthrough
+      case gqe::join_type_type::left: return {0, 1, 3};
+      case gqe::join_type_type::left_semi:  // fallthrough
+      case gqe::join_type_type::left_anti: return {0, 1};
+      case gqe::join_type_type::full: return {0, 1, 2, 3};
+      default: throw std::logic_error("Unknown join type");
+    }
+  }
+
+  void construct_join_task(gqe::join_type_type join_type, cache_strategy strategy)
+  {
+    int64_column_wrapper left_key(left_key_data.begin(), left_key_data.end());
+    int64_column_wrapper left_payload(left_payload_data.begin(), left_payload_data.end());
+    int64_column_wrapper right_key(right_key_data.begin(), right_key_data.end());
+    int64_column_wrapper right_payload(right_payload_data.begin(), right_payload_data.end());
 
     std::vector<std::unique_ptr<cudf::column>> left_table_columns;
     left_table_columns.push_back(left_key.release());
@@ -105,7 +120,7 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
                                                  right_task,
                                                  join_type,
                                                  std::move(join_condition),
-                                                 projection_indices,
+                                                 get_projection_indices(join_type),
                                                  hash_map_cache,
                                                  !late_materialize);
 
@@ -115,121 +130,104 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
         ctx_ref,
         join_task_id,
         stage_id,
-        std::move(left_task),  // left table
-        std::move(tasks),      // positions lists
-        join_type,             // join type
-        projection_indices,    // projection indices
-        hash_map_cache,        // hash map
-        true);                 // use mark join
+        std::move(left_task),               // left table
+        std::move(tasks),                   // positions lists
+        join_type,                          // join type
+        get_projection_indices(join_type),  // projection indices
+        hash_map_cache,                     // hash map
+        true);                              // use mark join
     }
   }
 
-  static void verify_inner_join(std::optional<cudf::table_view> join_result)
+  void verify_join(std::optional<cudf::table_view> join_result, gqe::join_type_type join_type)
   {
     ASSERT_EQ(join_result.has_value(), true);
     auto join_result_sorted = cudf::sort(*join_result);
 
-    int64_column_wrapper ref_result_col0({1, 1, 1, 1, 1, 1, 2, 3});
-    int64_column_wrapper ref_result_col1({1, 1, 2, 2, 5, 5, 0, 3});
-    int64_column_wrapper ref_result_col2({1, 3, 1, 3, 1, 3, 4, 0});
+    std::unordered_multimap<int64_t, int64_t> left_table;
+    for (size_t i = 0; i < left_key_data.size(); i++) {
+      left_table.insert({left_key_data[i], left_payload_data[i]});
+    }
+    std::unordered_multimap<int64_t, int64_t> right_table;
+    for (size_t i = 0; i < right_key_data.size(); i++) {
+      right_table.insert({right_key_data[i], right_payload_data[i]});
+    }
+    std::vector<std::vector<int64_t>> result_tables(4);
+    std::vector<std::vector<bool>> result_validity(4);
+
+    for (size_t i = 0; i < left_key_data.size(); i++) {
+      auto left_key              = left_key_data[i];
+      auto left_key_validity     = true;
+      auto left_payload          = left_payload_data[i];
+      auto left_payload_validity = true;
+      auto match_range           = right_table.equal_range(left_key);
+      std::vector<std::pair<int64_t, int64_t>> matches(match_range.first, match_range.second);
+      auto has_match              = matches.size() > 0;
+      auto right_key_validity     = true;
+      auto right_payload_validity = true;
+      if ((!has_match &&
+           (join_type == gqe::join_type_type::left_anti || join_type == gqe::join_type_type::left ||
+            join_type == gqe::join_type_type::full)) ||
+          (has_match && (join_type == gqe::join_type_type::left_semi))) {
+        // Pretend to have exactly one invalid match.
+        matches                = std::vector<std::pair<int64_t, int64_t>>{{0, 0}};
+        right_key_validity     = false;
+        right_payload_validity = false;
+      } else if (has_match && (join_type == gqe::join_type_type::left_anti)) {
+        // Pretend to have zero matches.
+        matches = std::vector<std::pair<int64_t, int64_t>>{};
+      }
+      // Record matches.
+      for (auto const& match : matches) {
+        auto right_key     = match.first;
+        auto right_payload = match.second;
+        result_tables[0].push_back(left_key);
+        result_tables[1].push_back(left_payload);
+        result_tables[2].push_back(right_key);
+        result_tables[3].push_back(right_payload);
+        result_validity[0].push_back(left_key_validity);
+        result_validity[1].push_back(left_payload_validity);
+        result_validity[2].push_back(right_key_validity);
+        result_validity[3].push_back(right_payload_validity);
+      }
+    }
+    if (join_type == gqe::join_type_type::full) {
+      // All need to add rows on the right side that are not in the left side.
+      for (auto it = right_table.begin(); it != right_table.end(); it++) {
+        if (left_table.find(it->first) == left_table.end()) {
+          auto right_key              = it->first;
+          auto right_key_validity     = true;
+          auto right_payload          = it->second;
+          auto right_payload_validity = true;
+          result_tables[0].push_back(0);
+          result_tables[1].push_back(0);
+          result_tables[2].push_back(right_key);
+          result_tables[3].push_back(right_payload);
+          result_validity[0].push_back(false);
+          result_validity[1].push_back(false);
+          result_validity[2].push_back(right_key_validity);
+          result_validity[3].push_back(right_payload_validity);
+        }
+      }
+    }
 
     std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
-    ref_result_columns.push_back(ref_result_col0.release());
-    ref_result_columns.push_back(ref_result_col1.release());
-    ref_result_columns.push_back(ref_result_col2.release());
+    auto projection_indices = get_projection_indices(join_type);
+    for (auto const& index : projection_indices) {
+      ref_result_columns.push_back(int64_column_wrapper(result_tables[index].begin(),
+                                                        result_tables[index].end(),
+                                                        result_validity[index].begin())
+                                     .release());
+    }
 
-    auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+    auto ref_result_table        = std::make_unique<cudf::table>(std::move(ref_result_columns));
+    auto ref_result_table_sorted = cudf::sort(ref_result_table->view());
 
-    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(),
+                                            ref_result_table_sorted->view());
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table_sorted->view());
   }
 
-  static void verify_left_join(std::optional<cudf::table_view> join_result)
-  {
-    ASSERT_EQ(join_result.has_value(), true);
-    auto join_result_sorted = cudf::sort(*join_result);
-
-    int64_column_wrapper ref_result_col0({1, 1, 1, 1, 1, 1, 2, 3, 4});
-    int64_column_wrapper ref_result_col1({1, 1, 2, 2, 5, 5, 0, 3, 4});
-    int64_column_wrapper ref_result_col2({1, 3, 1, 3, 1, 3, 4, 0, 0},
-                                         {true, true, true, true, true, true, true, true, false});
-
-    std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
-    ref_result_columns.push_back(ref_result_col0.release());
-    ref_result_columns.push_back(ref_result_col1.release());
-    ref_result_columns.push_back(ref_result_col2.release());
-
-    auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
-
-    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
-  }
-
-  static void verify_left_semi_join(std::optional<cudf::table_view> join_result)
-  {
-    ASSERT_EQ(join_result.has_value(), true);
-    auto join_result_sorted = cudf::sort(*join_result);
-
-    int64_column_wrapper ref_result_col0({1, 1, 1, 2, 3});
-    int64_column_wrapper ref_result_col1({1, 2, 5, 0, 3});
-
-    std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
-    ref_result_columns.push_back(ref_result_col0.release());
-    ref_result_columns.push_back(ref_result_col1.release());
-
-    auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
-
-    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
-  }
-
-  static void verify_left_anti_join(std::optional<cudf::table_view> join_result)
-  {
-    ASSERT_EQ(join_result.has_value(), true);
-    auto join_result_sorted = cudf::sort(*join_result);
-
-    int64_column_wrapper ref_result_col0({4});
-    int64_column_wrapper ref_result_col1({4});
-
-    std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
-    ref_result_columns.push_back(ref_result_col0.release());
-    ref_result_columns.push_back(ref_result_col1.release());
-
-    auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
-
-    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
-  }
-
-  static void verify_full_join(std::optional<cudf::table_view> join_result)
-  {
-    ASSERT_EQ(join_result.has_value(), true);
-    auto join_result_sorted = cudf::sort(*join_result);
-
-    int64_column_wrapper ref_result_col0(
-      {0, 1, 1, 1, 1, 1, 1, 2, 3, 4},
-      {false, true, true, true, true, true, true, true, true, true});
-    int64_column_wrapper ref_result_col1(
-      {0, 1, 1, 2, 2, 5, 5, 0, 3, 4},
-      {false, true, true, true, true, true, true, true, true, true});
-    int64_column_wrapper ref_result_col2(
-      {5, 1, 1, 1, 1, 1, 1, 2, 3, 0},
-      {true, true, true, true, true, true, true, true, true, false});
-    int64_column_wrapper ref_result_col3(
-      {2, 1, 3, 1, 3, 1, 3, 4, 0, 0},
-      {true, true, true, true, true, true, true, true, true, false});
-
-    std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
-    ref_result_columns.push_back(ref_result_col0.release());
-    ref_result_columns.push_back(ref_result_col1.release());
-    ref_result_columns.push_back(ref_result_col2.release());
-    ref_result_columns.push_back(ref_result_col3.release());
-
-    auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
-
-    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
-  }
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
@@ -239,83 +237,83 @@ class SingleKeyColumnJoinTest : public ::testing::Test {
 
 TEST_F(SingleKeyColumnJoinTest, InnerJoin)
 {
-  construct_join_task(gqe::join_type_type::inner, {0, 1, 3}, cache_strategy::recompute);
+  construct_join_task(gqe::join_type_type::inner, cache_strategy::recompute);
   join_task->execute();
 
-  verify_inner_join(join_task->result());
+  verify_join(join_task->result(), gqe::join_type_type::inner);
 }
 
 TEST_F(SingleKeyColumnJoinTest, InnerJoinCache)
 {
-  construct_join_task(gqe::join_type_type::inner, {0, 1, 3}, cache_strategy::use_cache);
+  construct_join_task(gqe::join_type_type::inner, cache_strategy::use_cache);
   join_task->execute();
 
-  verify_inner_join(join_task->result());
+  verify_join(join_task->result(), gqe::join_type_type::inner);
 }
 
 TEST_F(SingleKeyColumnJoinTest, LeftJoin)
 {
-  construct_join_task(gqe::join_type_type::left, {0, 1, 3}, cache_strategy::recompute);
+  construct_join_task(gqe::join_type_type::left, cache_strategy::recompute);
   join_task->execute();
 
-  verify_left_join(join_task->result());
+  verify_join(join_task->result(), gqe::join_type_type::left);
 }
 
 TEST_F(SingleKeyColumnJoinTest, LeftJoinCache)
 {
-  construct_join_task(gqe::join_type_type::left, {0, 1, 3}, cache_strategy::use_cache);
+  construct_join_task(gqe::join_type_type::left, cache_strategy::use_cache);
   join_task->execute();
 
-  verify_left_join(join_task->result());
+  verify_join(join_task->result(), gqe::join_type_type::left);
 }
 
 TEST_F(SingleKeyColumnJoinTest, LeftSemiJoin)
 {
-  construct_join_task(gqe::join_type_type::left_semi, {0, 1}, cache_strategy::recompute);
+  construct_join_task(gqe::join_type_type::left_semi, cache_strategy::recompute);
   join_task->execute();
   late_materialization->execute();
-  verify_left_semi_join(late_materialization->result());
+  verify_join(late_materialization->result(), gqe::join_type_type::left_semi);
 }
 
 TEST_F(SingleKeyColumnJoinTest, LeftSemiJoinCache)
 {
-  construct_join_task(gqe::join_type_type::left_semi, {0, 1}, cache_strategy::use_cache);
+  construct_join_task(gqe::join_type_type::left_semi, cache_strategy::use_cache);
   join_task->execute();
   late_materialization->execute();
-  verify_left_semi_join(late_materialization->result());
+  verify_join(late_materialization->result(), gqe::join_type_type::left_semi);
 }
 
 TEST_F(SingleKeyColumnJoinTest, LeftAntiJoin)
 {
-  construct_join_task(gqe::join_type_type::left_anti, {0, 1}, cache_strategy::recompute);
+  construct_join_task(gqe::join_type_type::left_anti, cache_strategy::recompute);
   join_task->execute();
   late_materialization->execute();
-  verify_left_anti_join(late_materialization->result());
+  verify_join(late_materialization->result(), gqe::join_type_type::left_anti);
 }
 
 TEST_F(SingleKeyColumnJoinTest, LeftAntiJoinCache)
 {
-  construct_join_task(gqe::join_type_type::left_anti, {0, 1}, cache_strategy::use_cache);
+  construct_join_task(gqe::join_type_type::left_anti, cache_strategy::use_cache);
   join_task->execute();
   late_materialization->execute();
 
-  verify_left_anti_join(late_materialization->result());
+  verify_join(late_materialization->result(), gqe::join_type_type::left_anti);
 }
 
 TEST_F(SingleKeyColumnJoinTest, FullJoin)
 {
-  construct_join_task(gqe::join_type_type::full, {0, 1, 2, 3}, cache_strategy::recompute);
+  construct_join_task(gqe::join_type_type::full, cache_strategy::recompute);
   join_task->execute();
 
-  verify_full_join(join_task->result());
+  verify_join(join_task->result(), gqe::join_type_type::full);
 }
 
 TEST_F(SingleKeyColumnJoinTest, FullJoinCache)
 {
-  construct_join_task(gqe::join_type_type::full, {0, 1, 2, 3}, cache_strategy::use_cache);
+  construct_join_task(gqe::join_type_type::full, cache_strategy::use_cache);
   join_task->execute();
 
-  verify_full_join(join_task->result());
+  verify_join(join_task->result(), gqe::join_type_type::full);
 }
 
 class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {

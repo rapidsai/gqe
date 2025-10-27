@@ -39,6 +39,21 @@ using int64_column_wrapper = cudf::test::fixed_width_column_wrapper<int64_t>;
 
 enum class cache_strategy { recompute, use_cache };
 
+// Create a shared, statically allocated memory pool. Test classes should
+// use this memory resource when they created a `gqe::task_manager_context`
+// to speed up test execution.
+auto create_static_memory_pool()
+{
+  using upstream_mr_type       = rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>;
+  using mr_type                = rmm::mr::pool_memory_resource<upstream_mr_type>;
+  static auto upstream_cuda_mr = rmm::mr::cuda_memory_resource();
+  static auto pool_size        = gqe::utility::default_device_memory_pool_size();
+  static auto upstream_mr =
+    std::make_shared<upstream_mr_type>(upstream_cuda_mr, pool_size, pool_size);
+  return std::make_unique<rmm::mr::owning_wrapper<mr_type, upstream_mr_type>>(
+    upstream_mr, pool_size, pool_size);
+}
+
 /*
  * This test suite constructs the input tables with handpicked values. Both the left and the right
  * table have 2 columns, 1 key column and 1 payload column.
@@ -46,7 +61,7 @@ enum class cache_strategy { recompute, use_cache };
 class SingleKeyColumnJoinTest : public ::testing::Test {
  protected:
   SingleKeyColumnJoinTest()
-    : task_manager_ctx{},
+    : task_manager_ctx(create_static_memory_pool()),
       query_ctx(gqe::optimization_parameters(true)),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
@@ -319,7 +334,7 @@ TEST_F(SingleKeyColumnJoinTest, FullJoinCache)
 class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {
  protected:
   SingleKeyColumnNullsEqualJoinTest()
-    : task_manager_ctx{},
+    : task_manager_ctx(create_static_memory_pool()),
       query_ctx(gqe::optimization_parameters(true)),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
@@ -533,7 +548,7 @@ TEST(HashMapCache, UniqueKeyJoin)
 class NonEqualityJoinConditionTest : public ::testing::Test {
  protected:
   NonEqualityJoinConditionTest()
-    : task_manager_ctx{},
+    : task_manager_ctx(create_static_memory_pool()),
       query_ctx(gqe::optimization_parameters(true)),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
@@ -994,7 +1009,7 @@ TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsFullJoin)
 class MaterializeJoinFromPositionListsTest : public ::testing::Test {
  protected:
   MaterializeJoinFromPositionListsTest()
-    : task_manager_ctx{},
+    : task_manager_ctx(create_static_memory_pool()),
       query_ctx(gqe::optimization_parameters(true)),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {

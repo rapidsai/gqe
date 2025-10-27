@@ -11,6 +11,7 @@
  */
 
 #include <gqe/executor/join.hpp>
+#include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 
@@ -45,8 +46,10 @@ void gqe::detail::set_boolean_mask(cudf::mutable_column_view boolean_mask,
               "The input column of set_boolean_mask is not a boolean column");
   if (indices.is_empty()) { return; }
 
-  int constexpr block_size = 128;
-  auto const grid_size     = gqe::utility::divide_round_up(indices.size(), block_size);
+  int constexpr block_size    = 128;
+  constexpr int shared_memory = 0;
+  auto const grid_size =
+    gqe::utility::detect_launch_grid_size(set_boolean_mask_kernel, block_size, shared_memory);
 
   set_boolean_mask_kernel<<<grid_size, block_size>>>(
     boolean_mask.data<bool>(), indices.data<cudf::size_type>(), indices.size());
@@ -58,8 +61,10 @@ void gqe::detail::increment_counts(cudf::mutable_column_view counts, cudf::colum
               "The input column of increment_counts does not have type int32");
   if (indices.is_empty()) { return; }
 
-  int constexpr block_size = 128;
-  auto const grid_size     = gqe::utility::divide_round_up(indices.size(), block_size);
+  int constexpr block_size    = 128;
+  constexpr int shared_memory = 0;
+  auto const grid_size =
+    gqe::utility::detect_launch_grid_size(increment_counts_kernel, block_size, shared_memory);
 
   increment_counts_kernel<<<grid_size, block_size>>>(
     counts.data<int32_t>(), indices.data<cudf::size_type>(), indices.size());

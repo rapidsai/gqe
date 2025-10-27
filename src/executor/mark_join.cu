@@ -62,24 +62,69 @@ namespace gqe {
 
 namespace {
 
+// This is just a utility function for computing bloom filter blocks, borrowed from
+// hardcoded Q21. Can be removed later when a robust version is added to utility.
+/**
+ * @brief Get the bloom filter number of blocks based on total number of bytes that bloom filter
+ * takes up.
+ *
+ * @tparam FilterType
+ * @param[in] filter_bytes The total number of bytes that the bloom filter takes up.
+ */
+template <typename FilterType>
+cuco::extent<std::size_t> get_bloom_filter_blocks(std::size_t filter_bytes)
+{
+  std::size_t num_sub_filters =
+    filter_bytes / (sizeof(typename FilterType::word_type) * FilterType::words_per_block);
+
+  // returning 0 here causes a lot of problems but is common in unit tests, so check
+  return num_sub_filters ? num_sub_filters : 1;
+}
+
+/**
+ * @brief This kernel performs the mark probe functionality to evaluate if input
+ * rows are present in the hash table, and mark them if they are included.
+ * @param[in] build_conditional_table the build table with references to condition-evaluated columns
+ * @param[in] probe_conditional_table the probe table with references to condition-evaluated columns
+ * @param[in] expression_data the device pointer to the parsed expression data for AST evaluation
+ * @param[in,out] mark_set_ref a reference to the hash table used in the probe
+ * @param[in] join_predicate the operator that will perform equality condition evaluation
+ * @param[in] probe_rows the rows in the probe table to evaluate against
+ * @param[in] num_rows the number of rows in probe_rows
+ * @param[out] global_mark_counter_ref a global counter for the number of marks set, modified
+ * atomically
+ * @tparam is_mixed determines if we handle mixed conditions (enables cuDF AST evaluation) in
+ * addition to equality
+ * @tparam has_nulls is passed through to cuDF AST evaluation
+ * @tparam is_low_selectivity is a heuristic hint for compile-time optimization of some branches
+ */
 template <int32_t block_size,
-          typename key_type,
-          typename comparator_adapter_type,
-          typename mark_set_ref_type,
-          typename input_it_type,
+          typename ComparatorAdapterType,
+          typename MarkSetRefType,
+          typename ProbeKeyType,
+          uint32_t cg_size,
+          bool has_nulls,
+          bool is_mixed,
           bool is_low_selectivity>
-__global__ __launch_bounds__(block_size) void mark_probe(mark_set_ref_type mark_set_ref,
-                                                         comparator_adapter_type join_predicate,
-                                                         input_it_type first,
-                                                         cudf::size_type num_rows,
-                                                         cudf::size_type* global_mark_counter_ref)
+__global__ __launch_bounds__(block_size) void mark_probe(
+  cudf::table_device_view const build_conditional_table,
+  cudf::table_device_view const probe_conditional_table,
+  cudf::ast::detail::expression_device_view const expression_data,
+  MarkSetRefType mark_set_ref,
+  ComparatorAdapterType join_predicate,
+  ProbeKeyType const* __restrict__ probe_rows,
+  cudf::size_type num_rows,
+  cudf::size_type* global_mark_counter_ref)
 {
   constexpr uint32_t warp_size = 32;
-
+  // Grid control groups
   const auto grid  = cooperative_groups::this_grid();
   const auto block = cg::this_thread_block();
   const auto tile  = cg::tiled_partition<warp_size>(block);
+  // The bucket tile is a sub-warp tile for vectorized hash bucket probing.
+  const auto bucket_tile = cg::tiled_partition<cg_size, cg::thread_block>(block);
 
+  // set up hash table walk
   auto probing_scheme         = mark_set_ref.probing_scheme();
   auto bucket_extent          = mark_set_ref.bucket_extent();
   auto storage                = mark_set_ref.storage_ref();
@@ -87,61 +132,88 @@ __global__ __launch_bounds__(block_size) void mark_probe(mark_set_ref_type mark_
   auto predicate              = cuco::detail::equal_wrapper{
     mark_set_ref.empty_key_sentinel(), mark_set_ref.erased_key_sentinel(), join_predicate};
 
+  // set up mixed expression evaluation (should be optimized out if not enabled by template)
+  extern __shared__ std::byte predicate_scratch[];
+  auto intermediate_scratch =
+    reinterpret_cast<cudf::ast::detail::IntermediateDataType<has_nulls>*>(predicate_scratch);
+  auto predicate_storage =
+    &intermediate_scratch[block.thread_rank() * expression_data.num_intermediates];
+  cudf::ast::detail::expression_evaluator<has_nulls> evaluator{
+    build_conditional_table, probe_conditional_table, expression_data};
+
+  // set up mark counting to advise mark join output buffer size
   cudf::size_type mark_counter = 0;
+  // shared counter for block reduce
   __shared__ cuda::atomic<cudf::size_type, cuda::thread_scope_block> cta_mark_counter;
+  // global counter as kernel output parameter
   cuda::atomic_ref<cudf::size_type, cuda::thread_scope_device> global_mark_counter{
     *global_mark_counter_ref};
-
   cg::invoke_one(cg::this_thread_block(),
                  [&]() { cta_mark_counter.store(0, cuda::memory_order_relaxed); });
-  __syncthreads();
-
+  block.sync();
+  // This kernel only requires warp synchronization. Inter-block communication is
+  // performed by atomics. Therefore, closest-warp is sufficient.
   const auto loop_bound = gqe::utility::divide_round_up(num_rows, warp_size) * warp_size;
 
-  for (cudf::size_type i = grid.thread_rank(); i < loop_bound; i += grid.num_threads()) {
+  for (cudf::size_type i = grid.thread_rank() / cg_size; i < loop_bound;
+       i += grid.num_threads() / cg_size) {
     int32_t sync_mask = tile.ballot(i < num_rows);
 
     if (i < num_rows) {
-      constexpr int slot_index = 0;
-
       // Warp divergence slows down the read.
       __syncwarp(sync_mask);
-      auto query = *(first + i);
+      ProbeKeyType query = probe_rows[i];
 
       auto probing_iter = probing_scheme(query, bucket_extent);
-      while (true) {
-        auto mutable_entry = (storage.data() + *probing_iter)->data() + slot_index;
-        auto entry_value   = *mutable_entry;
-        // In the low_selectivity case the if is optimized out. If selectivity is high, we
+      cuco::detail::equal_result status{};
+      do {
+        auto mutable_entry = (storage.data() + *probing_iter)->data();
+        auto entry_value   = *(mutable_entry + bucket_tile.thread_rank());
+        // In the low_selectivity case the branch is optimized out. If selectivity is high, we
         // may save some time by checking if the entry is already marked before doing the
         // full condition evaluation.
         if (is_low_selectivity || !detail::is_marked(entry_value.first)) {
-          auto status = predicate.operator()<cuco::detail::is_insert::NO>(query, entry_value);
+          status = predicate.operator()<cuco::detail::is_insert::NO>(query, entry_value);
+          // if status is equal, the entry is not empty and all equality conditions pass, continue
+          // on to mixed conditions
           if (status == cuco::detail::equal_result::EQUAL) {
-            auto expected = query.first;
-            auto desired  = detail::set_mark(expected);
+            constexpr cudf::size_type output_row = 0;
+            cudf::ast::detail::value_expression_result<bool, has_nulls> output{};
+            // if this is a mixed join, evaluate. otherwise, if statement is optimized out
+            if constexpr (is_mixed) {
+              cudf::size_type query_index = static_cast<cudf::size_type>(query.second);
+              cudf::size_type entry_index = static_cast<cudf::size_type>(entry_value.second);
 
-            cuda::atomic_ref<cudf::hash_value_type, cuda::thread_scope_device> key{
-              mutable_entry->first};
-            auto is_success =
-              key.compare_exchange_strong(expected, desired, cuda::memory_order_relaxed);
-            if (is_success) {
-              // The marked entries count is the join result size. Thus, don't double-count marked
-              // entries.
-              ++mark_counter;
+              evaluator.evaluate(output, entry_index, query_index, output_row, predicate_storage);
             }
-          } else if (status == cuco::detail::equal_result::EMPTY) {
-            break;
+            // if equality only, there is no branch. if mixed, evaluate if we match, then enter if
+            // true.
+            if (!is_mixed || (output.is_valid() && output.value())) {
+              auto expected = query.first;
+              auto desired  = detail::set_mark(expected);
+
+              cuda::atomic_ref<cudf::hash_value_type, cuda::thread_scope_device> key{
+                (mutable_entry + bucket_tile.thread_rank())->first};
+              // Set mark on hash table entry iff it's not already marked.
+              auto is_success =
+                key.compare_exchange_strong(expected, desired, cuda::memory_order_relaxed);
+              if (is_success) {
+                // The marked entries count is the join result size. Don't double-count marked
+                // entries.
+                ++mark_counter;
+              }
+            }
           }
         }
         ++probing_iter;
-      }
+      } while (status != cuco::detail::equal_result::EMPTY);
     }
   }
 
+  // final output reduction for mark_counter
   auto warp_sum = cg::reduce(tile, mark_counter, cg::plus<int32_t>{});
   cg::invoke_one(tile, [&]() { cta_mark_counter.fetch_add(warp_sum, cuda::memory_order_relaxed); });
-  __syncthreads();
+  block.sync();
 
   cg::invoke_one(cg::this_thread_block(), [&]() {
     global_mark_counter.fetch_add(cta_mark_counter.load(cuda::memory_order_relaxed),
@@ -149,103 +221,133 @@ __global__ __launch_bounds__(block_size) void mark_probe(mark_set_ref_type mark_
   });
 }
 
-template <int32_t block_size, typename key_type, typename mark_set_ref_type>
-__global__ __launch_bounds__(block_size) void mark_scan(mark_set_ref_type mark_set_ref,
-                                                        cudf::size_type* build_positions,
-                                                        cudf::size_type* global_offset_ref,
-                                                        const bool is_anti_join)
+/**
+ * @brief This kernel is effectively a buffer writer - conditionally accept elements from an input
+ * source, and write them in a coalesced manner using shared memory buffer to the output buffer.
+ * Accepts an operator that provides (1) the iterator functionality, (2) a predicate condition
+ * for acceptance, and (3) an 'accept' operator that transforms the input into the output.
+ * Used for both scanning the hash table to materialize join positions, and for prefiltering probe
+ * rows.
+ * The API for TaskOperator is as follows:
+ * 1) The TaskOperator must include its own storage for the input data.
+ * 2) get_bucket(index) must exist and return a storage type that supports the [] bracket operators.
+ * For 1-D storage this can just be a pointer 3) predicate(InputType) must accept an element of the
+ * underlying storage type returned by get_bucket and return a boolean determining if we should
+ * include the element in the output set 4) accept(InputType) must accept the InputType, optionally
+ * perform a transform, and return OutputType to be stored in the final output 5) num_buckets() must
+ * return the total number of buckets 6) elements_per_bucket() must indicate the total number of
+ * elements in each bucket, indexable by []
+ *
+ * @tparam block_size the block_size used to launch this kernel, as a static parameter
+ * @tparam InputType the type of element retrieved from the TaskOperator
+ * @tparam OutputType the type of each element in the output array
+ * @tparam TaskOperator a suitable operator based on the TaskOperator API
+ * @param[out] out the output storage array
+ * @param[out] global_offset_ref a counter that will store how many elements are in the final output
+ * array
+ * @param[in] op the input operator
+ */
+template <int32_t block_size, typename InputType, typename OutputType, typename TaskOperator>
+__global__ __launch_bounds__(block_size) void iterator_to_vector_if(
+  OutputType* out, cudf::size_type* global_offset_ref, TaskOperator op)
 {
-  assert(block_size == blockDim.x);
+  // currently, we use 1 element per bucket for performance.
+  // leaving this functionality in because it doesn't hurt perf and we may find a way to tune it
+  // later
+  constexpr uint32_t cg_size   = op.elements_per_bucket();
+  constexpr uint32_t warp_size = 32;
+  const auto grid              = cooperative_groups::this_grid();
+  const auto block             = cg::this_thread_block();
+  const auto bucket_tile       = cg::tiled_partition<cg_size, cg::thread_block>(block);
+  const auto tile              = cg::tiled_partition<warp_size>(block);
 
-  constexpr uint32_t warp_size  = 32;
-  constexpr int buffer_capacity = block_size * 4;
+  // grid stride loop
+  const auto loop_bound = gqe::utility::divide_round_up(op.num_buckets(), warp_size) * warp_size;
 
-  const auto grid            = cooperative_groups::this_grid();
-  const auto block           = cg::this_thread_block();
-  const auto block_partition = cg::tiled_partition<block_size, cg::thread_block>(block);
-  const auto tile            = cg::tiled_partition<warp_size>(block);
-
-  __shared__ cudf::size_type build_buffer[buffer_capacity];
-  __shared__ cuda::atomic<int16_t, cuda::thread_scope_block> buffer_offset;
+  // shared reducer tooling
+  constexpr int buffer_capacity_factor = 4;
+  constexpr int buffer_capacity        = block_size * buffer_capacity_factor;
+  constexpr int warp_buffer_capacity   = warp_size * buffer_capacity_factor;
+  const int warp_buffer_offset         = (warp_buffer_capacity * tile.meta_group_rank());
+  uint32_t build_buffer_offset         = 0;
+  // Shared buffer divided into exclusive per-warp chunks.
+  __shared__ alignas(buffer_capacity) OutputType build_buffer[buffer_capacity];
+  // Output reference.
   cuda::atomic_ref<cudf::size_type, cuda::thread_scope_device> global_offset(*global_offset_ref);
 
-  auto storage_ref = mark_set_ref.storage_ref();
-  static_assert(mark_set_ref_type::storage_ref_type::bucket_type::bucket_size == 1);
-
-  constexpr bool has_payload = false;
-  auto const is_filled = cuco::detail::open_addressing_ns::slot_is_filled<has_payload, key_type>{
-    mark_set_ref.empty_key_sentinel(), mark_set_ref.erased_key_sentinel()};
-
-  cg::invoke_one(block, [&]() { buffer_offset.store(0, cuda::memory_order_relaxed); });
-  block.sync();
-
-  const auto loop_bound =
-    gqe::utility::divide_round_up(mark_set_ref.capacity(), block_size) * block_size;
-  for (cudf::size_type index = grid.thread_rank(); index < loop_bound;
-       index += grid.num_threads()) {
+  for (cudf::size_type i = grid.thread_rank() / cg_size; i < loop_bound;
+       i += grid.num_threads() / cg_size) {
+    InputType slot;
     bool do_fill = false;
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type> slot{};
-
-    if (index < mark_set_ref.capacity()) {
-      slot    = storage_ref[index][0];
-      do_fill = is_filled(slot) && (detail::is_marked(slot.first) ^ is_anti_join);
+    // Retrieve element and evaluate predicate.
+    if (i < op.num_buckets()) {
+      auto bucket = op.get_bucket(i);
+      slot        = bucket[bucket_tile.thread_rank()];
+      do_fill     = op.predicate(slot);
     }
-
-    while (true) {
-      int32_t offset = 0;  // Only 32-bit types have hardware-accelerated reduce.
-      // Shared memory allocations are allocated on a per-warp basis.
-      int32_t num_slots = cg::reduce(tile, static_cast<int32_t>(do_fill), cg::plus<int32_t>{});
+    // If any thread has output to write, enter buffer filling stage, else move on.
+    bool work_todo = tile.any(do_fill);
+    while (work_todo) {
+      uint32_t offset = 0;
       if (do_fill) {
         cg::coalesced_group active_group = cg::coalesced_threads();
-        offset =
-          cg::invoke_one_broadcast(
-            active_group,
-            [&]() { return buffer_offset.fetch_add(num_slots, cuda::memory_order_relaxed); }) +
-          active_group.thread_rank();
-        if (offset < buffer_capacity) {
-          build_buffer[offset] = static_cast<cudf::size_type>(slot.second);
-          do_fill              = false;
+        offset                           = build_buffer_offset + active_group.thread_rank();
+        if (offset < warp_buffer_capacity) {
+          build_buffer[offset + warp_buffer_offset] = op.accept(slot);
+          do_fill                                   = false;
         }
       }
-      // Full block will sync on reduce before entering the write-buffer segment.
-      auto max_offset = cg::reduce(block_partition, offset, cg::greater<int32_t>{});
-      if (max_offset >= buffer_capacity) {
-        // Full block shares the global memory allocation.
-        cudf::size_type flush_offset = cg::invoke_one_broadcast(block_partition, [&]() {
-          buffer_offset.store(0, cuda::memory_order_relaxed);
-          return global_offset.fetch_add(buffer_capacity, cuda::memory_order_relaxed);
+      // re-unify build_buffer_offset - add 1, because the slot represented by max has already
+      // been used.
+      offset              = cg::reduce(tile, offset, cg::greater<uint32_t>{});
+      build_buffer_offset = offset + 1;
+      // This tests if the buffer is full so we can do fully-aligned writes to global, otherwise
+      // wait. we set the while loop condition here because it's equivalent to tile.any(do_fill) but
+      // avoids a warpsync; no break potentially enables compiler to do a better job on instruction
+      // layout.
+      if (work_todo = (offset >= warp_buffer_capacity)) {
+        // reset shared offset
+        build_buffer_offset = 0;
+        // grab global write offset
+        cudf::size_type flush_offset = cg::invoke_one_broadcast(tile, [&]() {
+          return global_offset.fetch_add(warp_buffer_capacity, cuda::memory_order_relaxed);
         });
-        for (int16_t i = block.thread_rank(); i < buffer_capacity; i += block.num_threads()) {
-          build_positions[flush_offset + i] = build_buffer[i];
+#pragma unroll
+        // use warp_size explicitly here instead of tile.size() to guarantee we can unroll
+        for (int16_t k = tile.thread_rank(); k < warp_buffer_capacity; k += warp_size) {
+          out[flush_offset + k] = build_buffer[k + warp_buffer_offset];
         }
-      } else {
-        // All threads in block share max_offset, so all threads will break if we fail the
-        // condition.
-        break;
       }
-      // During while loop execution, all threads hit this sync if we continue, so each iteration is
-      // block-synchronous. This will ensure the buffer_offset = 0 is visible to all threads,
-      // preventing a buffer race.
-      block.sync();
     }
   }
-
-  block.sync();
-
-  auto current_offset = buffer_offset.load(cuda::memory_order_relaxed);
-  if (current_offset > 0) {
-    cudf::size_type flush_offset = cg::invoke_one_broadcast(block_partition, [&]() {
-      return global_offset.fetch_add(current_offset, cuda::memory_order_relaxed);
+  // Epilogue pass for straggling buffer entries.
+  if (build_buffer_offset > 0) {
+    cudf::size_type flush_offset = cg::invoke_one_broadcast(tile, [&]() {
+      return global_offset.fetch_add(build_buffer_offset, cuda::memory_order_relaxed);
     });
 
-    for (int16_t i = block.thread_rank(); i < current_offset; i += block.num_threads()) {
-      build_positions[flush_offset + i] = build_buffer[i];
+    for (int16_t k = tile.thread_rank(); k < build_buffer_offset; k += tile.num_threads()) {
+      out[flush_offset + k] = build_buffer[k + warp_buffer_offset];
     }
   }
 }
 }  // namespace
 
 namespace detail {
+
+// We can't use thrust lambdas in constructor, so we use this quick kernel.
+template <typename InputIteratorType, typename OutputType, int32_t block_size>
+__global__ __launch_bounds__(block_size) void iter_to_column(InputIteratorType first,
+                                                             OutputType* out,
+                                                             cudf::size_type num_rows)
+{
+  constexpr uint32_t warp_size = 32;
+  const auto loop_bound        = gqe::utility::divide_round_up(num_rows, warp_size) * warp_size;
+  for (cudf::size_type i = blockIdx.x * blockDim.x + threadIdx.x; i < loop_bound;
+       i += blockDim.x * gridDim.x) {
+    if (i < num_rows) { out[i] = *(first + i); }
+  }
+}
 
 mark_join::mark_join(cudf::table_view const& build,
                      bool is_cached,
@@ -264,22 +366,40 @@ mark_join::mark_join(cudf::table_view const& build,
                                           *cudf::table_device_view::create({}, stream)},
               probing_scheme_type{},
               cuco::thread_scope_device,
-              cuco::storage<1>{},
+              cuco::storage<_slots_per_bucket>{},
               rmm::mr::stream_allocator_adaptor(rmm::mr::polymorphic_allocator<key_type>{}, stream),
               stream.value()},
+    _bloom_filter{get_bloom_filter_blocks<bloom_filter_type>(build.num_rows()),
+                  cuco::cuda_thread_scope<cuda::thread_scope_device>{},
+                  bloom_filter_policy_type{},
+                  bloom_filter_allocator_type{bloom_filter_allocator_instance_type{}, stream},
+                  stream.value()},
     _num_marks(0),
     _is_cached(is_cached)
 {
   GQE_EXPECTS(0 != build.num_columns(), "Hash join build table is empty");
-
+  constexpr int block_size  = 1024;
   auto build_device_view    = cudf::table_device_view::create(_build, stream);
   auto const d_build_hasher = build_hasher_type{*build_device_view};
-  const create_input_pair<build_hasher_type, cudf::experimental::row::rhs_index_type>
-    build_input_pair{d_build_hasher};
 
+  auto const build_hash_row_pairs =
+    cudf::detail::make_counting_transform_iterator(0, d_build_hasher);
+
+  rmm::device_uvector<cudf::hash_value_type> hashes(build_device_view->num_rows(), stream, mr);
+  auto iter_kernel =
+    iter_to_column<decltype(build_hash_row_pairs), cudf::hash_value_type, block_size>;
+
+  int iter_grid_size = utility::detect_launch_grid_size(iter_kernel, block_size);
+  iter_kernel<<<iter_grid_size, block_size, 0, stream>>>(
+    build_hash_row_pairs, hashes.data(), build_device_view->num_rows());
+
+  const create_input_pair_from_column<cudf::hash_value_type,
+                                      cudf::experimental::row::rhs_index_type>
+    build_input_pair{hashes.data()};
   auto const build_iter = cudf::detail::make_counting_transform_iterator(0, build_input_pair);
 
   _mark_set.insert_async(build_iter, build_iter + build_device_view->num_rows(), stream.value());
+  _bloom_filter.add_async(hashes.begin(), hashes.end(), stream.value());
 }
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
@@ -292,10 +412,6 @@ mark_join::perform_mark_join(cudf::table_view const& probe,
                              rmm::cuda_stream_view stream,
                              rmm::device_async_resource_ref mr) const
 {
-  auto build_equality_keys_view     = cudf::table_device_view::create(_build, stream);
-  auto probe_equality_keys_view     = cudf::table_device_view::create(probe, stream);
-  uint32_t shared_memory_per_thread = 0;
-
   GQE_LOG_TRACE(
     "perform mark join is_anti={} eq cols={} right eq cols={} left condition cols={} right "
     "condition "
@@ -306,75 +422,92 @@ mark_join::perform_mark_join(cudf::table_view const& probe,
     left_conditional.num_columns(),
     right_conditional.num_columns());
 
-  // Support 3 cases; equality-only, mixed with nulls, and mixed without nulls.
-  if (!binary_predicate) {
-    auto comparator_adapter =
-      equality_comparator_adapter(*build_equality_keys_view, *probe_equality_keys_view);
-    return _perform_mark_join(*build_equality_keys_view,
-                              is_anti_join,
-                              *probe_equality_keys_view,
-                              comparator_adapter,
-                              shared_memory_per_thread,
-                              stream,
-                              mr);
-  } else {
-    auto build_conditional_keys_view = cudf::table_device_view::create(left_conditional, stream);
-    auto probe_conditional_keys_view = cudf::table_device_view::create(right_conditional, stream);
-    auto const has_nulls =
+  auto const build_equality_keys_view = cudf::table_device_view::create(_build, stream);
+  auto const probe_equality_keys_view = cudf::table_device_view::create(probe, stream);
+  auto const build_conditional_keys_view =
+    cudf::table_device_view::create(left_conditional, stream);
+  auto const probe_conditional_keys_view =
+    cudf::table_device_view::create(right_conditional, stream);
+
+  auto comparator_adapter =
+    equality_comparator_adapter(*build_equality_keys_view, *probe_equality_keys_view);
+
+  using comparator_type = decltype(comparator_adapter);
+
+  std::unique_ptr<cudf::ast::detail::expression_parser> parser;
+  cudf::ast::detail::expression_device_view device_expression_data;
+  uint32_t shared_memory_per_thread = 0;
+  if (binary_predicate) {
+    constexpr bool is_mixed = true;
+    const bool has_nulls =
       binary_predicate->may_evaluate_null(left_conditional, right_conditional, stream);
-    auto const parser = cudf::ast::detail::expression_parser{
-      *binary_predicate, left_conditional, right_conditional, has_nulls, stream, mr};
-    shared_memory_per_thread = parser.shmem_per_thread;
+    parser = std::make_unique<cudf::ast::detail::expression_parser>(
+      *binary_predicate, left_conditional, right_conditional, has_nulls, stream, mr);
+    shared_memory_per_thread = parser->shmem_per_thread;
+    device_expression_data   = parser->device_expression_data;
     if (has_nulls) {
-      auto comparator_adapter = mixed_comparator_adapter<true>(*build_equality_keys_view,
-                                                               *probe_equality_keys_view,
-                                                               *build_conditional_keys_view,
-                                                               *probe_conditional_keys_view,
-                                                               parser.device_expression_data);
-      return _perform_mark_join(*build_equality_keys_view,
-                                is_anti_join,
-                                *probe_equality_keys_view,
-                                comparator_adapter,
-                                shared_memory_per_thread,
-                                stream,
-                                mr);
+      return _perform_mark_join<comparator_type, true, is_mixed>(*probe_equality_keys_view,
+                                                                 *build_conditional_keys_view,
+                                                                 *probe_conditional_keys_view,
+                                                                 device_expression_data,
+                                                                 comparator_adapter,
+                                                                 is_anti_join,
+                                                                 shared_memory_per_thread,
+                                                                 stream,
+                                                                 mr);
     } else {
-      auto comparator_adapter = mixed_comparator_adapter<false>(*build_equality_keys_view,
-                                                                *probe_equality_keys_view,
-                                                                *build_conditional_keys_view,
-                                                                *probe_conditional_keys_view,
-                                                                parser.device_expression_data);
-      return _perform_mark_join(*build_equality_keys_view,
-                                is_anti_join,
-                                *probe_equality_keys_view,
-                                comparator_adapter,
-                                shared_memory_per_thread,
-                                stream,
-                                mr);
+      return _perform_mark_join<comparator_type, false, is_mixed>(*probe_equality_keys_view,
+                                                                  *build_conditional_keys_view,
+                                                                  *probe_conditional_keys_view,
+                                                                  device_expression_data,
+                                                                  comparator_adapter,
+                                                                  is_anti_join,
+                                                                  shared_memory_per_thread,
+                                                                  stream,
+                                                                  mr);
     }
   }
+  constexpr bool has_nulls = false;
+  constexpr bool is_mixed  = false;
+  // if no mixed conditions, we supply an always-true evaluator that should get optimized out
+  return _perform_mark_join<comparator_type, has_nulls, is_mixed>(*probe_equality_keys_view,
+                                                                  *build_conditional_keys_view,
+                                                                  *probe_conditional_keys_view,
+                                                                  device_expression_data,
+                                                                  comparator_adapter,
+                                                                  is_anti_join,
+                                                                  shared_memory_per_thread,
+                                                                  stream,
+                                                                  mr);
 }
 
+// Helper to declutter template instantiation.
 template <int32_t block_size,
-          typename mark_set_key_type,
-          typename comparator_adapter_type,
-          typename mark_set_ref_type,
-          typename input_it_type>
+          typename ComparatorAdapterType,
+          typename MarkSetRefType,
+          typename InputIteratorType,
+          uint32_t cg_size,
+          bool has_nulls,
+          bool is_mixed>
 static auto get_mark_probe_kernel(bool is_low_selectivity)
 {
   if (is_low_selectivity) {
     return mark_probe<block_size,
-                      mark_set_key_type,
-                      comparator_adapter_type,
-                      mark_set_ref_type,
-                      input_it_type,
+                      ComparatorAdapterType,
+                      MarkSetRefType,
+                      InputIteratorType,
+                      cg_size,
+                      has_nulls,
+                      is_mixed,
                       true>;
   } else {
     return mark_probe<block_size,
-                      mark_set_key_type,
-                      comparator_adapter_type,
-                      mark_set_ref_type,
-                      input_it_type,
+                      ComparatorAdapterType,
+                      MarkSetRefType,
+                      InputIteratorType,
+                      cg_size,
+                      has_nulls,
+                      is_mixed,
                       false>;
   }
 }
@@ -385,49 +518,78 @@ bool mark_join::is_low_selectivity() const
   return !_is_cached;
 }
 
-template <typename comparator_adapter_type>
+template <typename ComparatorAdapterType, bool has_nulls, bool is_mixed>
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-mark_join::_perform_mark_join(cudf::table_device_view const& build_equality_keys_view,
-                              bool is_anti_join,
-                              cudf::table_device_view const& probe_equality_keys_view,
-                              comparator_adapter_type const& comparator_adapter,
-                              uint32_t shared_memory_per_thread,
-                              rmm::cuda_stream_view stream,
-                              rmm::device_async_resource_ref mr) const
+mark_join::_perform_mark_join(
+  cudf::table_device_view const& probe_equality_device_view,
+  cudf::table_device_view const& build_conditional_device_view,
+  cudf::table_device_view const& probe_conditional_device_view,
+  cudf::ast::detail::expression_device_view const& expression_device_view,
+  ComparatorAdapterType const& comparator_adapter,
+  bool is_anti_join,
+  uint32_t shared_memory_per_thread,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr) const
 {
-  constexpr int block_size          = 128;
-  const int shared_memory_per_block = shared_memory_per_thread * block_size;
+  // Kernels in mark join are primarily warp-synchronous; very large blocks give good performance.
+  constexpr int block_size = 1024;
 
-  using build_hasher_type   = device_row_hasher<cudf::hashing::detail::default_hash>;
-  auto const d_probe_hasher = build_hasher_type{probe_equality_keys_view};
+  // Prefilter stage: instantiate iterator to materialize (hash, row index) iterator from probe
+  // side.
+  using build_hasher_type = device_row_hasher<cudf::hashing::detail::default_hash>;
+  using ProbeKeyType = cuco::pair<cudf::hash_value_type, cudf::experimental::row::lhs_index_type>;
+  auto const d_probe_hasher = build_hasher_type{probe_equality_device_view};
   const create_input_pair<build_hasher_type, cudf::experimental::row::lhs_index_type>
     probe_input_pair{d_probe_hasher};
+  auto const row_iter = cudf::detail::make_counting_transform_iterator(0, probe_input_pair);
 
-  auto const probe_iter   = cudf::detail::make_counting_transform_iterator(0, probe_input_pair);
-  auto mark_set_ref       = _mark_set.ref(cuco::op::contains_tag{});
-  using mark_set_key_type = typename decltype(mark_set_ref)::key_type;
+  auto bloom_filter_ref = _bloom_filter.ref();
+  // Output remaining rows and the counter for remaining rows.
+  rmm::device_uvector<ProbeKeyType> probe_rows(probe_equality_device_view.num_rows(), stream, mr);
+  rmm::device_scalar<cudf::size_type> row_offset_counter(0, stream, mr);
+  // Build an operator that functions as iterator and provides predicate, accept operations.
+  mark_join_prefilter_operator<decltype(row_iter), decltype(bloom_filter_ref), ProbeKeyType>
+    prefilter_op{row_iter, bloom_filter_ref, probe_equality_device_view.num_rows()};
+  // row filter kernel
+  auto row_filter_kernel =
+    iterator_to_vector_if<block_size, ProbeKeyType, ProbeKeyType, decltype(prefilter_op)>;
+  int row_filter_grid_size = utility::detect_launch_grid_size(row_filter_kernel, block_size, 0);
+  row_filter_kernel<<<row_filter_grid_size, block_size, 0, stream>>>(
+    probe_rows.data(), row_offset_counter.data(), prefilter_op);
 
+  GQE_LOG_TRACE("mark rowfilter count offset={}", row_offset_counter.value(stream));
+
+  auto mark_set_ref                 = _mark_set.ref(cuco::op::contains_tag{});
+  using mark_set_key_type           = typename decltype(mark_set_ref)::key_type;
+  const int shared_memory_per_block = shared_memory_per_thread * block_size;
+  // Perform hash table probe against remaining rows
   auto mark_probe_kernel = get_mark_probe_kernel<block_size,
-                                                 mark_set_key_type,
-                                                 comparator_adapter_type,
+                                                 ComparatorAdapterType,
                                                  decltype(mark_set_ref),
-                                                 decltype(probe_iter)>(this->is_low_selectivity());
+                                                 ProbeKeyType,
+                                                 _slots_per_bucket,  // cg_size
+                                                 has_nulls,
+                                                 is_mixed>(this->is_low_selectivity());
   int probe_grid_size =
     utility::detect_launch_grid_size(mark_probe_kernel, block_size, shared_memory_per_block);
 
   rmm::device_scalar<cudf::size_type> mark_counter(0, stream, mr);
   mark_probe_kernel<<<probe_grid_size, block_size, shared_memory_per_block, stream>>>(
+    build_conditional_device_view,
+    probe_conditional_device_view,
+    expression_device_view,
     mark_set_ref,
     comparator_adapter,
-    probe_iter,
-    probe_equality_keys_view.num_rows(),
+    probe_rows.data(),
+    row_offset_counter.value(stream),
     mark_counter.data());
   cudf::size_type marked_row_count = mark_counter.value(stream);
 
-  _num_marks += marked_row_count;
-
-  // return ptr.
+  GQE_LOG_TRACE("mark probe count offset={}", marked_row_count);
+  // Update our mark counter - must be kept up to date for scan to work properly; atomic for
+  // multi-gpu
+  _num_marks.fetch_add(marked_row_count);
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_positions;
   // a pair is expected even though we only have one set of positions
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> left;
@@ -435,47 +597,55 @@ mark_join::_perform_mark_join(cudf::table_device_view const& build_equality_keys
     // if it's cached we don't instantiate the positions yet
     build_positions = std::make_unique<rmm::device_uvector<cudf::size_type>>(0, stream, mr);
   } else {
-    // not cached - we need to do a scan and materialize the positions
-    cudf::size_type result_row_count =
-      is_anti_join ? build_equality_keys_view.num_rows() - marked_row_count : marked_row_count;
-
-    rmm::device_uvector<cudf::size_type> positions(result_row_count, stream, mr);
-    rmm::device_scalar<cudf::size_type> mark_scan_offset(0, stream, mr);
-
-    auto mark_scan_kernel = mark_scan<block_size, mark_set_key_type, decltype(mark_set_ref)>;
-    int scan_grid_size =
-      utility::detect_launch_grid_size(mark_probe_kernel, block_size, shared_memory_per_block);
-
-    mark_scan_kernel<<<scan_grid_size, block_size, 0, stream>>>(
-      mark_set_ref, positions.data(), mark_scan_offset.data(), is_anti_join);
-
-    GQE_LOG_TRACE("mark join scan offset={}", mark_scan_offset.value(stream));
-
-    build_positions = std::make_unique<rmm::device_uvector<cudf::size_type>>(std::move(positions));
+    // If not cached, go ahead and perform mark_scan and retrieve active positions to return.
+    build_positions = _compute_positions_list_from_map(is_anti_join, stream, mr);
   }
   return std::make_pair(std::move(left), std::move(build_positions));
 }
 
-std::unique_ptr<rmm::device_uvector<cudf::size_type>>
-mark_join::_compute_positions_list_from_cached_map(bool is_anti_join,
-                                                   rmm::cuda_stream_view stream,
-                                                   rmm::device_async_resource_ref mr) const
+std::unique_ptr<rmm::device_uvector<cudf::size_type>> mark_join::_compute_positions_list_from_map(
+  bool is_anti_join, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr) const
 {
-  constexpr int block_size         = 128;
-  auto mark_set_ref                = _mark_set.ref(cuco::op::contains_tag{});
-  using mark_set_key_type          = typename decltype(mark_set_ref)::key_type;
-  cudf::size_type result_row_count = is_anti_join ? _build.num_rows() - _num_marks : _num_marks;
+  if (is_anti_join) {
+    return _mark_scan<true>(stream, mr);
+  } else {
+    return _mark_scan<false>(stream, mr);
+  }
+}
+
+template <bool is_anti_join>
+std::unique_ptr<rmm::device_uvector<cudf::size_type>> mark_join::_mark_scan(
+  rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr) const
+{
+  constexpr int shared_memory_per_block = 0;
+  constexpr int block_size              = 1024;
+  auto mark_set_ref                     = _mark_set.ref(cuco::op::contains_tag{});
+  using mark_set_key_type               = typename decltype(mark_set_ref)::key_type;
+  // num_marks should not change while we are in this function; loading once should be fine
+  cudf::size_type num_marks        = _num_marks.load();
+  cudf::size_type result_row_count = is_anti_join ? _build.num_rows() - num_marks : num_marks;
 
   rmm::device_uvector<cudf::size_type> build_positions(result_row_count, stream, mr);
   rmm::device_scalar<cudf::size_type> mark_scan_offset(0, stream, mr);
 
-  auto mark_scan_kernel = mark_scan<block_size, mark_set_key_type, decltype(mark_set_ref)>;
-  int scan_grid_size    = utility::detect_launch_grid_size(mark_scan_kernel, block_size);
+  mark_join_scan_operator<decltype(mark_set_ref),
+                          decltype(mark_set_ref.storage_ref()),
+                          mark_set_key_type,
+                          _slots_per_bucket,
+                          is_anti_join>
+    mark_scan_op{
+      mark_set_ref, mark_set_ref.storage_ref(), mark_set_ref.storage_ref().num_buckets()};
+
+  auto mark_scan_kernel =
+    iterator_to_vector_if<block_size, mark_set_key_type, cudf::size_type, decltype(mark_scan_op)>;
+
+  int scan_grid_size =
+    utility::detect_launch_grid_size(mark_scan_kernel, block_size, shared_memory_per_block);
 
   mark_scan_kernel<<<scan_grid_size, block_size, 0, stream>>>(
-    mark_set_ref, build_positions.data(), mark_scan_offset.data(), is_anti_join);
+    build_positions.data(), mark_scan_offset.data(), mark_scan_op);
 
-  GQE_LOG_TRACE("cached mark join scan offset={}", mark_scan_offset.value(stream));
+  GQE_LOG_TRACE("mark join scan offset={}", mark_scan_offset.value(stream));
 
   return std::make_unique<rmm::device_uvector<cudf::size_type>>(std::move(build_positions));
 }
@@ -514,7 +684,7 @@ mark_join::compute_positions_list_from_cached_map(bool is_anti_join,
                                                   rmm::cuda_stream_view stream,
                                                   rmm::device_async_resource_ref mr) const
 {
-  return _impl->_compute_positions_list_from_cached_map(is_anti_join);
+  return _impl->_compute_positions_list_from_map(is_anti_join);
 }
 
 // wrapper functions for mark_join

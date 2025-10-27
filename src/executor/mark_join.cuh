@@ -18,6 +18,7 @@
 #include <cudf/table/experimental/row_operators.cuh>
 #include <cudf/types.hpp>
 
+#include <cuco/bloom_filter.cuh>
 #include <cuco/static_multiset.cuh>
 #include <cuco/utility/cuda_thread_scope.cuh>
 
@@ -36,7 +37,7 @@ namespace gqe {
 
 namespace detail {
 
-template <typename hasher_type>
+template <typename HasherType>
 class hasher_adapter {
  public:
   __device__ hasher_adapter() : _hasher({}) {}
@@ -51,7 +52,7 @@ class hasher_adapter {
   }
 
  private:
-  hasher_type _hasher;
+  HasherType _hasher;
 };
 
 template <template <typename> class hash_function>
@@ -113,18 +114,21 @@ __host__ __device__ constexpr T mark_mask() noexcept
   return mask;
 }
 
+// Returns a hashed value with the mark set.
 template <typename T>
 __host__ __device__ constexpr T set_mark(T value) noexcept
 {
   return value | mark_mask<T>();
 }
 
+// Unsets the mark bit from a hash value.
 template <typename T>
 __host__ __device__ constexpr T unset_mark(T value) noexcept
 {
   return value & ~mark_mask<T>();
 }
 
+// Checks if the mark bit is set in a hash.
 template <typename T>
 __host__ __device__ constexpr bool is_marked(T value) noexcept
 {
@@ -143,6 +147,21 @@ class create_input_pair {
 
  private:
   Hasher _hash;
+};
+
+// We utilize this to instantiate pairs of hash, row indices from existing set of hashes.
+template <typename HashType, typename IndexType>
+class create_input_pair_from_column {
+ public:
+  __host__ __device__ create_input_pair_from_column(HashType const* hashes) : _hashes{hashes} {}
+
+  __device__ __forceinline__ auto operator()(HashType i) const noexcept
+  {
+    return cuco::pair{_hashes[i], IndexType{i}};
+  }
+
+ private:
+  HashType const* _hashes;
 };
 
 class equality_comparator {
@@ -194,22 +213,23 @@ class equality_comparator_adapter {
     cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type> const& entry_key)
     const noexcept
   {
-    if (query_key.first != entry_key.first) { return false; }
-    cudf::size_type query_index = static_cast<cudf::size_type>(query_key.second);
-    cudf::size_type entry_index = static_cast<cudf::size_type>(entry_key.second);
-
-    for (cudf::size_type column_idx = 0; column_idx < _build_equality_table.num_columns();
-         column_idx++) {
-      if (!cudf::type_dispatcher(_probe_equality_table.column(column_idx).type(),
-                                 equality_comparator{},
-                                 _probe_equality_table.column(column_idx),
-                                 query_index,
-                                 _build_equality_table.column(column_idx),
-                                 entry_index)) {
-        return false;
-      }
+    bool ret = false;
+    // If hashes match
+    if (query_key.first == entry_key.first) {
+      cudf::size_type query_index = static_cast<cudf::size_type>(query_key.second);
+      cudf::size_type entry_index = static_cast<cudf::size_type>(entry_key.second);
+      cudf::size_type column_idx  = 0;
+      // Iterate every equality condition and compare their columns.
+      do {
+        ret = cudf::type_dispatcher(_probe_equality_table.column(column_idx).type(),
+                                    equality_comparator{},
+                                    _probe_equality_table.column(column_idx),
+                                    query_index,
+                                    _build_equality_table.column(column_idx),
+                                    entry_index);
+      } while (ret && ++column_idx < _build_equality_table.num_columns());
     }
-    return true;
+    return ret;
   }
 
  private:
@@ -217,88 +237,97 @@ class equality_comparator_adapter {
   cudf::table_device_view _probe_equality_table;
 };
 
-template <bool has_nulls>
-class mixed_comparator_adapter {
+// This operator represents the probe row prefilter operation.
+template <typename IteratorType, typename FilterType, typename ElementType>
+class mark_join_prefilter_operator {
  public:
-  mixed_comparator_adapter(cudf::table_device_view const& build_equality_table,
-                           cudf::table_device_view const& probe_equality_table,
-                           cudf::table_device_view const& build_conditional_table,
-                           cudf::table_device_view const& probe_conditional_table,
-                           cudf::ast::detail::expression_device_view const& device_expression_data)
-    : _build_equality_table{build_equality_table},
-      _probe_equality_table{probe_equality_table},
-      _build_conditional_table{build_conditional_table},
-      _probe_conditional_table{probe_conditional_table},
-      _device_expression_data{device_expression_data}
+  mark_join_prefilter_operator(IteratorType iterator,
+                               FilterType filter,
+                               cudf::size_type num_elements)
+    : _iterator{iterator}, _filter{filter}, _num_elements{num_elements} {};
+
+  // The predicate is true if the entry is in the bloom filter.
+  __device__ __forceinline__ bool predicate(const ElementType& slot) const
   {
+    return _filter.contains(slot.first);
   }
 
-  __device__ mixed_comparator_adapter(mixed_comparator_adapter const& base_adapter,
-                                      cudf::table_device_view const& probe_equality_table)
-    : _build_equality_table{base_adapter._build_equality_table},
-      _probe_equality_table{probe_equality_table},
-      _build_conditional_table{base_adapter._build_conditional_table},
-      _probe_conditional_table{base_adapter._probe_conditional_table},
-      _device_expression_data{base_adapter._device_expression_data}
+  // When we accept the item, the entire item is stored in the output buffer.
+  __device__ constexpr __forceinline__ ElementType accept(const ElementType& slot) const
   {
+    return slot;
   }
 
-  __device__ constexpr bool operator()(
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type> const& query_key,
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type> const& entry_key)
-    const noexcept
+  // Indexing the iterator of probe rows.
+  __device__ __forceinline__ auto get_bucket(const cudf::size_type index) const
   {
-    // Mark bit is never present on insert. Don't need to `unset_mark`.
-    return query_key.first == entry_key.first;
+    return (_iterator + index);
   }
 
-  __device__ bool operator()(
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::lhs_index_type> const& query_key,
-    cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type> const& entry_key)
-    const noexcept
-  {
-    // Mark bit may be present on multiset entry, but never on probe query key.
-    if (query_key.first != unset_mark(entry_key.first)) { return false; }
+  __device__ constexpr __forceinline__ cudf::size_type elements_per_bucket() const { return 1; }
 
-    cudf::size_type query_index = static_cast<cudf::size_type>(query_key.second);
-    cudf::size_type entry_index = static_cast<cudf::size_type>(entry_key.second);
-    for (cudf::size_type eq_column_idx = 0; eq_column_idx < _build_equality_table.num_columns();
-         eq_column_idx++) {
-      if (!cudf::type_dispatcher(_probe_equality_table.column(eq_column_idx).type(),
-                                 equality_comparator{},
-                                 _probe_equality_table.column(eq_column_idx),
-                                 query_index,
-                                 _build_equality_table.column(eq_column_idx),
-                                 entry_index)) {
-        return false;
-      }
-    }
-
-    extern __shared__ std::byte predicate_scratch[];
-    auto intermediate_scratch =
-      reinterpret_cast<cudf::ast::detail::IntermediateDataType<has_nulls>*>(predicate_scratch);
-    auto predicate_storage =
-      &intermediate_scratch[threadIdx.x * _device_expression_data.num_intermediates];
-
-    cudf::ast::detail::expression_evaluator<has_nulls> evaluator{
-      _build_conditional_table, _probe_conditional_table, _device_expression_data};
-    cudf::ast::detail::value_expression_result<bool, has_nulls> output{};
-
-    constexpr cudf::size_type output_row = 0;
-    evaluator.evaluate(output, entry_index, query_index, output_row, predicate_storage);
-
-    return output.is_valid() && output.value();
-  }
+  __device__ constexpr __forceinline__ cudf::size_type num_buckets() const { return _num_elements; }
 
  private:
-  cudf::table_device_view _build_equality_table;
-  cudf::table_device_view _probe_equality_table;
-  cudf::table_device_view _build_conditional_table;
-  cudf::table_device_view _probe_conditional_table;
-  cudf::ast::detail::expression_device_view _device_expression_data;
+  const cudf::size_type _num_elements;
+  const IteratorType _iterator;
+  const FilterType _filter;
+};
+
+// This operator represents a mark scan operation. It generally iterates a hash table for
+// scanned entries.
+template <typename StructureType,
+          typename IteratorType,
+          typename InputType,
+          uint32_t bucket_size,
+          bool is_anti_join>
+class mark_join_scan_operator {
+ public:
+  // mark scan operator relies on cuco types, so will fail if empty_key_sentinel or
+  // erased_key_sentinel undefined.
+  mark_join_scan_operator(StructureType data, IteratorType iterator, cudf::size_type num_elements)
+    : _iterator{iterator},
+      _num_elements{num_elements},
+      _is_filled{cuco::detail::open_addressing_ns::slot_is_filled<false, InputType>{
+        data.empty_key_sentinel(), data.erased_key_sentinel()}}
+  {
+  }
+  // Predicate is true only if the slot contains a valid entry and is either marked, or
+  // if this is an anti-join, not marked.
+  __device__ __forceinline__ bool predicate(const InputType& slot) const
+  {
+    return _is_filled(slot) && (detail::is_marked(slot.first) ^ is_anti_join);
+  }
+
+  // When we accept an entry, we only write its row index to output and omit the hash.
+  __device__ constexpr __forceinline__ auto accept(const InputType& slot) const
+  {
+    return static_cast<cudf::size_type>(slot.second);
+  }
+
+  // Underlying iterator must support bracket indexing.
+  __device__ __forceinline__ auto get_bucket(const cudf::size_type index) const
+  {
+    return _iterator[index];
+  }
+
+  __device__ constexpr __forceinline__ cudf::size_type elements_per_bucket() const
+  {
+    return bucket_size;
+  }
+
+  __device__ constexpr __forceinline__ cudf::size_type num_buckets() const { return _num_elements; }
+
+ private:
+  const cudf::size_type _num_elements;
+  const IteratorType _iterator;
+  const cuco::detail::open_addressing_ns::slot_is_filled<false, InputType> _is_filled;
 };
 
 class mark_join {
+  // Size of hash table storage bucket. We use one slot for now for performance. Can be
+  // tweaked later if we find an efficient way to vectorize these operations.
+  static constexpr uint32_t _slots_per_bucket = 1;
   using key_type = cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type>;
   using probing_scheme_type = cuco::linear_probing<1, hasher_adapter<cuda::std::identity>>;
   using hash_table_type     = cuco::static_multiset<
@@ -308,9 +337,23 @@ class mark_join {
         equality_comparator_adapter,
         probing_scheme_type,
         rmm::mr::stream_allocator_adaptor<rmm::mr::polymorphic_allocator<key_type>>,
-        cuco::storage<1>>;
+        cuco::storage<_slots_per_bucket>>;
 
   using build_hasher_type = device_row_hasher<cudf::hashing::detail::default_hash>;
+
+  // Usually, bloom filters need a good hash function to work. However, the key value here is
+  // already a hash. Reusing this hash works fine and save about half cost on bloom filter
+  // setup/evaluation.
+  using bloom_filter_policy_type =
+    cuco::default_filter_policy<cuco::detail::identity_hash<cudf::size_type>, cudf::size_type, 2U>;
+  using bloom_filter_allocator_type =
+    rmm::mr::stream_allocator_adaptor<rmm::mr::polymorphic_allocator<cuda::std::byte>>;
+  using bloom_filter_allocator_instance_type = rmm::mr::polymorphic_allocator<cuda::std::byte>;
+  using bloom_filter_type                    = cuco::bloom_filter<cudf::size_type,
+                                                                  cuco::extent<std::size_t>,
+                                                                  cuda::thread_scope_device,
+                                                                  bloom_filter_policy_type,
+                                                                  bloom_filter_allocator_type>;
 
  public:
   mark_join()                            = delete;
@@ -373,7 +416,7 @@ class mark_join {
    * @param stream CUDA stream used for device memory operations and kernel launches
    * @param mr Device memory resource used to allocate the returned indices' device memory.
    */
-  std::unique_ptr<rmm::device_uvector<cudf::size_type>> _compute_positions_list_from_cached_map(
+  std::unique_ptr<rmm::device_uvector<cudf::size_type>> _compute_positions_list_from_map(
     bool is_anti_join,
     rmm::cuda_stream_view stream      = cudf::get_default_stream(),
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()) const;
@@ -382,7 +425,10 @@ class mark_join {
   cudf::table_view _build;
   cudf::null_equality _nulls_equal;
   hash_table_type _mark_set;
-  mutable cudf::size_type _num_marks;
+  bloom_filter_type _bloom_filter;
+  // We make num_marks atomic because it's mutable and could have race conditions in
+  // multi-gpu or multi-worker scenarios.
+  mutable std::atomic<cudf::size_type> _num_marks;
   bool _is_cached;
 
   /*
@@ -391,13 +437,40 @@ class mark_join {
    */
   bool is_low_selectivity() const;
 
-  template <typename comparator_adapter_type>
+  /*
+   * @brief This function performs the mark_scan operation, counting the number of marked entries
+   * in the map and returning the subsequent list of positions.
+   * @param stream CUDA stream
+   * @param mr Memory pool reference
+   */
+  template <bool is_anti_join>
+  std::unique_ptr<rmm::device_uvector<cudf::size_type>> _mark_scan(
+    rmm::cuda_stream_view stream, rmm::device_async_resource_ref) const;
+
+  /*
+   * @brief This function performs the actual join, probing the hash table against input rows.
+   * @param probe_equality_device_view Rows from the probe table used in equality conditions.
+   * @param build_conditional_device_view A table representing the rows/columns used in mixed
+   * condition evaluation from the build side.
+   * @param probe_conditional_device_view A table representing the rows/columns used in mixed
+   * condition evaluation from the probe side.
+   * @param expr_device_view The device data respresenting the mixed conditions used by the AST
+   * evaluator.
+   * @param comparator_adapter The operator used for equality comparisons.
+   * @param is_anti_join Determines if this is a semi or anti join.
+   * @param shared_memory_per_thread Shared memory required by the cuDF AST evaluator, if any.
+   * @param stream CUDA stream used for scheduling device operations.
+   * @param mr Memory pool reference
+   */
+  template <typename ComparatorAdapterType, bool has_nulls, bool is_mixed>
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  _perform_mark_join(cudf::table_device_view const& build_equality_keys_view,
+  _perform_mark_join(cudf::table_device_view const& probe_equality_device_view,
+                     cudf::table_device_view const& build_conditional_device_view,
+                     cudf::table_device_view const& probe_conditional_device_view,
+                     cudf::ast::detail::expression_device_view const& expr_device_view,
+                     ComparatorAdapterType const& comparator_adapter,
                      bool is_anti_join,
-                     cudf::table_device_view const& probe_equality_keys_view,
-                     comparator_adapter_type const& comparator_adapter,
                      uint32_t shared_memory_per_thread,
                      rmm::cuda_stream_view stream,
                      rmm::device_async_resource_ref mr) const;

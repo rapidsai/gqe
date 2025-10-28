@@ -40,11 +40,20 @@ using int64_column_wrapper = cudf::test::fixed_width_column_wrapper<int64_t>;
 
 enum class cache_strategy { recompute, use_cache };
 
+struct join_test_data {
+  std::string name;
+  std::vector<int64_t> left_key_data;
+  std::vector<int64_t> left_payload_data;
+  std::vector<int64_t> right_key_data;
+  std::vector<int64_t> right_payload_data;
+};
+
 /*
  * This test suite constructs the input tables with handpicked values. Both the left and the right
  * table have 2 columns, 1 key column and 1 payload column.
  */
-class SingleKeyColumnJoinTest : public ::testing::TestWithParam<cache_strategy> {
+class SingleKeyColumnJoinTest
+  : public ::testing::TestWithParam<std::tuple<cache_strategy, join_test_data>> {
  protected:
   SingleKeyColumnJoinTest()
     : task_manager_ctx(gqe::memory_resource::create_static_memory_pool()),
@@ -53,12 +62,13 @@ class SingleKeyColumnJoinTest : public ::testing::TestWithParam<cache_strategy> 
   {
   }
 
-  cache_strategy get_cache_strategy() const { return GetParam(); }
+  cache_strategy get_cache_strategy() const { return std::get<0>(GetParam()); }
+  const join_test_data& get_test_data() const { return std::get<1>(GetParam()); }
 
-  const std::vector<int64_t> left_key_data{2, 1, 1, 3, 4, 1};
-  const std::vector<int64_t> left_payload_data{0, 1, 2, 3, 4, 5};
-  const std::vector<int64_t> right_key_data{3, 1, 5, 1, 2};
-  const std::vector<int64_t> right_payload_data{0, 1, 2, 3, 4};
+  std::vector<int64_t> left_key_data() const { return get_test_data().left_key_data; }
+  std::vector<int64_t> left_payload_data() const { return get_test_data().left_payload_data; }
+  std::vector<int64_t> right_key_data() const { return get_test_data().right_key_data; }
+  std::vector<int64_t> right_payload_data() const { return get_test_data().right_payload_data; }
 
   std::vector<cudf::size_type> get_projection_indices(gqe::join_type_type join_type)
   {
@@ -74,10 +84,15 @@ class SingleKeyColumnJoinTest : public ::testing::TestWithParam<cache_strategy> 
 
   void construct_join_task(gqe::join_type_type join_type)
   {
-    int64_column_wrapper left_key(left_key_data.begin(), left_key_data.end());
-    int64_column_wrapper left_payload(left_payload_data.begin(), left_payload_data.end());
-    int64_column_wrapper right_key(right_key_data.begin(), right_key_data.end());
-    int64_column_wrapper right_payload(right_payload_data.begin(), right_payload_data.end());
+    auto left_key_vec      = left_key_data();
+    auto left_payload_vec  = left_payload_data();
+    auto right_key_vec     = right_key_data();
+    auto right_payload_vec = right_payload_data();
+
+    int64_column_wrapper left_key(left_key_vec.begin(), left_key_vec.end());
+    int64_column_wrapper left_payload(left_payload_vec.begin(), left_payload_vec.end());
+    int64_column_wrapper right_key(right_key_vec.begin(), right_key_vec.end());
+    int64_column_wrapper right_payload(right_payload_vec.begin(), right_payload_vec.end());
 
     std::vector<std::unique_ptr<cudf::column>> left_table_columns;
     left_table_columns.push_back(left_key.release());
@@ -148,21 +163,26 @@ class SingleKeyColumnJoinTest : public ::testing::TestWithParam<cache_strategy> 
     ASSERT_EQ(join_result.has_value(), true);
     auto join_result_sorted = cudf::sort(*join_result);
 
+    auto left_key_vec      = left_key_data();
+    auto left_payload_vec  = left_payload_data();
+    auto right_key_vec     = right_key_data();
+    auto right_payload_vec = right_payload_data();
+
     std::unordered_multimap<int64_t, int64_t> left_table;
-    for (size_t i = 0; i < left_key_data.size(); i++) {
-      left_table.insert({left_key_data[i], left_payload_data[i]});
+    for (size_t i = 0; i < left_key_vec.size(); i++) {
+      left_table.insert({left_key_vec[i], left_payload_vec[i]});
     }
     std::unordered_multimap<int64_t, int64_t> right_table;
-    for (size_t i = 0; i < right_key_data.size(); i++) {
-      right_table.insert({right_key_data[i], right_payload_data[i]});
+    for (size_t i = 0; i < right_key_vec.size(); i++) {
+      right_table.insert({right_key_vec[i], right_payload_vec[i]});
     }
     std::vector<std::vector<int64_t>> result_tables(4);
     std::vector<std::vector<bool>> result_validity(4);
 
-    for (size_t i = 0; i < left_key_data.size(); i++) {
-      auto left_key              = left_key_data[i];
+    for (size_t i = 0; i < left_key_vec.size(); i++) {
+      auto left_key              = left_key_vec[i];
       auto left_key_validity     = true;
-      auto left_payload          = left_payload_data[i];
+      auto left_payload          = left_payload_vec[i];
       auto left_payload_validity = true;
       auto match_range           = right_table.equal_range(left_key);
       std::vector<std::pair<int64_t, int64_t>> matches(match_range.first, match_range.second);
@@ -279,16 +299,29 @@ TEST_P(SingleKeyColumnJoinTest, FullJoin)
   verify_join(join_task->result(), gqe::join_type_type::full);
 }
 
-INSTANTIATE_TEST_SUITE_P(SingleKeyColumnJoinTest,
-                         SingleKeyColumnJoinTest,
-                         ::testing::Values(cache_strategy::recompute, cache_strategy::use_cache),
-                         [](const ::testing::TestParamInfo<cache_strategy>& info) {
-                           switch (info.param) {
-                             case cache_strategy::recompute: return "recompute";
-                             case cache_strategy::use_cache: return "use_cache";
-                             default: return "unknown";
-                           }
-                         });
+INSTANTIATE_TEST_SUITE_P(
+  SingleKeyColumnJoinTest,
+  SingleKeyColumnJoinTest,
+  ::testing::Combine(
+    ::testing::Values(cache_strategy::recompute, cache_strategy::use_cache),
+    ::testing::Values(
+      join_test_data{
+        "basic", {2, 1, 1, 3, 4, 1}, {0, 1, 2, 3, 4, 5}, {3, 1, 5, 1, 2}, {0, 1, 2, 3, 4}},
+      join_test_data{"simple", {1, 2, 3}, {10, 20, 30}, {2, 3, 4}, {200, 300, 400}},
+      join_test_data{
+        "duplicates", {1, 1, 1, 2, 2}, {10, 11, 12, 20, 21}, {1, 1, 3}, {100, 101, 300}},
+      join_test_data{"empty_left", {}, {}, {3, 1, 5, 1, 2}, {0, 1, 2, 3, 4}},
+      join_test_data{"empty_right", {2, 1, 1, 3, 4, 1}, {0, 1, 2, 3, 4, 5}, {}, {}},
+      join_test_data{"empty_left_and_right", {}, {}, {}, {}})),
+  [](const ::testing::TestParamInfo<std::tuple<cache_strategy, join_test_data>>& info) {
+    std::string cache_name;
+    switch (std::get<0>(info.param)) {
+      case cache_strategy::recompute: cache_name = "recompute"; break;
+      case cache_strategy::use_cache: cache_name = "use_cache"; break;
+      default: cache_name = "unknown"; break;
+    }
+    return cache_name + "_" + std::get<1>(info.param).name;
+  });
 
 class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {
  protected:

@@ -20,6 +20,7 @@
 #include <gqe/expression/is_null.hpp>
 #include <gqe/expression/literal.hpp>
 #include <gqe/expression/scalar_function.hpp>
+#include <gqe/expression/subquery.hpp>
 #include <gqe/expression/unary_op.hpp>
 
 #include <cudf/ast/expressions.hpp>
@@ -152,6 +153,11 @@ class expression_evaluator : public expression_visitor {
    * @copydoc gqe::expression_visitor::visit(scalar_function_expression const*)
    */
   void visit(scalar_function_expression const* expression) override;
+
+  /**
+   * @copydoc gqe::expression_visitor::visit(subquery_expression const*)
+   */
+  void visit(subquery_expression const* expression) override;
 
   /**
    * @brief Context infomation required to evaluate an expression.

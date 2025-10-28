@@ -631,6 +631,11 @@ void expression_evaluator::visit(scalar_function_expression const* expression)
   }
 }
 
+void expression_evaluator::visit(subquery_expression const* expression)
+{
+  expression_visitor::visit(expression);
+}
+
 cudf::size_type expression_evaluator::dispatch_task(evaluation_context& context) noexcept
 {
   // is already a task

@@ -46,6 +46,7 @@
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/writeable_view.hpp>
 #include <gqe/task_manager_context.hpp>
+#include <gqe/utility/cuda.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
 
@@ -137,20 +138,22 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
     std::size_t num_workers =
       std::min(ctx_ref._query_context->parameters.max_num_workers, num_tasks_current_stage);
     if (num_tasks_current_stage) {
-      auto root_task = tasks_current_stage.front().lock();
-      assert(root_task != nullptr);
+      auto root_task = utility::lock_or_throw(tasks_current_stage.front());
       GQE_LOG_TRACE("Execute stage {} with {} workers.", root_task->stage_id(), num_workers);
     } else {
       GQE_LOG_WARN("No tasks in the current stage (cannot identify the stage).");
+      continue;
     }
+
+    utility::nvtx_scoped_range stage_range(
+      "Stage " + std::to_string(utility::lock_or_throw(tasks_current_stage.front())->stage_id()));
 
     if (num_workers == 1) {
       // If the number of worker threads is 1, we could avoid the thread spawning cost by using the
       // main thread.
       for (auto& task : tasks_current_stage) {
         // root task of a pipeline in a stage cannot belong to more than one pipeline
-        auto curr_task = task.lock();
-        assert(curr_task != nullptr);
+        auto curr_task = utility::lock_or_throw(task);
         assert(curr_task->pipeline_ids().size() == 1);
         auto const root_task_pipeline_id = *(curr_task->pipeline_ids().cbegin());
         GQE_LOG_TRACE(
@@ -170,8 +173,7 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
           try {
             for (std::size_t task_idx = worker_idx; task_idx < num_tasks_current_stage;
                  task_idx += num_workers) {
-              auto curr_task = tasks_current_stage[task_idx].lock();
-              assert(curr_task != nullptr);
+              auto curr_task = utility::lock_or_throw(tasks_current_stage[task_idx]);
               assert(curr_task->pipeline_ids().size() == 1);
 
               // root task of a pipeline in a stage cannot belong to more than one pipeline
@@ -214,8 +216,7 @@ void execute_task_graph_multi_process(context_reference ctx_ref, task_graph cons
 
   for (auto const& tasks_current_stage : task_graph->stage_root_tasks) {
     for (auto const& task : tasks_current_stage) {
-      auto curr_task = task.lock();
-      assert(curr_task != nullptr);
+      auto curr_task = utility::lock_or_throw(task);
       stage_map[curr_task->stage_id()].push_back(curr_task);
       auto curr_stage_id = curr_task->stage_id();
 
@@ -257,9 +258,7 @@ void execute_task_graph_multi_process(context_reference ctx_ref, task_graph cons
   };
 
   auto get_stage_id = [](std::weak_ptr<task> task) {
-    auto curr_task = task.lock();
-    assert(curr_task != nullptr);
-    return curr_task->stage_id();
+    return utility::lock_or_throw(task)->stage_id();
   };
 
   for (auto const& tasks_current_stage : task_graph->stage_root_tasks) {
@@ -275,7 +274,11 @@ void execute_task_graph_multi_process(context_reference ctx_ref, task_graph cons
     } else {
       GQE_LOG_WARN("Rank {}: No tasks in the current stage (cannot identify the stage).",
                    task_manager_context->comm->rank());
+      continue;
     }
+
+    utility::nvtx_scoped_range stage_range(
+      "Stage " + std::to_string(get_stage_id(tasks_current_stage.front())));
 
     if (num_workers == 1) {
       GQE_CUDA_TRY(cudaSetDevice(task_manager_context->comm->device_id().value()));
@@ -285,8 +288,7 @@ void execute_task_graph_multi_process(context_reference ctx_ref, task_graph cons
       try {
         for (auto& task : tasks_current_stage) {
           // root task of a pipeline in a stage cannot belong to more than one pipeline
-          auto curr_task = task.lock();
-          assert(curr_task != nullptr);
+          auto curr_task = utility::lock_or_throw(task);
           assert(curr_task->pipeline_ids().size() == 1);
           auto const root_task_pipeline_id = *(curr_task->pipeline_ids().cbegin());
           if (execute_locally(curr_task.get())) {
@@ -318,8 +320,7 @@ void execute_task_graph_multi_process(context_reference ctx_ref, task_graph cons
       std::vector<std::exception_ptr> worker_exceptions(num_workers, nullptr);
       std::vector<task*> tasks_to_execute;
       for (auto& task : tasks_current_stage) {
-        auto curr_task = task.lock();
-        assert(curr_task != nullptr);
+        auto curr_task = utility::lock_or_throw(task);
         if (execute_locally(curr_task.get())) {
           task_manager_context->migration_service->register_task(curr_task.get());
           tasks_to_execute.push_back(curr_task.get());
@@ -372,8 +373,7 @@ void execute_task_graph_multi_process(context_reference ctx_ref, task_graph cons
     // Release dependencies for current stage tasks. Tasks in the current stage may be executed on
     // by another process, we need to remove dependencies to prevent dangling resources.
     for (auto& task : tasks_current_stage) {
-      auto curr_task = task.lock();
-      assert(curr_task != nullptr);
+      auto curr_task = utility::lock_or_throw(task);
       curr_task->remove_dependencies();
     }
 

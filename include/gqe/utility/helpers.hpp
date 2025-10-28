@@ -92,6 +92,22 @@ inline std::vector<typename SmartPtr::element_type const*> to_const_raw_ptrs(
 }
 
 /**
+ * @brief Helper function to convert a weak pointer to a shared pointer.
+ *
+ * @tparam T Type of the shared pointer
+ * @param weak_ptr Weak pointer to convert
+ * @return Shared pointer to the object
+ * @throw std::runtime_error if the weak pointer expired
+ */
+template <typename T>
+inline std::shared_ptr<T> lock_or_throw(std::weak_ptr<T> weak_ptr)
+{
+  auto shared_ptr = weak_ptr.lock();
+  if (!shared_ptr) { throw std::runtime_error("Weak pointer expired"); }
+  return shared_ptr;
+}
+
+/**
  * @brief Helper function to compare the data stored in each element (pointer) of the vectors.
  *
  * @tparam T Type of pointers

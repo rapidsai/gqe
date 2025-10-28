@@ -12,6 +12,7 @@
 
 #include <gqe/context_reference.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/memory_resource/memory_utilities.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/storage/in_memory.hpp>
 #include <gqe/task_manager_context.hpp>
@@ -64,7 +65,8 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
     opms.use_overlap_mtx                    = params.use_overlap_mtx;
 
     query_ctx        = std::make_unique<gqe::query_context>(opms);
-    task_manager_ctx = std::make_unique<gqe::task_manager_context>();
+    task_manager_ctx = std::make_unique<gqe::task_manager_context>(
+      gqe::memory_resource::create_static_memory_pool());
   }
 
   void SetUp() override
@@ -261,7 +263,8 @@ static constexpr cudf::size_type DEFAULT_PARTITION_SIZE = 5;
 class InMemoryReadTaskTest : public ::testing::Test {
  protected:
   InMemoryReadTaskTest()
-    : _task_manager_ctx(std::make_unique<gqe::task_manager_context>()),
+    : _task_manager_ctx(std::make_unique<gqe::task_manager_context>(
+        gqe::memory_resource::create_static_memory_pool())),
       _query_ctx(std::make_unique<gqe::query_context>(gqe::optimization_parameters{true})),
       _ctx_ref(gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}),
       _task_id(0),

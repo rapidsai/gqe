@@ -41,6 +41,7 @@ add_library(
     logical/user_defined.cpp
     logical/write.cpp
     logical/from_substrait.cpp
+    memory_resource/memory_utilities.cpp
     memory_resource/numa_memory_resource.cpp
     memory_resource/pinned_memory_resource.cpp
     memory_resource/system_memory_resource.cpp

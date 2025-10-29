@@ -52,8 +52,8 @@ struct join_test_data {
  * This test suite constructs the input tables with handpicked values. Both the left and the right
  * table have 2 columns, 1 key column and 1 payload column.
  */
-class SingleKeyColumnJoinTest
-  : public ::testing::TestWithParam<std::tuple<cache_strategy, join_test_data>> {
+class SingleKeyColumnJoinTest : public ::testing::TestWithParam<
+                                  std::tuple<gqe::join_type_type, cache_strategy, join_test_data>> {
  protected:
   SingleKeyColumnJoinTest()
     : task_manager_ctx(gqe::memory_resource::create_static_memory_pool()),
@@ -62,16 +62,18 @@ class SingleKeyColumnJoinTest
   {
   }
 
-  cache_strategy get_cache_strategy() const { return std::get<0>(GetParam()); }
-  const join_test_data& get_test_data() const { return std::get<1>(GetParam()); }
+  gqe::join_type_type get_join_type() const { return std::get<0>(GetParam()); }
+  cache_strategy get_cache_strategy() const { return std::get<1>(GetParam()); }
+  const join_test_data& get_test_data() const { return std::get<2>(GetParam()); }
 
   std::vector<int64_t> left_key_data() const { return get_test_data().left_key_data; }
   std::vector<int64_t> left_payload_data() const { return get_test_data().left_payload_data; }
   std::vector<int64_t> right_key_data() const { return get_test_data().right_key_data; }
   std::vector<int64_t> right_payload_data() const { return get_test_data().right_payload_data; }
 
-  std::vector<cudf::size_type> get_projection_indices(gqe::join_type_type join_type)
+  std::vector<cudf::size_type> get_projection_indices()
   {
+    auto const join_type = get_join_type();
     switch (join_type) {
       case gqe::join_type_type::inner:  // fallthrough
       case gqe::join_type_type::left: return {0, 1, 3};
@@ -82,7 +84,14 @@ class SingleKeyColumnJoinTest
     }
   }
 
-  void construct_join_task(gqe::join_type_type join_type)
+  bool supports_late_materialization() const
+  {
+    auto const join_type = get_join_type();
+    return join_type == gqe::join_type_type::left_semi ||
+           join_type == gqe::join_type_type::left_anti;
+  }
+
+  void construct_join_task()
   {
     auto left_key_vec      = left_key_data();
     auto left_payload_vec  = left_payload_data();
@@ -118,12 +127,10 @@ class SingleKeyColumnJoinTest
       std::make_shared<gqe::column_reference_expression>(2));
 
     // this mimics separate_materialization in task_graph.cpp
-    const bool late_materialize =
-      join_type == gqe::join_type_type::left_semi || join_type == gqe::join_type_type::left_anti;
+    const bool late_materialize                              = supports_late_materialization();
     std::shared_ptr<gqe::join_hash_map_cache> hash_map_cache = nullptr;
     if (get_cache_strategy() == cache_strategy::use_cache) {
-      if (join_type == gqe::join_type_type::left_semi ||
-          join_type == gqe::join_type_type::left_anti) {
+      if (late_materialize) {
         hash_map_cache = std::make_shared<gqe::join_hash_map_cache>(
           gqe::join_hash_map_cache::build_location::left);
       } else {
@@ -132,14 +139,15 @@ class SingleKeyColumnJoinTest
       }
     }
 
-    join_task = std::make_shared<gqe::join_task>(ctx_ref,
+    auto const join_type = get_join_type();
+    join_task            = std::make_shared<gqe::join_task>(ctx_ref,
                                                  join_task_id,
                                                  stage_id,
                                                  left_task,
                                                  right_task,
                                                  join_type,
                                                  std::move(join_condition),
-                                                 get_projection_indices(join_type),
+                                                 get_projection_indices(),
                                                  hash_map_cache,
                                                  !late_materialize);
 
@@ -149,17 +157,24 @@ class SingleKeyColumnJoinTest
         ctx_ref,
         join_task_id,
         stage_id,
-        std::move(left_task),               // left table
-        std::move(tasks),                   // positions lists
-        join_type,                          // join type
-        get_projection_indices(join_type),  // projection indices
-        hash_map_cache,                     // hash map
-        true);                              // use mark join
+        std::move(left_task),      // left table
+        std::move(tasks),          // positions lists
+        join_type,                 // join type
+        get_projection_indices(),  // projection indices
+        hash_map_cache,            // hash map
+        true);                     // use mark join
     }
   }
 
-  void verify_join(std::optional<cudf::table_view> join_result, gqe::join_type_type join_type)
+  void verify_join()
   {
+    auto const join_type = get_join_type();
+    std::optional<cudf::table_view> join_result;
+    if (supports_late_materialization()) {
+      join_result = late_materialization->result();
+    } else {
+      join_result = join_task->result();
+    }
     ASSERT_EQ(join_result.has_value(), true);
     auto join_result_sorted = cudf::sort(*join_result);
 
@@ -236,7 +251,7 @@ class SingleKeyColumnJoinTest
     }
 
     std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
-    auto projection_indices = get_projection_indices(join_type);
+    auto projection_indices = get_projection_indices();
     for (auto const& index : projection_indices) {
       ref_result_columns.push_back(int64_column_wrapper(result_tables[index].begin(),
                                                         result_tables[index].end(),
@@ -259,50 +274,25 @@ class SingleKeyColumnJoinTest
   std::shared_ptr<gqe::materialize_join_from_position_lists_task> late_materialization;
 };
 
-TEST_P(SingleKeyColumnJoinTest, InnerJoin)
+TEST_P(SingleKeyColumnJoinTest, JoinTest)
 {
-  construct_join_task(gqe::join_type_type::inner);
+  construct_join_task();
   join_task->execute();
 
-  verify_join(join_task->result(), gqe::join_type_type::inner);
-}
-
-TEST_P(SingleKeyColumnJoinTest, LeftJoin)
-{
-  construct_join_task(gqe::join_type_type::left);
-  join_task->execute();
-
-  verify_join(join_task->result(), gqe::join_type_type::left);
-}
-
-TEST_P(SingleKeyColumnJoinTest, LeftSemiJoin)
-{
-  construct_join_task(gqe::join_type_type::left_semi);
-  join_task->execute();
-  late_materialization->execute();
-  verify_join(late_materialization->result(), gqe::join_type_type::left_semi);
-}
-
-TEST_P(SingleKeyColumnJoinTest, LeftAntiJoin)
-{
-  construct_join_task(gqe::join_type_type::left_anti);
-  join_task->execute();
-  late_materialization->execute();
-  verify_join(late_materialization->result(), gqe::join_type_type::left_anti);
-}
-
-TEST_P(SingleKeyColumnJoinTest, FullJoin)
-{
-  construct_join_task(gqe::join_type_type::full);
-  join_task->execute();
-
-  verify_join(join_task->result(), gqe::join_type_type::full);
+  // Left semi and left anti joins use late materialization
+  if (supports_late_materialization()) { late_materialization->execute(); }
+  verify_join();
 }
 
 INSTANTIATE_TEST_SUITE_P(
   SingleKeyColumnJoinTest,
   SingleKeyColumnJoinTest,
   ::testing::Combine(
+    ::testing::Values(gqe::join_type_type::inner,
+                      gqe::join_type_type::left,
+                      gqe::join_type_type::left_semi,
+                      gqe::join_type_type::left_anti,
+                      gqe::join_type_type::full),
     ::testing::Values(cache_strategy::recompute, cache_strategy::use_cache),
     ::testing::Values(
       join_test_data{
@@ -313,14 +303,24 @@ INSTANTIATE_TEST_SUITE_P(
       join_test_data{"empty_left", {}, {}, {3, 1, 5, 1, 2}, {0, 1, 2, 3, 4}},
       join_test_data{"empty_right", {2, 1, 1, 3, 4, 1}, {0, 1, 2, 3, 4, 5}, {}, {}},
       join_test_data{"empty_left_and_right", {}, {}, {}, {}})),
-  [](const ::testing::TestParamInfo<std::tuple<cache_strategy, join_test_data>>& info) {
-    std::string cache_name;
+  [](const ::testing::TestParamInfo<
+     std::tuple<gqe::join_type_type, cache_strategy, join_test_data>>& info) {
+    std::string join_type_name;
     switch (std::get<0>(info.param)) {
+      case gqe::join_type_type::inner: join_type_name = "inner"; break;
+      case gqe::join_type_type::left: join_type_name = "left"; break;
+      case gqe::join_type_type::left_semi: join_type_name = "left_semi"; break;
+      case gqe::join_type_type::left_anti: join_type_name = "left_anti"; break;
+      case gqe::join_type_type::full: join_type_name = "full"; break;
+      default: join_type_name = "unknown"; break;
+    }
+    std::string cache_name;
+    switch (std::get<1>(info.param)) {
       case cache_strategy::recompute: cache_name = "recompute"; break;
       case cache_strategy::use_cache: cache_name = "use_cache"; break;
       default: cache_name = "unknown"; break;
     }
-    return cache_name + "_" + std::get<1>(info.param).name;
+    return join_type_name + "_" + cache_name + "_" + std::get<2>(info.param).name;
   });
 
 class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {

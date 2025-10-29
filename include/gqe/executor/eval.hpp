@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/cast.hpp>
 #include <gqe/expression/column_reference.hpp>
@@ -258,11 +259,11 @@ class expression_evaluator : public expression_visitor {
 /**
  * @brief Evaluate a batch of expressions on a table.
  *
+ * @param[in] parameters Optimization parameters for expression evaluation
  * @param[in] table Table on which to evaluate the expressions.
  * @param[in] exprs Expressions to be evaluated.
  * @param[in] column_reference_offset Offset for column reference expressions. For example,
  * if this argument is 2, col_ref(3) refers to column 1 (3 - 2).
- * @param[in] use_like_shift_and If `true`, use shift_and kernel for computing like filter.
  *
  * @note This function uses the `cudf::ast` module to evaluate expressions efficiently.
  * Whenever an AST node is not supported by `cudf::ast`, we compute the result of
@@ -273,9 +274,9 @@ class expression_evaluator : public expression_visitor {
  * be valid.
  */
 std::pair<std::vector<cudf::column_view>, std::vector<std::unique_ptr<cudf::column>>>
-evaluate_expressions(cudf::table_view const& table,
+evaluate_expressions(gqe::optimization_parameters const& parameters,
+                     cudf::table_view const& table,
                      std::vector<expression const*> const& exprs,
-                     cudf::size_type column_reference_offset = 0,
-                     bool use_like_shift_and                 = true);
+                     cudf::size_type column_reference_offset = 0);
 
 }  // namespace gqe

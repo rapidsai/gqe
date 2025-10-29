@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/expression.hpp>
 
@@ -217,13 +218,13 @@ class zone_map {
    * | pruned | unpruned | unpruned | pruned | pruned | unpruned | pruned |
    * </pre>
    *
+   * @param parameters Optimization parameters for expression evaluation
    * @param partial_filter The filter expression that should be evaluated.
-   * @param[in] use_like_shift_and If `true`, use shift_and kernel for computing like filter.
    * @return A vector containing information about all partitions of the zone map, including start
    * and end offsets, and if the partitions was pruned or not.
    */
-  [[nodiscard]] virtual std::vector<partition> evaluate(const gqe::expression& partial_filter,
-                                                        bool use_like_shift_and);
+  [[nodiscard]] virtual std::vector<partition> evaluate(
+    gqe::optimization_parameters const& parameters, const gqe::expression& partial_filter);
 
   /**
    * @brief Consolidate maximal runs of partitions that are either pruned or not pruned.
@@ -331,8 +332,8 @@ class shared_zone_map : public zone_map {
 
   void copy_to_device(rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr);
 
-  std::vector<partition> evaluate(const gqe::expression& partial_filter,
-                                  bool use_like_shift_and) override;
+  std::vector<partition> evaluate(gqe::optimization_parameters const& parameters,
+                                  const gqe::expression& partial_filter) override;
 
   ~shared_zone_map();
 

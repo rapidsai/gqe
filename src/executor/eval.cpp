@@ -689,10 +689,10 @@ void expression_evaluator::create_literal_context(literal_expression<T> const* e
 }
 
 std::pair<std::vector<cudf::column_view>, std::vector<std::unique_ptr<cudf::column>>>
-evaluate_expressions(cudf::table_view const& table,
+evaluate_expressions(gqe::optimization_parameters const& parameters,
+                     cudf::table_view const& table,
                      std::vector<expression const*> const& exprs,
-                     cudf::size_type column_reference_offset,
-                     bool use_like_shift_and)
+                     cudf::size_type column_reference_offset)
 {
   utility::nvtx_scoped_range eval_expr_range("evaluate_expressions");
 
@@ -722,8 +722,9 @@ evaluate_expressions(cudf::table_view const& table,
       evaluated_results.push_back(empty_column->view());
       column_cache.push_back(std::move(empty_column));
     } else {
-      auto evaluator       = expression_evaluator(table, expr, column_reference_offset);
-      auto [result, cache] = evaluator.evaluate(use_like_shift_and);
+      auto const& use_like_shift_and = parameters.filter_use_like_shift_and;
+      auto evaluator                 = expression_evaluator(table, expr, column_reference_offset);
+      auto [result, cache]           = evaluator.evaluate(use_like_shift_and);
 
       evaluated_results.push_back(std::move(result));
       column_cache.push_back(std::move(cache));

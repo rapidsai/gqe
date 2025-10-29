@@ -443,11 +443,13 @@ TEST(ZoneMapTest, zoneMapWithTwoColumnsAndNullValues)
   ASSERT_TRUE(zone_map_filter);
   partial_filter = zone_map_filter->clone();
 
+  gqe::optimization_parameters const optimization_params{true};
+
   // Evaluate the filter expression on the zone map. The result should be 40/5 = 8 partitions.
   // The partitions described above are not pruned, the rest are pruned.
   // The null counts are {0, n}, i.e., the first column in each partition has no nulls and
   // the second column does have nulls (see below for number of nulls per partition).
-  auto partitions = zone_map.evaluate(*partial_filter, /*use_like_shift_and=*/true);
+  auto partitions = zone_map.evaluate(optimization_params, *partial_filter);
   std::vector<gqe::zone_map::partition> expected{
     {.pruned = true, .start = 0, .end = 5, .null_counts = {0, 2}},   // null values: 1, 3
     {.pruned = true, .start = 5, .end = 10, .null_counts = {0, 3}},  // null values: 5, 7, 9

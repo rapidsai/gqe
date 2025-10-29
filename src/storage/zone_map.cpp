@@ -460,12 +460,11 @@ std::vector<std::vector<cudf::size_type>> gqe::zone_map::compute_null_counts(
   return null_counts;
 }
 
-std::vector<gqe::zone_map::partition> gqe::zone_map::evaluate(const gqe::expression& partial_filter,
-                                                              bool use_like_shift_and)
+std::vector<gqe::zone_map::partition> gqe::zone_map::evaluate(
+  gqe::optimization_parameters const& parameters, const gqe::expression& partial_filter)
 {
   std::vector<const gqe::expression*> expressions{&partial_filter};
-  auto [mask, _] = evaluate_expressions(
-    _zone_map->view(), expressions, /*column_reference_offset=*/0, use_like_shift_and);
+  auto [mask, _]  = evaluate_expressions(parameters, _zone_map->view(), expressions);
   auto partitions = cudf::detail::make_host_vector(
     cudf::device_span<bool const>(mask[0].data<bool>(), mask[0].size()),
     cudf::get_default_stream());
@@ -597,12 +596,12 @@ void gqe::shared_zone_map::copy_to_device(rmm::cuda_stream_view stream,
 }
 
 std::vector<gqe::zone_map::partition> gqe::shared_zone_map::evaluate(
-  const gqe::expression& partial_filter, bool use_like_shift_and)
+  gqe::optimization_parameters const& parameters, const gqe::expression& partial_filter)
 {
   // TODO: pass explicit stream and mr
   // TODO: ideally copy should be done before in-memory-read-task call
   copy_to_device(cudf::get_default_stream(), rmm::mr::get_current_device_resource());
-  return zone_map::evaluate(partial_filter, use_like_shift_and);
+  return zone_map::evaluate(parameters, partial_filter);
 }
 
 gqe::shared_zone_map::~shared_zone_map()

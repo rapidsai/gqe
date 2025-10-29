@@ -667,12 +667,12 @@ bool in_memory_read_task::can_prune_partitions() const
 std::vector<row_group_with_partitions> in_memory_read_task::evaluate_partial_filter()
 {
   std::vector<row_group_with_partitions> row_groups_with_partitions;
-  bool use_like_shift_and = get_query_context()->parameters.filter_use_like_shift_and;
   std::for_each(_row_groups.begin(), _row_groups.end(), [&](const auto* rg) {
     if (!rg->zone_map()) {
       throw std::logic_error("Row group should have a zone map but none exists");
     }
-    const auto partitions = rg->zone_map()->evaluate(*_partial_filter, use_like_shift_and);
+    const auto partitions =
+      rg->zone_map()->evaluate(get_query_context()->parameters, *_partial_filter);
     const auto has_unpruned_partitions =
       std::find_if(partitions.begin(), partitions.end(), [](const auto& partition) {
         return !partition.pruned;

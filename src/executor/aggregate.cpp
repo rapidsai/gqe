@@ -140,17 +140,16 @@ void aggregate_task::execute()
     value_exprs.push_back(expr.get());
     operations.push_back(kind);
   }
-  bool use_like_shift_and = get_query_context()->parameters.filter_use_like_shift_and;
-  auto [value_columns, value_columns_cache] = evaluate_expressions(
-    input_table, value_exprs, /*column_reference_offset=*/0, use_like_shift_and);
+  auto [value_columns, value_columns_cache] =
+    evaluate_expressions(get_query_context()->parameters, input_table, value_exprs);
 
   std::pair<std::vector<cudf::column_view>, std::vector<std::unique_ptr<cudf::column>>> eval_output;
 
   cudf::column_view active_mask;
   if (_condition != nullptr) {
     std::vector<expression const*> condition_expr{_condition.get()};
-    eval_output = evaluate_expressions(
-      input_table, condition_expr, /*column_reference_offset=*/0, use_like_shift_and);
+    eval_output =
+      evaluate_expressions(get_query_context()->parameters, input_table, condition_expr);
     active_mask = (eval_output.first)[0];
   }
 
@@ -182,10 +181,8 @@ void aggregate_task::execute()
                      return cudf::make_column_from_scalar(*result, 1);
                    });
   } else {
-    auto [key_columns, key_columns_cache] = evaluate_expressions(input_table,
-                                                                 utility::to_const_raw_ptrs(_keys),
-                                                                 /*column_reference_offset=*/0,
-                                                                 use_like_shift_and);
+    auto [key_columns, key_columns_cache] = evaluate_expressions(
+      get_query_context()->parameters, input_table, utility::to_const_raw_ptrs(_keys));
 
     auto const can_perfect = fixed_width_columns(key_columns);
     if (perfect_hashing() && !can_perfect) {

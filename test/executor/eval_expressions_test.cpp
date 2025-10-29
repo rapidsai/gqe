@@ -11,6 +11,7 @@
  */
 
 #include <gqe/executor/eval.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/table/table_view.hpp>
@@ -29,7 +30,22 @@
 template <typename T>
 using column_wrapper = cudf::test::fixed_width_column_wrapper<T>;
 
-TEST(EvalExpressionsTest, ColumnReference)
+struct expression_optimization_params {
+  bool filter_use_like_shift_and{false};
+};
+
+class EvalExpressionsTest : public ::testing::TestWithParam<expression_optimization_params> {
+ protected:
+  EvalExpressionsTest()
+  {
+    auto const test_params                        = GetParam();
+    optimization_params.filter_use_like_shift_and = test_params.filter_use_like_shift_and;
+  }
+
+  gqe::optimization_parameters optimization_params{true};
+};
+
+TEST_P(EvalExpressionsTest, ColumnReference)
 {
   auto c_0   = column_wrapper<int32_t>{3, 20, 1, 50};
   auto c_1   = column_wrapper<int32_t>{10, 7, 20, 0};
@@ -38,13 +54,14 @@ TEST(EvalExpressionsTest, ColumnReference)
   auto col_ref_0                                  = gqe::column_reference_expression(0);
   std::vector<gqe::expression const*> expressions = {&col_ref_0};
 
-  auto const& expected                   = c_0;
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto const& expected = c_0;
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, IntegerColumnIntegerColumnEquality)
+TEST_P(EvalExpressionsTest, IntegerColumnIntegerColumnEquality)
 {
   auto c_0   = column_wrapper<int32_t>{3, 20, 1, 50};
   auto c_1   = column_wrapper<int32_t>{3, 7, 1, 0};
@@ -56,13 +73,14 @@ TEST(EvalExpressionsTest, IntegerColumnIntegerColumnEquality)
   auto eq_0_1                                     = gqe::equal_expression(col_ref_0, col_ref_1);
   std::vector<gqe::expression const*> expressions = {&eq_0_1};
 
-  auto expected                          = column_wrapper<bool>{true, false, true, false};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<bool>{true, false, true, false};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, IntegerColumnIntegerColumnEqualityMixedTypes)
+TEST_P(EvalExpressionsTest, IntegerColumnIntegerColumnEqualityMixedTypes)
 {
   auto c_0   = column_wrapper<int32_t>{3, 20, 1, 50};
   auto c_1   = column_wrapper<int64_t>{3, 7, 1, 0};
@@ -74,13 +92,14 @@ TEST(EvalExpressionsTest, IntegerColumnIntegerColumnEqualityMixedTypes)
   auto eq_0_1                                     = gqe::equal_expression(col_ref_0, col_ref_1);
   std::vector<gqe::expression const*> expressions = {&eq_0_1};
 
-  auto expected                          = column_wrapper<bool>{true, false, true, false};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<bool>{true, false, true, false};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, StringColumnStringColumnEquality)
+TEST_P(EvalExpressionsTest, StringColumnStringColumnEquality)
 {
   auto c_0   = cudf::test::strings_column_wrapper{"asdf", "qwer"};
   auto c_1   = cudf::test::strings_column_wrapper{"yxcv", "qwer"};
@@ -92,13 +111,14 @@ TEST(EvalExpressionsTest, StringColumnStringColumnEquality)
   auto eq_0_1                                     = gqe::equal_expression(col_ref_0, col_ref_1);
   std::vector<gqe::expression const*> expressions = {&eq_0_1};
 
-  auto expected                          = column_wrapper<bool>{false, true};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<bool>{false, true};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, IntegerColumnIntegerLiteralEquality)
+TEST_P(EvalExpressionsTest, IntegerColumnIntegerLiteralEquality)
 {
   auto c_0   = column_wrapper<int32_t>{42, 20, 42, 50};
   auto c_1   = column_wrapper<int32_t>{3, 7, 1, 0};
@@ -110,13 +130,14 @@ TEST(EvalExpressionsTest, IntegerColumnIntegerLiteralEquality)
   auto eq                                         = gqe::equal_expression(col_ref_0, lit);
   std::vector<gqe::expression const*> expressions = {&eq};
 
-  auto expected                          = column_wrapper<bool>{true, false, true, false};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<bool>{true, false, true, false};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, IntegerColumnIntegerLiteralEqualityMixedTypes)
+TEST_P(EvalExpressionsTest, IntegerColumnIntegerLiteralEqualityMixedTypes)
 {
   auto c_0   = column_wrapper<int32_t>{42, 20, 42, 50};
   auto c_1   = column_wrapper<int32_t>{3, 7, 1, 0};
@@ -128,13 +149,14 @@ TEST(EvalExpressionsTest, IntegerColumnIntegerLiteralEqualityMixedTypes)
   auto eq                                         = gqe::equal_expression(col_ref_0, lit);
   std::vector<gqe::expression const*> expressions = {&eq};
 
-  auto expected                          = column_wrapper<bool>{true, false, true, false};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<bool>{true, false, true, false};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, StringColumnStringLiteralEquality)
+TEST_P(EvalExpressionsTest, StringColumnStringLiteralEquality)
 {
   auto c_0   = cudf::test::strings_column_wrapper{"A", "B", "A", "C"};
   auto c_1   = column_wrapper<int32_t>{3, 7, 1, 0};
@@ -146,13 +168,14 @@ TEST(EvalExpressionsTest, StringColumnStringLiteralEquality)
   auto eq                                         = gqe::equal_expression(col_ref_0, lit);
   std::vector<gqe::expression const*> expressions = {&eq};
 
-  auto expected                          = column_wrapper<bool>{true, false, true, false};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<bool>{true, false, true, false};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, HeterogeneousEvaluationStrategy)
+TEST_P(EvalExpressionsTest, HeterogeneousEvaluationStrategy)
 {
   auto c_0   = cudf::test::strings_column_wrapper{"A", "B", "A", "C"};
   auto c_1   = column_wrapper<int32_t>{3, 7, 1, 0};
@@ -168,13 +191,14 @@ TEST(EvalExpressionsTest, HeterogeneousEvaluationStrategy)
   auto root = gqe::logical_and_expression(eq0, eq1);
   std::vector<gqe::expression const*> expressions = {&root};
 
-  auto expected                          = column_wrapper<bool>{false, false, true, false};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<bool>{false, false, true, false};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, IntegerAddition)
+TEST_P(EvalExpressionsTest, IntegerAddition)
 {
   auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
   auto c_1   = column_wrapper<int64_t>{5, 4, 3, 3};
@@ -184,13 +208,14 @@ TEST(EvalExpressionsTest, IntegerAddition)
                                       std::make_shared<gqe::column_reference_expression>(1));
   std::vector<gqe::expression const*> expressions = {&add_expr};
 
-  auto expected                          = column_wrapper<int64_t>{7, 9, 6, 9};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<int64_t>{7, 9, 6, 9};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, FloatAddition)
+TEST_P(EvalExpressionsTest, FloatAddition)
 {
   auto c_0   = column_wrapper<int64_t>{2, 5, 3, 6};
   auto c_1   = column_wrapper<float>{5.0, 4.0, 3.0, 3.0};
@@ -200,13 +225,14 @@ TEST(EvalExpressionsTest, FloatAddition)
                                       std::make_shared<gqe::column_reference_expression>(1));
   std::vector<gqe::expression const*> expressions = {&add_expr};
 
-  auto expected                          = column_wrapper<double>{7.0, 9.0, 6.0, 9.0};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<double>{7.0, 9.0, 6.0, 9.0};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, IntegerSubtraction)
+TEST_P(EvalExpressionsTest, IntegerSubtraction)
 {
   auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
   auto c_1   = column_wrapper<uint32_t>{5, 4, 3, 3};
@@ -217,13 +243,14 @@ TEST(EvalExpressionsTest, IntegerSubtraction)
                              std::make_shared<gqe::column_reference_expression>(1));
   std::vector<gqe::expression const*> expressions = {&subtract_expr};
 
-  auto expected                          = column_wrapper<int64_t>{-3, 1, 0, 3};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<int64_t>{-3, 1, 0, 3};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, IntegerMultiplication)
+TEST_P(EvalExpressionsTest, IntegerMultiplication)
 {
   auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
   auto c_1   = column_wrapper<int32_t>{5, 4, 3, 3};
@@ -234,13 +261,14 @@ TEST(EvalExpressionsTest, IntegerMultiplication)
                              std::make_shared<gqe::column_reference_expression>(1));
   std::vector<gqe::expression const*> expressions = {&multiply_expr};
 
-  auto expected                          = column_wrapper<int64_t>{10, 20, 9, 18};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<int64_t>{10, 20, 9, 18};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, IntegerDivision)
+TEST_P(EvalExpressionsTest, IntegerDivision)
 {
   auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
   auto c_1   = column_wrapper<int64_t>{5, 4, 3, 3};
@@ -250,13 +278,14 @@ TEST(EvalExpressionsTest, IntegerDivision)
                                             std::make_shared<gqe::column_reference_expression>(1));
   std::vector<gqe::expression const*> expressions = {&divide_expr};
 
-  auto expected                          = column_wrapper<double>{0.4, 1.25, 1.0, 2.0};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<double>{0.4, 1.25, 1.0, 2.0};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, FloatDivision)
+TEST_P(EvalExpressionsTest, FloatDivision)
 {
   auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
   auto c_1   = column_wrapper<float>{5.0, 4.0, 3.0, 3.0};
@@ -266,13 +295,14 @@ TEST(EvalExpressionsTest, FloatDivision)
                                             std::make_shared<gqe::column_reference_expression>(1));
   std::vector<gqe::expression const*> expressions = {&divide_expr};
 
-  auto expected                          = column_wrapper<double>{0.4, 1.25, 1.0, 2.0};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<double>{0.4, 1.25, 1.0, 2.0};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, SimpleConditional)
+TEST_P(EvalExpressionsTest, SimpleConditional)
 {
   auto c_0   = column_wrapper<bool>{true, false, false, true};
   auto c_1   = column_wrapper<int32_t>{42, 43, 44, 45};
@@ -285,13 +315,14 @@ TEST(EvalExpressionsTest, SimpleConditional)
                                  std::make_shared<gqe::column_reference_expression>(2));
   std::vector<gqe::expression const*> expressions = {&cond_expr};
 
-  auto expected                          = column_wrapper<int32_t>{42, 53, 54, 45};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<int32_t>{42, 53, 54, 45};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, ComplexConditional)
+TEST_P(EvalExpressionsTest, ComplexConditional)
 {
   auto c_0   = column_wrapper<int32_t>{2, 5, 1, 9};
   auto c_1   = column_wrapper<int32_t>{42, 43, 44, 45};
@@ -311,13 +342,14 @@ TEST(EvalExpressionsTest, ComplexConditional)
   auto cond_expr = gqe::if_then_else_expression(if_expr, then_expr, else_expr);
   std::vector<gqe::expression const*> expressions = {&cond_expr};
 
-  auto expected                          = column_wrapper<int64_t>{54, 48, 55, 54};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<int64_t>{54, 48, 55, 54};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, NumericalLiteral)
+TEST_P(EvalExpressionsTest, NumericalLiteral)
 {
   auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
   auto c_1   = column_wrapper<float>{5.0, 4.0, 3.0, 3.0};
@@ -326,7 +358,8 @@ TEST(EvalExpressionsTest, NumericalLiteral)
   auto literal_expr                               = gqe::literal_expression<int32_t>(1);
   auto literal_expr_null                          = gqe::literal_expression<int32_t>(1, true);
   std::vector<gqe::expression const*> expressions = {&literal_expr, &literal_expr_null};
-  auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   auto expected = column_wrapper<int32_t>{1, 1, 1, 1};
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
@@ -335,7 +368,7 @@ TEST(EvalExpressionsTest, NumericalLiteral)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_null, evaluated_results[1]);
 }
 
-TEST(EvalExpressionsTest, StringLiteral)
+TEST_P(EvalExpressionsTest, StringLiteral)
 {
   auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
   auto c_1   = column_wrapper<float>{5.0, 4.0, 3.0, 3.0};
@@ -344,7 +377,8 @@ TEST(EvalExpressionsTest, StringLiteral)
   auto literal_expr      = gqe::literal_expression<std::string>("apple");
   auto literal_expr_null = gqe::literal_expression<std::string>("apple", true);
   std::vector<gqe::expression const*> expressions = {&literal_expr, &literal_expr_null};
-  auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   auto expected = cudf::test::strings_column_wrapper{"apple", "apple", "apple", "apple"};
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
@@ -354,7 +388,7 @@ TEST(EvalExpressionsTest, StringLiteral)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_null, evaluated_results[1]);
 }
 
-TEST(EvalExpressionsTest, Cast)
+TEST_P(EvalExpressionsTest, Cast)
 {
   auto c_0   = column_wrapper<int32_t>{2, 5, 3, 6};
   auto c_1   = column_wrapper<float>{5.0, 4.0, 3.0, 3.0};
@@ -367,7 +401,8 @@ TEST(EvalExpressionsTest, Cast)
   auto cast_expr_2 = gqe::cast_expression(std::make_shared<gqe::column_reference_expression>(0),
                                           cudf::data_type(cudf::type_id::INT8));
   std::vector<gqe::expression const*> expressions = {&cast_expr_0, &cast_expr_1, &cast_expr_2};
-  auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   auto expected_0 = column_wrapper<int64_t>{2, 5, 3, 6};
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_0, evaluated_results[0]);
@@ -379,7 +414,7 @@ TEST(EvalExpressionsTest, Cast)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_2, evaluated_results[2]);
 }
 
-TEST(EvalExpressionsTest, EmptyInput)
+TEST_P(EvalExpressionsTest, EmptyInput)
 {
   auto c_0   = column_wrapper<int32_t>{};
   auto c_1   = column_wrapper<int32_t>{};
@@ -391,13 +426,14 @@ TEST(EvalExpressionsTest, EmptyInput)
   auto eq_0_1                                     = gqe::equal_expression(col_ref_0, col_ref_1);
   std::vector<gqe::expression const*> expressions = {&eq_0_1};
 
-  auto expected                          = column_wrapper<bool>{};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<bool>{};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionTest, SimpleUnaryNot)
+TEST_P(EvalExpressionsTest, SimpleUnaryNot)
 {
   auto c_0   = column_wrapper<bool>{false, true, true, false};
   auto table = cudf::table_view{{c_0}};
@@ -405,13 +441,14 @@ TEST(EvalExpressionTest, SimpleUnaryNot)
   auto not_expr = gqe::not_expression(std::make_shared<gqe::column_reference_expression>(0));
   std::vector<gqe::expression const*> expressions = {&not_expr};
 
-  auto expected                          = column_wrapper<bool>{true, false, false, true};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<bool>{true, false, false, true};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionTest, ScalarFunctionLike)
+TEST_P(EvalExpressionsTest, ScalarFunctionLike)
 {
   auto c_0   = cudf::test::strings_column_wrapper{"azaa", "ababaabba", "aaxa"};
   auto table = cudf::table_view{{c_0}};
@@ -420,13 +457,14 @@ TEST(EvalExpressionTest, ScalarFunctionLike)
     gqe::like_expression(std::make_shared<gqe::column_reference_expression>(0), "%a_aa%", "");
   std::vector<gqe::expression const*> expressions = {&like_expr};
 
-  auto expected                          = column_wrapper<bool>{true, true, false};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<bool>{true, true, false};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionTest, ScalarFunctionLikeInputNullable)
+TEST_P(EvalExpressionsTest, ScalarFunctionLikeInputNullable)
 {
   auto c_0 = cudf::test::strings_column_wrapper(
     {"azaa", "ababaabba", "aaxa", "ababaaxxxxxxxxbb", "ababaabx"},
@@ -440,13 +478,13 @@ TEST(EvalExpressionTest, ScalarFunctionLikeInputNullable)
 
   auto expected =
     column_wrapper<bool>({true, false, true, true, false}, {false, true, false, true, true});
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(
-    table, expressions, /*column_reference_offset=*/0, /*use_like_shift_and=*/true);
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionTest, ScalarFunctionLikePrefix)
+TEST_P(EvalExpressionsTest, ScalarFunctionLikePrefix)
 {
   auto c_0 = cudf::test::strings_column_wrapper{
     "MEDIUM PLATED NICKEL", "MEDIUM POLISHED COPPER", "MEDIUM BRUSHED BRASS"};
@@ -456,14 +494,14 @@ TEST(EvalExpressionTest, ScalarFunctionLikePrefix)
     std::make_shared<gqe::column_reference_expression>(0), "MEDIUM POLISHED%", "");
   std::vector<gqe::expression const*> expressions = {&like_expr};
 
-  auto expected                          = column_wrapper<bool>{false, true, false};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(
-    table, expressions, /*column_reference_offset=*/0, /*use_like_shift_and=*/true);
+  auto expected = column_wrapper<bool>{false, true, false};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionTest, ScalarFunctionSubstr)
+TEST_P(EvalExpressionsTest, ScalarFunctionSubstr)
 {
   auto c_0   = cudf::test::strings_column_wrapper{"azaa", "ababaabba", "aaxa"};
   auto table = cudf::table_view{{c_0}};
@@ -472,13 +510,14 @@ TEST(EvalExpressionTest, ScalarFunctionSubstr)
     gqe::substr_expression(std::make_shared<gqe::column_reference_expression>(0), 1, 2);
   std::vector<gqe::expression const*> expressions = {&substr_expr};
 
-  auto expected                          = cudf::test::strings_column_wrapper{"za", "ba", "ax"};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = cudf::test::strings_column_wrapper{"za", "ba", "ax"};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionTest, ScalarFunctionDatepart)
+TEST_P(EvalExpressionsTest, ScalarFunctionDatepart)
 {
   auto t1 = cuda::std::chrono::duration<int, cuda::std::ratio<86400>>(0);
   auto t2 = cuda::std::chrono::duration<int, cuda::std::ratio<86400>>(19358);
@@ -494,13 +533,14 @@ TEST(EvalExpressionTest, ScalarFunctionDatepart)
     gqe::datepart_expression(std::make_shared<gqe::column_reference_expression>(0), dt_component);
   std::vector<gqe::expression const*> expressions = {&dp_expr};
 
-  auto expected                          = column_wrapper<int16_t>{1970, 2023};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto expected = column_wrapper<int16_t>{1970, 2023};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
-TEST(EvalExpressionsTest, LogicalOperators)
+TEST_P(EvalExpressionsTest, LogicalOperators)
 {
   // [true, false, null]
   auto c_0 = column_wrapper<bool>{{true, false, true}, {true, true, false}};
@@ -519,13 +559,14 @@ TEST(EvalExpressionsTest, LogicalOperators)
   auto expected_and = column_wrapper<bool>{{false, false, false}, {false, true, false}};
   // [true, null, null]
   auto expected_or = column_wrapper<bool>{{true, true, true}, {true, false, false}};
-  auto [evaluated_results, column_cache] = gqe::evaluate_expressions(table, expressions);
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_and, evaluated_results[0]);
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_or, evaluated_results[1]);
 }
 
-TEST(EvalExpressionsTest, IsNull)
+TEST_P(EvalExpressionsTest, IsNull)
 {
   auto c_0 = column_wrapper<int32_t>({1, 2, 3, 4, 5}, {false, true, false, true, false});
   auto c_1 = cudf::test::strings_column_wrapper({"azaa", "ababaabba", "aaxa", "fsadfsa", "dsfdsaf"},
@@ -539,7 +580,8 @@ TEST(EvalExpressionsTest, IsNull)
     gqe::is_null_expression(std::make_shared<gqe::column_reference_expression>(1));
 
   std::vector<gqe::expression const*> expressions = {&is_null_expr_0, &is_null_expr_1};
-  auto [evaluated_results, column_cache]          = gqe::evaluate_expressions(table, expressions);
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
 
   auto expected_0 = column_wrapper<bool>{{true, false, true, false, true}, {1, 1, 1, 1, 1}};
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_0, evaluated_results[0]);
@@ -547,3 +589,10 @@ TEST(EvalExpressionsTest, IsNull)
   auto expected_1 = column_wrapper<bool>{{false, true, false, true, false}, {1, 1, 1, 1, 1}};
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_1, evaluated_results[1]);
 }
+
+// Test transformations which remove an expression because it cannot be used for pruning
+INSTANTIATE_TEST_SUITE_P(
+  ExpressionOptimizationParams,
+  EvalExpressionsTest,
+  testing::Values(expression_optimization_params{.filter_use_like_shift_and = false},
+                  expression_optimization_params{.filter_use_like_shift_and = true}));

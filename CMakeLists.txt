@@ -73,6 +73,9 @@ option(GQE_ENABLE_SUBSTRAIT_PRODUCER "Enable the Substrait producer" OFF)
 
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
+
+find_package(CUDAToolkit REQUIRED COMPONENTS cupti)
+
 find_package(spdlog REQUIRED)
 include(${rapids-cmake-dir}/cpm/gtest.cmake)
 include(${rapids-cmake-dir}/cpm/spdlog.cmake)

@@ -12,6 +12,8 @@ dependencies:
   - cuda-cccl
   - cuda-cudart
   - cuda-cudart-dev
+  - cuda-cupti
+  - cuda-cupti-dev
   - cuda-nvcc
   - cuda-nvrtc-dev
   - cuda-nvtx-dev

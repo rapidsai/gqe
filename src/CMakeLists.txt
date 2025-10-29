@@ -114,6 +114,7 @@ add_library(
     storage/parquet_reader.cpp
     storage/parquet_reader.cu
     utility/cuda.cpp
+    utility/cupti.cpp
     utility/hashing.cpp
     utility/linux.cpp
     utility/timer.cpp
@@ -132,10 +133,13 @@ add_library(
 
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../proto)
+target_include_directories(gqe PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/CUPTI/include)
 
 target_link_libraries(gqe PUBLIC proto)
 target_link_libraries(gqe PUBLIC gqe-version)
 target_link_libraries(gqe PUBLIC cuco::cuco)
+target_link_libraries(gqe PUBLIC CUDA::cuda_driver)
+target_link_libraries(gqe PUBLIC CUDA::cupti)
 target_link_libraries(gqe PUBLIC cudf::cudf)
 target_link_libraries(gqe PUBLIC numa)
 target_link_libraries(gqe PRIVATE nvtx3-cpp)

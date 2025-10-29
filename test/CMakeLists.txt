@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -11,6 +11,13 @@
 if(GQE_ENABLE_QUERY_COMPILER)
   add_subdirectory(compiler)
 endif()
+
+add_executable(cupti_test utility/cupti_test.cpp)
+target_include_directories(cupti_test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(cupti_test PUBLIC gqe)
+target_link_libraries(cupti_test PUBLIC GTest::gtest_main GTest::gmock)
+target_link_libraries(cupti_test PUBLIC cudf::cudftestutil cudf::cudftestutil_impl)
+add_test(NAME cupti_test COMMAND cupti_test)
 
 add_library(logical_test_common logical/common.cpp)
 set_property(TARGET logical_test_common PROPERTY CUDA_ARCHITECTURES ${GPU_ARCHS})

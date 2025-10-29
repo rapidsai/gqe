@@ -52,8 +52,9 @@ struct join_test_data {
  * This test suite constructs the input tables with handpicked values. Both the left and the right
  * table have 2 columns, 1 key column and 1 payload column.
  */
-class SingleKeyColumnJoinTest : public ::testing::TestWithParam<
-                                  std::tuple<gqe::join_type_type, cache_strategy, join_test_data>> {
+class SingleKeyColumnJoinTest
+  : public ::testing::TestWithParam<
+      std::tuple<gqe::join_type_type, cache_strategy, join_test_data, bool>> {
  protected:
   SingleKeyColumnJoinTest()
     : task_manager_ctx(gqe::memory_resource::create_static_memory_pool()),
@@ -65,6 +66,7 @@ class SingleKeyColumnJoinTest : public ::testing::TestWithParam<
   gqe::join_type_type get_join_type() const { return std::get<0>(GetParam()); }
   cache_strategy get_cache_strategy() const { return std::get<1>(GetParam()); }
   const join_test_data& get_test_data() const { return std::get<2>(GetParam()); }
+  bool get_use_late_materialization() const { return std::get<3>(GetParam()); }
 
   std::vector<int64_t> left_key_data() const { return get_test_data().left_key_data; }
   std::vector<int64_t> left_payload_data() const { return get_test_data().left_payload_data; }
@@ -89,6 +91,23 @@ class SingleKeyColumnJoinTest : public ::testing::TestWithParam<
     auto const join_type = get_join_type();
     return join_type == gqe::join_type_type::left_semi ||
            join_type == gqe::join_type_type::left_anti;
+  }
+
+  // Returns true if this combination of parameters is supported.  Returns false if this combination
+  // of parameters is expected to throw an exception.
+  bool is_supported_combination() const
+  {
+    if (!supports_late_materialization() && get_use_late_materialization()) {
+      // Late materialization is only supported for left semi and left anti joins.
+      return false;
+    }
+    if (supports_late_materialization() && !get_use_late_materialization() &&
+        get_cache_strategy() == cache_strategy::use_cache) {
+      // Immediate materialization is only supported for left semi and left anti joins that are not
+      // from cache.
+      return false;
+    }
+    return true;
   }
 
   void construct_join_task()
@@ -127,10 +146,10 @@ class SingleKeyColumnJoinTest : public ::testing::TestWithParam<
       std::make_shared<gqe::column_reference_expression>(2));
 
     // this mimics separate_materialization in task_graph.cpp
-    const bool late_materialize                              = supports_late_materialization();
+    const bool late_materialize                              = get_use_late_materialization();
     std::shared_ptr<gqe::join_hash_map_cache> hash_map_cache = nullptr;
     if (get_cache_strategy() == cache_strategy::use_cache) {
-      if (late_materialize) {
+      if (supports_late_materialization()) {
         hash_map_cache = std::make_shared<gqe::join_hash_map_cache>(
           gqe::join_hash_map_cache::build_location::left);
       } else {
@@ -170,7 +189,7 @@ class SingleKeyColumnJoinTest : public ::testing::TestWithParam<
   {
     auto const join_type = get_join_type();
     std::optional<cudf::table_view> join_result;
-    if (supports_late_materialization()) {
+    if (get_use_late_materialization()) {
       join_result = late_materialization->result();
     } else {
       join_result = join_task->result();
@@ -276,12 +295,21 @@ class SingleKeyColumnJoinTest : public ::testing::TestWithParam<
 
 TEST_P(SingleKeyColumnJoinTest, JoinTest)
 {
-  construct_join_task();
-  join_task->execute();
-
-  // Left semi and left anti joins use late materialization
-  if (supports_late_materialization()) { late_materialization->execute(); }
-  verify_join();
+  try {
+    construct_join_task();
+    join_task->execute();
+    if (get_use_late_materialization()) { late_materialization->execute(); }
+    verify_join();
+  } catch (const std::exception& e) {
+    if (is_supported_combination()) {
+      // If the combination is supported but we threw and exception, fail the test.
+      FAIL() << "Expected no exception, but got: " << e.what();
+    }
+    // Otherwise, we expected an excption and we got one, so we're good.
+    return;
+  }
+  // If the combination is not supported and we didn't throw an exception, fail the test.
+  if (!is_supported_combination()) { FAIL() << "Expected an exception, but got none."; }
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -302,9 +330,10 @@ INSTANTIATE_TEST_SUITE_P(
         "duplicates", {1, 1, 1, 2, 2}, {10, 11, 12, 20, 21}, {1, 1, 3}, {100, 101, 300}},
       join_test_data{"empty_left", {}, {}, {3, 1, 5, 1, 2}, {0, 1, 2, 3, 4}},
       join_test_data{"empty_right", {2, 1, 1, 3, 4, 1}, {0, 1, 2, 3, 4, 5}, {}, {}},
-      join_test_data{"empty_left_and_right", {}, {}, {}, {}})),
+      join_test_data{"empty_left_and_right", {}, {}, {}, {}}),
+    ::testing::Bool()),
   [](const ::testing::TestParamInfo<
-     std::tuple<gqe::join_type_type, cache_strategy, join_test_data>>& info) {
+     std::tuple<gqe::join_type_type, cache_strategy, join_test_data, bool>>& info) {
     std::string join_type_name;
     switch (std::get<0>(info.param)) {
       case gqe::join_type_type::inner: join_type_name = "inner"; break;
@@ -320,7 +349,9 @@ INSTANTIATE_TEST_SUITE_P(
       case cache_strategy::use_cache: cache_name = "use_cache"; break;
       default: cache_name = "unknown"; break;
     }
-    return join_type_name + "_" + cache_name + "_" + std::get<2>(info.param).name;
+    std::string late_mat_name = std::get<3>(info.param) ? "late_mat" : "immediate_mat";
+    return join_type_name + "_" + cache_name + "_" + std::get<2>(info.param).name + "_" +
+           late_mat_name;
   });
 
 class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {

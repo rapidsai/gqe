@@ -680,6 +680,9 @@ void join_task::execute()
     } else if (_join_type == join_type_type::left_semi || _join_type == join_type_type::left_anti) {
       join_algo = join_algorithm::MARK_JOIN;
       assert(_hash_map_cache->build_side() == join_hash_map_cache::build_location::left);
+      GQE_EXPECTS(
+        !_materialize_output,
+        "Materialization during the join task is not supported for mark_join from cache.");
       GQE_LOG_TRACE("Join implementation: cached equality gqe::mark_join.");
     } else {
       join_algo = join_algorithm::HASH_JOIN;
@@ -1003,7 +1006,9 @@ materialize_join_from_position_lists_task::materialize_join_from_position_lists_
     _hash_map_cache(hash_map_cache),
     _mark_join(mark_join)
 {
-  assert(join_type == join_type_type::left_semi || join_type == join_type_type::left_anti);
+  GQE_EXPECTS(
+    join_type == join_type_type::left_semi || join_type == join_type_type::left_anti,
+    "materialize_join_from_position_lists_task only works with left-semi or left-anti join.");
 }
 
 void materialize_join_from_position_lists_task::execute()

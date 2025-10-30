@@ -70,4 +70,4 @@ tpch_queries:
     - GQE_RMM_POOL_SIZE=$((2*1024*1024*1024)) ctest --output-on-failure --exclude-regex parquet_reader
     - popd
     # TPC-H coverage for SF1
-    - GQE_LOG_LEVEL=warn bash ./test/end_to_end/run_tpc.sh h ./build /tpch_scratch/datasets/sf1/sf1_id64/ /tpch_scratch/reference_results/sf1 /tpch_scratch/substrait_plans/df_q%d.bin
+    - GQE_RMM_POOL_SIZE=$((1024*1024*1024)) GQE_LOG_LEVEL=warn bash ./test/end_to_end/run_tpc.sh h ./build /tpch_scratch/datasets/sf0.01/sf0.01_id64/ /tpch_scratch/reference_results/sf0.01 /tpch_scratch/substrait_plans/sf0.01/df_q%d.bin

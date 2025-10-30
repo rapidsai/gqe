@@ -798,7 +798,13 @@ void join_task::execute()
             GQE_LOG_TRACE("Join implementation: gqe::left_semi_mark_join");
             left_indices = gqe::left_semi_mark_join(left_keys, right_keys, compare_nulls);
           } else {
-            {
+            if (right_keys.num_rows() == 0 || left_keys.num_rows() == 0) {
+              // There is nothing to match on the right side so return an empty column.
+              GQE_LOG_TRACE(
+                "Join implementation: Return empty column because right keys are empty");
+              left_indices = std::make_unique<rmm::device_uvector<cudf::size_type>>(
+                0, cudf::get_default_stream());
+            } else {
               GQE_LOG_TRACE("Join implementation: cudf::filtered_join object and semi_join method");
               cudf::filtered_join join_obj(right_keys,
                                            compare_nulls,
@@ -813,7 +819,14 @@ void join_task::execute()
             GQE_LOG_TRACE("Join implementation: gqe::left_anti_mark_join.");
             left_indices = gqe::left_anti_mark_join(left_keys, right_keys, compare_nulls);
           } else {
-            {
+            if (right_keys.num_rows() == 0 || left_keys.num_rows() == 0) {
+              // There is nothing to filter on the right side so return all.
+              GQE_LOG_TRACE(
+                "Join implementation: Return all left keys because right keys are empty");
+              left_indices = std::make_unique<rmm::device_uvector<cudf::size_type>>(
+                static_cast<std::size_t>(left_keys.num_rows()), cudf::get_default_stream());
+              gqe::detail::sequence(left_indices->begin(), left_indices->end());
+            } else {
               GQE_LOG_TRACE(
                 "Join implementation: cudf::filtered_join object and anti_join method.");
               cudf::filtered_join join_obj(right_keys,

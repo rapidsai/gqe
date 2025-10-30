@@ -15,6 +15,9 @@
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 
+#include <thrust/execution_policy.h>
+#include <thrust/sequence.h>
+
 namespace {
 
 __global__ void set_boolean_mask_kernel(bool* boolean_mask,
@@ -69,3 +72,14 @@ void gqe::detail::increment_counts(cudf::mutable_column_view counts, cudf::colum
   increment_counts_kernel<<<grid_size, block_size>>>(
     counts.data<int32_t>(), indices.data<cudf::size_type>(), indices.size());
 }
+
+template <typename T>
+void gqe::detail::sequence(T* begin, T* end, T start, T step)
+{
+  thrust::sequence(thrust::device, begin, end, start, step);
+}
+
+template void gqe::detail::sequence<cudf::size_type>(cudf::size_type* begin,
+                                                     cudf::size_type* end,
+                                                     cudf::size_type start,
+                                                     cudf::size_type step);

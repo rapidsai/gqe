@@ -294,6 +294,17 @@ void set_boolean_mask(cudf::mutable_column_view boolean_mask, cudf::column_view 
  */
 void increment_counts(cudf::mutable_column_view counts, cudf::column_view indices);
 
+/**
+ * @brief Fill the range with a sequence of numbers.
+ *
+ * @param[in] begin Beginning of the range.
+ * @param[in] end End of the range.
+ * @param[in] start Starting value, default is 0.
+ * @param[in] step Step size, default is 1.
+ */
+template <typename T>
+void sequence(T* begin, T* end, T start = 0, T step = 1);
+
 }  // namespace detail
 
 /**

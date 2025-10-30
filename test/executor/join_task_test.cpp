@@ -54,7 +54,7 @@ struct join_test_data {
  */
 class SingleKeyColumnJoinTest
   : public ::testing::TestWithParam<
-      std::tuple<gqe::join_type_type, cache_strategy, join_test_data, bool>> {
+      std::tuple<gqe::join_type_type, cache_strategy, join_test_data, bool, bool>> {
  protected:
   SingleKeyColumnJoinTest()
     : task_manager_ctx(gqe::memory_resource::create_static_memory_pool()),
@@ -67,6 +67,7 @@ class SingleKeyColumnJoinTest
   cache_strategy get_cache_strategy() const { return std::get<1>(GetParam()); }
   const join_test_data& get_test_data() const { return std::get<2>(GetParam()); }
   bool get_use_late_materialization() const { return std::get<3>(GetParam()); }
+  bool get_mark_join() const { return std::get<4>(GetParam()); }
 
   std::vector<int64_t> left_key_data() const { return get_test_data().left_key_data; }
   std::vector<int64_t> left_payload_data() const { return get_test_data().left_payload_data; }
@@ -101,7 +102,7 @@ class SingleKeyColumnJoinTest
       // Late materialization is only supported for left semi and left anti joins.
       return false;
     }
-    if (supports_late_materialization() && !get_use_late_materialization() &&
+    if (supports_late_materialization() && !get_use_late_materialization() && get_mark_join() &&
         get_cache_strategy() == cache_strategy::use_cache) {
       // Immediate materialization is only supported for left semi and left anti joins that are not
       // from cache.
@@ -159,6 +160,7 @@ class SingleKeyColumnJoinTest
     }
 
     auto const join_type = get_join_type();
+    auto const mark_join = get_mark_join();
     join_task            = std::make_shared<gqe::join_task>(ctx_ref,
                                                  join_task_id,
                                                  stage_id,
@@ -168,7 +170,10 @@ class SingleKeyColumnJoinTest
                                                  std::move(join_condition),
                                                  get_projection_indices(),
                                                  hash_map_cache,
-                                                 !late_materialize);
+                                                 !late_materialize,
+                                                 gqe::unique_keys_policy::none,
+                                                 false,  // perfect_hashing
+                                                 mark_join);
 
     if (late_materialize) {
       std::vector<std::shared_ptr<gqe::task>> tasks{{join_task}};
@@ -181,7 +186,7 @@ class SingleKeyColumnJoinTest
         join_type,                 // join type
         get_projection_indices(),  // projection indices
         hash_map_cache,            // hash map
-        true);                     // use mark join
+        mark_join);                // use mark join
     }
   }
 
@@ -302,10 +307,10 @@ TEST_P(SingleKeyColumnJoinTest, JoinTest)
     verify_join();
   } catch (const std::exception& e) {
     if (is_supported_combination()) {
-      // If the combination is supported but we threw and exception, fail the test.
+      // If the combination is supported but we threw an exception, fail the test.
       FAIL() << "Expected no exception, but got: " << e.what();
     }
-    // Otherwise, we expected an excption and we got one, so we're good.
+    // Otherwise, we expected an exception and we got one, so we're good.
     return;
   }
   // If the combination is not supported and we didn't throw an exception, fail the test.
@@ -331,9 +336,10 @@ INSTANTIATE_TEST_SUITE_P(
       join_test_data{"empty_left", {}, {}, {3, 1, 5, 1, 2}, {0, 1, 2, 3, 4}},
       join_test_data{"empty_right", {2, 1, 1, 3, 4, 1}, {0, 1, 2, 3, 4, 5}, {}, {}},
       join_test_data{"empty_left_and_right", {}, {}, {}, {}}),
+    ::testing::Bool(),
     ::testing::Bool()),
   [](const ::testing::TestParamInfo<
-     std::tuple<gqe::join_type_type, cache_strategy, join_test_data, bool>>& info) {
+     std::tuple<gqe::join_type_type, cache_strategy, join_test_data, bool, bool>>& info) {
     std::string join_type_name;
     switch (std::get<0>(info.param)) {
       case gqe::join_type_type::inner: join_type_name = "inner"; break;
@@ -349,9 +355,10 @@ INSTANTIATE_TEST_SUITE_P(
       case cache_strategy::use_cache: cache_name = "use_cache"; break;
       default: cache_name = "unknown"; break;
     }
-    std::string late_mat_name = std::get<3>(info.param) ? "late_mat" : "immediate_mat";
+    std::string late_mat_name  = std::get<3>(info.param) ? "late_mat" : "immediate_mat";
+    std::string mark_join_name = std::get<4>(info.param) ? "mark_join" : "no_mark_join";
     return join_type_name + "_" + cache_name + "_" + std::get<2>(info.param).name + "_" +
-           late_mat_name;
+           late_mat_name + "_" + mark_join_name;
   });
 
 class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {

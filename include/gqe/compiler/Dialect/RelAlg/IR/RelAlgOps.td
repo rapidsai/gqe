@@ -78,7 +78,8 @@ def RelAlg_CudfTableScanOp : RelAlg_Op<"cudf_table_scan", [Pure]> {
   let results = (outs RelAlg_TupleStream:$result);
 }
 
-def RelAlg_CudfTableMaterializeOp : RelAlg_Op<"cudf_table_materialize", [Pure, TupleStreamConsumer]> {
+def RelAlg_CudfTableMaterializeOp
+    : RelAlg_Op<"cudf_table_materialize", [Pure, TupleStreamConsumer]> {
   let summary = "Materializes a tuple stream to a cuDF table.";
   let description = [{
         The `relalg.cudf_table_materialize` materializes a tuple stream to a cuDF table. The table
@@ -90,8 +91,7 @@ def RelAlg_CudfTableMaterializeOp : RelAlg_Op<"cudf_table_materialize", [Pure, T
         column definitions. It does not return a tuple stream.
     }];
 
-  let arguments = (ins RelAlg_TupleStream:$input,
-      StrAttr:$table_name,
+  let arguments = (ins RelAlg_TupleStream:$input, StrAttr:$table_name,
       RelAlg_ColumnDefArray:$output_columns);
 }
 

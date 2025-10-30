@@ -22,6 +22,7 @@
 #include <gqe/task_manager_context.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
+#include <gqe/utility/kernel_fusion_helpers.hpp>
 #include <gqe/utility/logger.hpp>
 
 #include <cudf/ast/expressions.hpp>
@@ -60,8 +61,15 @@ hash_join_interface::hash_join_interface(cudf::table_view const& build,
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-hash_join_interface::probe(cudf::table_view const& probe, join_type_type join_type) const
+hash_join_interface::probe(cudf::table_view const& probe,
+                           cudf::column_view const& probe_mask,
+                           join_type_type join_type) const
 {
+  if (!probe_mask.is_empty()) {
+    throw std::logic_error(
+      "Filter conditions are only supported in unique key inner join, perfect join, or mark join "
+      "with hash map cache.");
+  }
   switch (join_type) {
     case join_type_type::inner: return _hash_join_interface->inner_join(probe);
     case join_type_type::left: return _hash_join_interface->left_join(probe);
@@ -71,45 +79,53 @@ hash_join_interface::probe(cudf::table_view const& probe, join_type_type join_ty
 }
 
 unique_key_join_interface::unique_key_join_interface(cudf::table_view const& build,
+                                                     cudf::column_view const& build_mask,
                                                      cudf::null_equality compare_nulls,
                                                      rmm::cuda_stream_view stream)
-  : _unique_key_join_interface{std::make_unique<gqe::unique_key_join>(build, compare_nulls, stream)}
+  : _unique_key_join_interface{
+      std::make_unique<gqe::unique_key_join>(build, build_mask, compare_nulls, stream)}
 {
 }
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-unique_key_join_interface::probe(cudf::table_view const& probe, join_type_type join_type) const
+unique_key_join_interface::probe(cudf::table_view const& probe,
+                                 cudf::column_view const& probe_mask,
+                                 join_type_type join_type) const
 {
   switch (join_type) {
     case join_type_type::inner: {
-      return _unique_key_join_interface->inner_join(probe);
+      return _unique_key_join_interface->inner_join(probe, probe_mask);
     }
     default: throw std::logic_error("Unsupported join type");
   }
 }
 
 mark_join_interface::mark_join_interface(cudf::table_view const& build,
+                                         cudf::column_view const& build_mask,
                                          bool is_cached,
                                          cudf::null_equality compare_nulls,
                                          rmm::cuda_stream_view stream)
   : _mark_join_interface{
-      std::make_unique<gqe::mark_join>(build, is_cached, compare_nulls, 0.5, stream)}
+      std::make_unique<gqe::mark_join>(build, build_mask, is_cached, compare_nulls, 0.5, stream)}
 {
-}
-
-std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
-          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-mark_join_interface::probe(cudf::table_view const& probe, join_type_type join_type) const
-{
-  cudf::table_view empty_conds{};
-  constexpr cudf::ast::expression const* ast = nullptr;
-  return this->probe(probe, empty_conds, empty_conds, ast, join_type);
 }
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 mark_join_interface::probe(cudf::table_view const& probe,
+                           cudf::column_view const& probe_mask,
+                           join_type_type join_type) const
+{
+  cudf::table_view empty_conds{};
+  constexpr cudf::ast::expression const* ast = nullptr;
+  return this->probe(probe, probe_mask, empty_conds, empty_conds, ast, join_type);
+}
+
+std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+mark_join_interface::probe(cudf::table_view const& probe,
+                           cudf::column_view const& probe_mask,
                            cudf::table_view const& left_conditional,
                            cudf::table_view const& right_conditional,
                            cudf::ast::expression const* binary_predicate,
@@ -131,7 +147,7 @@ mark_join_interface::probe(cudf::table_view const& probe,
     }
   }
   auto positions = _mark_join_interface->perform_mark_join(
-    probe, is_anti_join, left_conditional, right_conditional, binary_predicate);
+    probe, probe_mask, is_anti_join, left_conditional, right_conditional, binary_predicate);
   return positions;
 }
 
@@ -155,6 +171,10 @@ mark_join_interface::compute_positions_list_from_cached_map(join_type_type join_
 }
 
 join_interface const* join_hash_map_cache::hash_map(cudf::table_view const& build_keys,
+                                                    cudf::table_view const& build_table,
+                                                    cudf::size_type build_column_reference_offset,
+                                                    std::unique_ptr<gqe::expression> build_filter,
+                                                    gqe::optimization_parameters const& parameters,
                                                     join_algorithm join_algorithm,
                                                     cudf::null_equality compare_nulls) const
 {
@@ -162,15 +182,24 @@ join_interface const* join_hash_map_cache::hash_map(cudf::table_view const& buil
   constexpr bool is_cached = true;
   if (!_hash_map) {
     switch (join_algorithm) {
-      case join_algorithm::HASH_JOIN:
+      case join_algorithm::HASH_JOIN: {
         _hash_map = std::make_unique<hash_join_interface>(build_keys, compare_nulls);
         break;
-      case join_algorithm::UNIQUE_KEY_JOIN:
-        _hash_map = std::make_unique<unique_key_join_interface>(build_keys, compare_nulls);
+      }
+      case join_algorithm::UNIQUE_KEY_JOIN: {
+        auto [build_mask_view, build_mask_column] = gqe::utility::get_mask_from_filter(
+          parameters, build_table, std::move(build_filter), build_column_reference_offset);
+        _hash_map =
+          std::make_unique<unique_key_join_interface>(build_keys, build_mask_view, compare_nulls);
         break;
-      case join_algorithm::MARK_JOIN:
-        _hash_map = std::make_unique<mark_join_interface>(build_keys, is_cached, compare_nulls);
+      }
+      case join_algorithm::MARK_JOIN: {
+        auto [build_mask_view, build_mask_column] = gqe::utility::get_mask_from_filter(
+          parameters, build_table, std::move(build_filter), build_column_reference_offset);
+        _hash_map = std::make_unique<mark_join_interface>(
+          build_keys, build_mask_view, is_cached, compare_nulls);
         break;
+      }
     }
   }
 
@@ -199,6 +228,8 @@ join_task::join_task(context_reference ctx_ref,
                      bool materialize_output,
                      gqe::unique_keys_policy unique_keys_pol,
                      bool perfect_hashing,
+                     std::unique_ptr<expression> left_filter_condition,
+                     std::unique_ptr<expression> right_filter_condition,
                      bool mark_join)
   : task(ctx_ref, task_id, stage_id, {std::move(left), std::move(right)}, {}),
     _join_type(join_type),
@@ -208,6 +239,8 @@ join_task::join_task(context_reference ctx_ref,
     _materialize_output(materialize_output),
     _unique_keys_policy(unique_keys_pol),
     _perfect_hashing(perfect_hashing),
+    _left_filter_condition(std::move(left_filter_condition)),
+    _right_filter_condition(std::move(right_filter_condition)),
     _mark_join(mark_join)
 {
 }
@@ -625,6 +658,36 @@ cudf::ast::expression* parse_predicates(predicate_rewriter::cache_type& cache,
   return rewriter.out_expr;
 }
 
+/**
+ * @brief Check whether passing filter conditions is supported for the current join type.
+ * Only inner join with unique key policy, perfect join, or mark join with hash map cache supports
+ * passing filter into join.
+ *
+ * @return true if passing filter conditions is supported, false otherwise.
+ */
+bool check_pass_filter_into_join(join_type_type join_type,
+                                 gqe::unique_keys_policy unique_keys_policy,
+                                 bool use_cache,
+                                 bool mark_join,
+                                 bool has_non_equality_predicate,
+                                 bool has_filter_condition)
+{
+  // If there is no filter condition, then all join types are supported.
+  if (!has_filter_condition) { return true; }
+  // If there is inner join with unique key policy, then it is supported.
+  if (join_type == join_type_type::inner && !has_non_equality_predicate &&
+      unique_keys_policy != gqe::unique_keys_policy::none) {
+    return true;
+  }
+  // If there is mark join for left semi or left anti join, and hash map cache is enable, then it is
+  // supported.
+  if (join_type == join_type_type::left_semi || join_type == join_type_type::left_anti) {
+    // If there is mark join with hash map cache, then it is supported.
+    if (mark_join && use_cache) { return true; }
+  }
+  return false;
+}
+
 }  // namespace
 
 void join_task::execute()
@@ -644,24 +707,54 @@ void join_task::execute()
   cudf::table_view right_keys(join_keys.right_keys());
   auto const predicates = join_keys.non_equality_conditions();
 
+  bool has_filter_condition =
+    (_left_filter_condition != nullptr) || (_right_filter_condition != nullptr);
+
   // Execute the join and get the result indicies
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_indices;
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> right_indices;
+
+  if (!check_pass_filter_into_join(_join_type,
+                                   _unique_keys_policy,
+                                   _hash_map_cache != nullptr,
+                                   _mark_join,
+                                   predicates.size() > 0,
+                                   has_filter_condition)) {
+    throw std::logic_error(
+      "Filter conditions are only supported in unique key inner join, perfect join, or mark join "
+      "with hash map cache.");
+  }
 
   if (predicates.size() == 0 && _hash_map_cache &&
       is_separate_hash_map_supported(_join_type, _mark_join)) {
     // Fast path: use the cached hash map for equality-only join
     cudf::table_view build_keys;
     cudf::table_view probe_keys;
+    cudf::table_view build_view;
+    std::unique_ptr<gqe::expression> build_filter;
+    cudf::table_view probe_view;
+    std::unique_ptr<gqe::expression> probe_filter;
+    cudf::size_type build_column_reference_offset = 0;
+    cudf::size_type probe_column_reference_offset = left_view.num_columns();
 
     switch (_hash_map_cache->build_side()) {
       case join_hash_map_cache::build_location::left:
-        build_keys = left_keys;
-        probe_keys = right_keys;
+        build_keys   = left_keys;
+        probe_keys   = right_keys;
+        build_view   = left_view;
+        build_filter = std::move(_left_filter_condition);
+        probe_view   = right_view;
+        probe_filter = std::move(_right_filter_condition);
         break;
       case join_hash_map_cache::build_location::right:
-        build_keys = right_keys;
-        probe_keys = left_keys;
+        build_keys                    = right_keys;
+        probe_keys                    = left_keys;
+        build_view                    = right_view;
+        build_filter                  = std::move(_right_filter_condition);
+        probe_view                    = left_view;
+        probe_filter                  = std::move(_left_filter_condition);
+        build_column_reference_offset = left_view.num_columns();
+        probe_column_reference_offset = 0;
         break;
     }
 
@@ -687,15 +780,33 @@ void join_task::execute()
     } else {
       join_algo = join_algorithm::HASH_JOIN;
       GQE_LOG_TRACE("Join implementation: hash join.");
+      if (has_filter_condition) {
+        throw std::logic_error(
+          "Filter conditions do not support hash join with hash map cache enabled.");
+      }
     }
 
-    auto const hash_map =
-      _hash_map_cache->hash_map(build_keys, join_algo, join_keys.compare_nulls());
+    // The build side mask evaluation is pushed to the hash map construction, and only evaluated
+    // once
+    auto const hash_map = _hash_map_cache->hash_map(build_keys,
+                                                    build_view,
+                                                    build_column_reference_offset,
+                                                    std::move(build_filter),
+                                                    get_query_context()->parameters,
+                                                    join_algo,
+                                                    join_keys.compare_nulls());
 
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_indices;
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_indices;
 
-    std::tie(probe_indices, build_indices) = hash_map->probe(probe_keys, _join_type);
+    auto [probe_mask_view, probe_mask_column] =
+      gqe::utility::get_mask_from_filter(get_query_context()->parameters,
+                                         probe_view,
+                                         std::move(probe_filter),
+                                         probe_column_reference_offset);
+
+    std::tie(probe_indices, build_indices) =
+      hash_map->probe(probe_keys, probe_mask_view, _join_type);
 
     switch (_hash_map_cache->build_side()) {
       case join_hash_map_cache::build_location::left:
@@ -716,12 +827,24 @@ void join_task::execute()
     cudf::table_view build_keys;
     cudf::table_view probe_keys;
 
-    build_keys               = left_keys;
-    probe_keys               = right_keys;
-    join_algorithm join_algo = join_algorithm::MARK_JOIN;
+    build_keys                                    = left_keys;
+    probe_keys                                    = right_keys;
+    join_algorithm join_algo                      = join_algorithm::MARK_JOIN;
+    cudf::size_type build_column_reference_offset = 0;
+    cudf::size_type probe_column_reference_offset = left_view.num_columns();
+    auto [probe_mask_view, probe_mask_column] =
+      gqe::utility::get_mask_from_filter(get_query_context()->parameters,
+                                         right_view,
+                                         std::move(_right_filter_condition),
+                                         probe_column_reference_offset);
 
-    auto const hash_map =
-      _hash_map_cache->hash_map(build_keys, join_algo, join_keys.compare_nulls());
+    auto const hash_map = _hash_map_cache->hash_map(build_keys,
+                                                    left_view,
+                                                    build_column_reference_offset,
+                                                    std::move(_left_filter_condition),
+                                                    get_query_context()->parameters,
+                                                    join_algo,
+                                                    join_keys.compare_nulls());
 
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> build_indices;
     std::unique_ptr<rmm::device_uvector<cudf::size_type>> probe_indices;
@@ -730,8 +853,8 @@ void join_task::execute()
     auto const predicate_ast =
       parse_predicates(cache, predicates, predicates[0]->clone(), left_view.num_columns());
 
-    std::tie(probe_indices, build_indices) =
-      hash_map->probe(probe_keys, left_view, right_view, predicate_ast, _join_type);
+    std::tie(probe_indices, build_indices) = hash_map->probe(
+      probe_keys, probe_mask_view, left_view, right_view, predicate_ast, _join_type);
 
     left_indices  = std::move(build_indices);
     right_indices = std::move(probe_indices);
@@ -742,23 +865,36 @@ void join_task::execute()
     }
   } else {
     // Fallback path: reconstruct hash map from scratch
+    // Evaluate the left/right filter conditions and get the active row masks
+    auto [left_active_mask, left_mask_column] =
+      gqe::utility::get_mask_from_filter(get_query_context()->parameters,
+                                         left_view,
+                                         std::move(_left_filter_condition),
+                                         /*column_reference_offset=*/0);
+    auto [right_active_mask, right_mask_column] =
+      gqe::utility::get_mask_from_filter(get_query_context()->parameters,
+                                         right_view,
+                                         std::move(_right_filter_condition),
+                                         /*column_reference_offset=*/left_view.num_columns());
+
     if (predicates.size() == 0) {
       // Only have equality join conditions
       auto const compare_nulls = join_keys.compare_nulls();
+
       switch (_join_type) {
         case join_type_type::inner: {
           if (_perfect_hashing) {
             switch (_unique_keys_policy) {
               case gqe::unique_keys_policy::left: {
                 GQE_LOG_TRACE("Join implementation: perfect_join.");
-                std::tie(left_indices, right_indices) =
-                  libperfect::perfect_join(left_keys, right_keys);
+                std::tie(left_indices, right_indices) = libperfect::perfect_join(
+                  left_keys, right_keys, left_active_mask, right_active_mask);
                 break;
               }
               case gqe::unique_keys_policy::right: {
                 GQE_LOG_TRACE("Join implementation: perfect_join.");
-                std::tie(right_indices, left_indices) =
-                  libperfect::perfect_join(right_keys, left_keys);
+                std::tie(right_indices, left_indices) = libperfect::perfect_join(
+                  right_keys, left_keys, right_active_mask, left_active_mask);
                 break;
               }
               default: {
@@ -770,14 +906,14 @@ void join_task::execute()
             switch (_unique_keys_policy) {
               case gqe::unique_keys_policy::left: {
                 GQE_LOG_TRACE("Join implementation: unique_key_inner_join.");
-                std::tie(left_indices, right_indices) =
-                  unique_key_inner_join(left_keys, right_keys, compare_nulls);
+                std::tie(left_indices, right_indices) = unique_key_inner_join(
+                  left_keys, right_keys, left_active_mask, right_active_mask, compare_nulls);
                 break;
               }
               case gqe::unique_keys_policy::right: {
                 GQE_LOG_TRACE("Join implementation: unique_key_inner_join.");
-                std::tie(right_indices, left_indices) =
-                  unique_key_inner_join(right_keys, left_keys, compare_nulls);
+                std::tie(right_indices, left_indices) = unique_key_inner_join(
+                  right_keys, left_keys, right_active_mask, left_active_mask, compare_nulls);
                 break;
               }
               default: {
@@ -845,6 +981,7 @@ void join_task::execute()
         default: throw std::logic_error("Unknown join type for equality join");
       }
     } else {
+      // Convert the non-equality join condition into a cuDF AST expression
       predicate_rewriter::cache_type cache;
       cudf::ast::expression const& predicate_ast =
         *parse_predicates(cache, predicates, predicates[0]->clone(), left_view.num_columns());

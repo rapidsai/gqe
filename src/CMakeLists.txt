@@ -121,6 +121,7 @@ add_library(
     utility/tpcds.cpp
     utility/tpch.cpp
     utility/mpi_helpers.cpp
+    utility/kernel_fusion_helpers.cpp
     catalog.cpp
     query_context.cpp
     task_manager_context.cpp

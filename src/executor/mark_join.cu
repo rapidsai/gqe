@@ -15,6 +15,7 @@
 
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
+#include <gqe/utility/kernel_fusion_helpers.hpp>
 #include <gqe/utility/logger.hpp>
 
 #include <cooperative_groups.h>
@@ -97,6 +98,7 @@ cuco::extent<std::size_t> get_bloom_filter_blocks(std::size_t filter_bytes)
  * addition to equality
  * @tparam has_nulls is passed through to cuDF AST evaluation
  * @tparam is_low_selectivity is a heuristic hint for compile-time optimization of some branches
+ * @tparam has_probe_mask indicates if a probe mask is valud or not
  */
 template <int32_t block_size,
           typename ComparatorAdapterType,
@@ -105,7 +107,8 @@ template <int32_t block_size,
           uint32_t cg_size,
           bool has_nulls,
           bool is_mixed,
-          bool is_low_selectivity>
+          bool is_low_selectivity,
+          bool has_probe_mask>
 __global__ __launch_bounds__(block_size) void mark_probe(
   cudf::table_device_view const build_conditional_table,
   cudf::table_device_view const probe_conditional_table,
@@ -113,6 +116,7 @@ __global__ __launch_bounds__(block_size) void mark_probe(
   MarkSetRefType mark_set_ref,
   ComparatorAdapterType join_predicate,
   ProbeKeyType const* __restrict__ probe_rows,
+  bool const* probe_mask,
   cudf::size_type num_rows,
   cudf::size_type* global_mark_counter_ref)
 {
@@ -157,9 +161,10 @@ __global__ __launch_bounds__(block_size) void mark_probe(
 
   for (cudf::size_type i = grid.thread_rank() / cg_size; i < loop_bound;
        i += grid.num_threads() / cg_size) {
-    int32_t sync_mask = tile.ballot(i < num_rows);
+    bool is_active    = (i < num_rows) && (!has_probe_mask || probe_mask[i]);
+    int32_t sync_mask = tile.ballot(is_active);
 
-    if (i < num_rows) {
+    if (is_active) {
       // Warp divergence slows down the read.
       __syncwarp(sync_mask);
       ProbeKeyType query = probe_rows[i];
@@ -247,9 +252,13 @@ __global__ __launch_bounds__(block_size) void mark_probe(
  * array
  * @param[in] op the input operator
  */
-template <int32_t block_size, typename InputType, typename OutputType, typename TaskOperator>
+template <int32_t block_size,
+          typename InputType,
+          typename OutputType,
+          typename TaskOperator,
+          bool has_mask>
 __global__ __launch_bounds__(block_size) void iterator_to_vector_if(
-  OutputType* out, cudf::size_type* global_offset_ref, TaskOperator op)
+  OutputType* out, cudf::size_type* global_offset_ref, TaskOperator op, bool const* mask)
 {
   // currently, we use 1 element per bucket for performance.
   // leaving this functionality in because it doesn't hurt perf and we may find a way to tune it
@@ -283,7 +292,7 @@ __global__ __launch_bounds__(block_size) void iterator_to_vector_if(
     if (i < op.num_buckets()) {
       auto bucket = op.get_bucket(i);
       slot        = bucket[bucket_tile.thread_rank()];
-      do_fill     = op.predicate(slot);
+      do_fill     = op.predicate(slot) && (!has_mask || mask[i]);
     }
     // If any thread has output to write, enter buffer filling stage, else move on.
     bool work_todo = tile.any(do_fill);
@@ -350,14 +359,16 @@ __global__ __launch_bounds__(block_size) void iter_to_column(InputIteratorType f
 }
 
 mark_join::mark_join(cudf::table_view const& build,
+                     cudf::column_view const& build_mask,
                      bool is_cached,
                      cudf::null_equality compare_nulls,
                      double load_factor,
                      rmm::cuda_stream_view stream,
                      rmm::device_async_resource_ref mr)
   : _build{build},
+    _build_num_valid_rows(gqe::utility::get_num_active_keys(build.num_rows(), build_mask)),
     _nulls_equal{compare_nulls},
-    _mark_set{build.num_rows(),
+    _mark_set{_build_num_valid_rows,
               load_factor,
               cuco::empty_key{
                 cuco::pair{detail::unset_mark(std::numeric_limits<cudf::hash_value_type>::max()),
@@ -398,13 +409,29 @@ mark_join::mark_join(cudf::table_view const& build,
     build_input_pair{hashes.data()};
   auto const build_iter = cudf::detail::make_counting_transform_iterator(0, build_input_pair);
 
-  _mark_set.insert_async(build_iter, build_iter + build_device_view->num_rows(), stream.value());
-  _bloom_filter.add_async(hashes.begin(), hashes.end(), stream.value());
+  if (build_mask.is_empty()) {
+    _mark_set.insert_async(build_iter, build_iter + build_device_view->num_rows(), stream.value());
+    _bloom_filter.add_async(hashes.begin(), hashes.end(), stream.value());
+  } else {
+    GQE_EXPECTS(build_mask.type().id() == cudf::type_id::BOOL8,
+                "The build mask of mark join is not a boolean column");
+    _mark_set.insert_if_async(build_iter,
+                              build_iter + build_device_view->num_rows(),
+                              build_mask.data<bool>(),
+                              gqe::utility::identity_pred{},
+                              stream.value());
+    _bloom_filter.add_if_async(hashes.begin(),
+                               hashes.end(),
+                               build_mask.data<bool>(),
+                               gqe::utility::identity_pred{},
+                               stream.value());
+  }
 }
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 mark_join::perform_mark_join(cudf::table_view const& probe,
+                             cudf::column_view const& probe_mask,
                              bool is_anti_join,
                              cudf::table_view const& left_conditional,
                              cudf::table_view const& right_conditional,
@@ -449,6 +476,7 @@ mark_join::perform_mark_join(cudf::table_view const& probe,
       return _perform_mark_join<comparator_type, true, is_mixed>(*probe_equality_keys_view,
                                                                  *build_conditional_keys_view,
                                                                  *probe_conditional_keys_view,
+                                                                 probe_mask,
                                                                  device_expression_data,
                                                                  comparator_adapter,
                                                                  is_anti_join,
@@ -459,6 +487,7 @@ mark_join::perform_mark_join(cudf::table_view const& probe,
       return _perform_mark_join<comparator_type, false, is_mixed>(*probe_equality_keys_view,
                                                                   *build_conditional_keys_view,
                                                                   *probe_conditional_keys_view,
+                                                                  probe_mask,
                                                                   device_expression_data,
                                                                   comparator_adapter,
                                                                   is_anti_join,
@@ -473,6 +502,7 @@ mark_join::perform_mark_join(cudf::table_view const& probe,
   return _perform_mark_join<comparator_type, has_nulls, is_mixed>(*probe_equality_keys_view,
                                                                   *build_conditional_keys_view,
                                                                   *probe_conditional_keys_view,
+                                                                  probe_mask,
                                                                   device_expression_data,
                                                                   comparator_adapter,
                                                                   is_anti_join,
@@ -488,7 +518,8 @@ template <int32_t block_size,
           typename InputIteratorType,
           uint32_t cg_size,
           bool has_nulls,
-          bool is_mixed>
+          bool is_mixed,
+          bool has_probe_mask>
 static auto get_mark_probe_kernel(bool is_low_selectivity)
 {
   if (is_low_selectivity) {
@@ -499,7 +530,8 @@ static auto get_mark_probe_kernel(bool is_low_selectivity)
                       cg_size,
                       has_nulls,
                       is_mixed,
-                      true>;
+                      true,
+                      has_probe_mask>;
   } else {
     return mark_probe<block_size,
                       ComparatorAdapterType,
@@ -508,7 +540,8 @@ static auto get_mark_probe_kernel(bool is_low_selectivity)
                       cg_size,
                       has_nulls,
                       is_mixed,
-                      false>;
+                      false,
+                      has_probe_mask>;
   }
 }
 
@@ -525,6 +558,7 @@ mark_join::_perform_mark_join(
   cudf::table_device_view const& probe_equality_device_view,
   cudf::table_device_view const& build_conditional_device_view,
   cudf::table_device_view const& probe_conditional_device_view,
+  cudf::column_view const& probe_mask,
   cudf::ast::detail::expression_device_view const& expression_device_view,
   ComparatorAdapterType const& comparator_adapter,
   bool is_anti_join,
@@ -542,7 +576,10 @@ mark_join::_perform_mark_join(
   auto const d_probe_hasher = build_hasher_type{probe_equality_device_view};
   const create_input_pair<build_hasher_type, cudf::experimental::row::lhs_index_type>
     probe_input_pair{d_probe_hasher};
-  auto const row_iter = cudf::detail::make_counting_transform_iterator(0, probe_input_pair);
+  auto const row_iter        = cudf::detail::make_counting_transform_iterator(0, probe_input_pair);
+  auto const probe_mask_iter = probe_mask.is_empty() ? nullptr : probe_mask.data<bool>();
+  GQE_EXPECTS(probe_mask.is_empty() || probe_mask.type().id() == cudf::type_id::BOOL8,
+              "The probe mask of mark join is not a boolean column");
 
   auto bloom_filter_ref = _bloom_filter.ref();
   // Output remaining rows and the counter for remaining rows.
@@ -553,24 +590,27 @@ mark_join::_perform_mark_join(
     prefilter_op{row_iter, bloom_filter_ref, probe_equality_device_view.num_rows()};
   // row filter kernel
   auto row_filter_kernel =
-    iterator_to_vector_if<block_size, ProbeKeyType, ProbeKeyType, decltype(prefilter_op)>;
+    probe_mask.is_empty()
+      ? iterator_to_vector_if<block_size, ProbeKeyType, ProbeKeyType, decltype(prefilter_op), false>
+      : iterator_to_vector_if<block_size, ProbeKeyType, ProbeKeyType, decltype(prefilter_op), true>;
   int row_filter_grid_size = utility::detect_launch_grid_size(row_filter_kernel, block_size, 0);
   row_filter_kernel<<<row_filter_grid_size, block_size, 0, stream>>>(
-    probe_rows.data(), row_offset_counter.data(), prefilter_op);
-
+    probe_rows.data(), row_offset_counter.data(), prefilter_op, probe_mask_iter);
   GQE_LOG_TRACE("mark rowfilter count offset={}", row_offset_counter.value(stream));
 
   auto mark_set_ref                 = _mark_set.ref(cuco::op::contains_tag{});
   using mark_set_key_type           = typename decltype(mark_set_ref)::key_type;
   const int shared_memory_per_block = shared_memory_per_thread * block_size;
   // Perform hash table probe against remaining rows
-  auto mark_probe_kernel = get_mark_probe_kernel<block_size,
-                                                 ComparatorAdapterType,
-                                                 decltype(mark_set_ref),
-                                                 ProbeKeyType,
-                                                 _slots_per_bucket,  // cg_size
-                                                 has_nulls,
-                                                 is_mixed>(this->is_low_selectivity());
+  auto mark_probe_kernel =
+    get_mark_probe_kernel<block_size,
+                          ComparatorAdapterType,
+                          decltype(mark_set_ref),
+                          ProbeKeyType,
+                          _slots_per_bucket,  // cg_size
+                          has_nulls,
+                          is_mixed,
+                          /*has_probe_mask=*/false>(this->is_low_selectivity());
   int probe_grid_size =
     utility::detect_launch_grid_size(mark_probe_kernel, block_size, shared_memory_per_block);
 
@@ -582,6 +622,7 @@ mark_join::_perform_mark_join(
     mark_set_ref,
     comparator_adapter,
     probe_rows.data(),
+    /*probe_mask=*/nullptr,  // already applied in prefilter
     row_offset_counter.value(stream),
     mark_counter.data());
   cudf::size_type marked_row_count = mark_counter.value(stream);
@@ -623,7 +664,7 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mark_join::_mark_scan(
   using mark_set_key_type               = typename decltype(mark_set_ref)::key_type;
   // num_marks should not change while we are in this function; loading once should be fine
   cudf::size_type num_marks        = _num_marks.load();
-  cudf::size_type result_row_count = is_anti_join ? _build.num_rows() - num_marks : num_marks;
+  cudf::size_type result_row_count = is_anti_join ? _build_num_valid_rows - num_marks : num_marks;
 
   rmm::device_uvector<cudf::size_type> build_positions(result_row_count, stream, mr);
   rmm::device_scalar<cudf::size_type> mark_scan_offset(0, stream, mr);
@@ -636,14 +677,17 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mark_join::_mark_scan(
     mark_scan_op{
       mark_set_ref, mark_set_ref.storage_ref(), mark_set_ref.storage_ref().num_buckets()};
 
-  auto mark_scan_kernel =
-    iterator_to_vector_if<block_size, mark_set_key_type, cudf::size_type, decltype(mark_scan_op)>;
+  auto mark_scan_kernel = iterator_to_vector_if<block_size,
+                                                mark_set_key_type,
+                                                cudf::size_type,
+                                                decltype(mark_scan_op),
+                                                /*has_mask=*/false>;
 
   int scan_grid_size =
     utility::detect_launch_grid_size(mark_scan_kernel, block_size, shared_memory_per_block);
 
   mark_scan_kernel<<<scan_grid_size, block_size, 0, stream>>>(
-    build_positions.data(), mark_scan_offset.data(), mark_scan_op);
+    build_positions.data(), mark_scan_offset.data(), mark_scan_op, /*mask=*/nullptr);
 
   GQE_LOG_TRACE("mark join scan offset={}", mark_scan_offset.value(stream));
 
@@ -655,19 +699,21 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mark_join::_mark_scan(
 mark_join::~mark_join() = default;
 
 mark_join::mark_join(cudf::table_view const& build,
+                     cudf::column_view const& build_mask,
                      bool is_cached,
                      cudf::null_equality compare_nulls,
                      double load_factor,
                      rmm::cuda_stream_view stream,
                      rmm::device_async_resource_ref mr)
 {
-  _impl =
-    std::make_unique<detail::mark_join>(build, is_cached, compare_nulls, load_factor, stream, mr);
+  _impl = std::make_unique<detail::mark_join>(
+    build, build_mask, is_cached, compare_nulls, load_factor, stream, mr);
 }
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 mark_join::perform_mark_join(cudf::table_view const& probe,
+                             cudf::column_view const& probe_mask,
                              bool is_anti_join,
                              cudf::table_view const& left_conditional,
                              cudf::table_view const& right_conditional,
@@ -675,8 +721,14 @@ mark_join::perform_mark_join(cudf::table_view const& probe,
                              rmm::cuda_stream_view stream,
                              rmm::device_async_resource_ref mr) const
 {
-  return _impl->perform_mark_join(
-    probe, is_anti_join, left_conditional, right_conditional, binary_predicate, stream, mr);
+  return _impl->perform_mark_join(probe,
+                                  probe_mask,
+                                  is_anti_join,
+                                  left_conditional,
+                                  right_conditional,
+                                  binary_predicate,
+                                  stream,
+                                  mr);
 }
 
 std::unique_ptr<rmm::device_uvector<cudf::size_type>>
@@ -697,13 +749,16 @@ static inline std::unique_ptr<rmm::device_uvector<cudf::size_type>> uniform_left
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  cudf::column_view empty_mask;
   // there is no AST to evaluate for equality join
   constexpr cudf::ast::expression const* binary_predicate = nullptr;
   constexpr bool is_cached                                = false;
   auto build_equality_keys_view = cudf::table_device_view::create(left_equality, stream);
   auto probe_equality_keys_view = cudf::table_device_view::create(right_equality, stream);
-  auto join_obj  = gqe::mark_join(left_equality, is_cached, compare_nulls, load_factor, stream, mr);
+  auto join_obj =
+    gqe::mark_join(left_equality, empty_mask, is_cached, compare_nulls, load_factor, stream, mr);
   auto positions = join_obj.perform_mark_join(right_equality,
+                                              empty_mask,
                                               is_anti_join,
                                               cudf::table_view({}),
                                               cudf::table_view({}),
@@ -760,9 +815,12 @@ static inline std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_m
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  cudf::column_view empty_mask;
   constexpr bool is_cached = false;
-  auto join_obj  = gqe::mark_join(left_equality, is_cached, compare_nulls, load_factor, stream, mr);
+  auto join_obj =
+    gqe::mark_join(left_equality, empty_mask, is_cached, compare_nulls, load_factor, stream, mr);
   auto positions = join_obj.perform_mark_join(right_equality,
+                                              empty_mask,
                                               is_anti_join,
                                               left_conditional,
                                               right_conditional,

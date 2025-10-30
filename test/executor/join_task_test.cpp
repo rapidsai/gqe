@@ -173,6 +173,8 @@ class SingleKeyColumnJoinTest
                                                  !late_materialize,
                                                  gqe::unique_keys_policy::none,
                                                  false,  // perfect_hashing
+                                                 /*left_filter_condition=*/nullptr,
+                                                 /*right_filter_condition=*/nullptr,
                                                  mark_join);
 
     if (late_materialize) {
@@ -502,10 +504,17 @@ TEST(HashMapCache, HashJoin)
   for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
     threads.emplace_back(
       [thread_idx, left_view, right_view, &cache, &left_num_matches, &right_num_matches]() {
-        auto const hash_join =
-          cache.hash_map(left_view, gqe::join_algorithm::HASH_JOIN, cudf::null_equality::UNEQUAL);
+        cudf::table_view empty_table;
+        cudf::column_view empty_mask;
+        auto const hash_join = cache.hash_map(left_view,
+                                              empty_table,
+                                              /*build_column_offset=*/0,
+                                              /*build_filer=*/nullptr,
+                                              gqe::optimization_parameters(true),
+                                              gqe::join_algorithm::HASH_JOIN,
+                                              cudf::null_equality::UNEQUAL);
         auto [right_indices, left_indices] =
-          hash_join->probe(right_view, gqe::join_type_type::inner);
+          hash_join->probe(right_view, empty_mask, gqe::join_type_type::inner);
 
         left_num_matches[thread_idx]  = left_indices->size();
         right_num_matches[thread_idx] = right_indices->size();
@@ -552,10 +561,17 @@ TEST(HashMapCache, UniqueKeyJoin)
   for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
     threads.emplace_back(
       [thread_idx, left_view, right_view, &cache, &left_num_matches, &right_num_matches]() {
-        auto const hash_join = cache.hash_map(
-          left_view, gqe::join_algorithm::UNIQUE_KEY_JOIN, cudf::null_equality::UNEQUAL);
+        cudf::table_view empty_table;
+        cudf::column_view empty_mask;
+        auto const hash_join = cache.hash_map(left_view,
+                                              empty_table,
+                                              /*build_column_offset=*/0,
+                                              /*build_filer=*/nullptr,
+                                              gqe::optimization_parameters(true),
+                                              gqe::join_algorithm::UNIQUE_KEY_JOIN,
+                                              cudf::null_equality::UNEQUAL);
         auto [right_indices, left_indices] =
-          hash_join->probe(right_view, gqe::join_type_type::inner);
+          hash_join->probe(right_view, empty_mask, gqe::join_type_type::inner);
 
         left_num_matches[thread_idx]  = left_indices->size();
         right_num_matches[thread_idx] = right_indices->size();
@@ -573,6 +589,82 @@ TEST(HashMapCache, UniqueKeyJoin)
   for (auto const& num_matches : right_num_matches) {
     EXPECT_EQ(num_matches, 5);
   }
+}
+
+TEST(HashMapCache, UniqueKeyJoinWithFilter)
+{
+  int64_column_wrapper left_key({1, 2, 3, 4, 5});
+  int64_column_wrapper right_key({3, 1, 5, 1, 2});
+  std::vector<bool> probe_mask_data1             = {false, true, true, true, true};
+  std::vector<bool> probe_mask_data2             = {false, false, true, true, true};
+  std::vector<bool> probe_mask_data3             = {false, false, false, true, true};
+  std::vector<bool> probe_mask_data4             = {false, false, false, false, true};
+  std::vector<std::vector<bool>> probe_mask_data = {
+    probe_mask_data1, probe_mask_data2, probe_mask_data3, probe_mask_data4};
+
+  std::vector<std::unique_ptr<cudf::column>> left_table_columns;
+  left_table_columns.push_back(left_key.release());
+  auto left_table = std::make_unique<cudf::table>(std::move(left_table_columns));
+  auto left_view  = left_table->view();
+
+  std::vector<std::unique_ptr<cudf::column>> right_table_columns;
+  right_table_columns.push_back(right_key.release());
+  auto right_table = std::make_unique<cudf::table>(std::move(right_table_columns));
+  auto right_view  = right_table->view();
+
+  gqe::join_hash_map_cache cache(gqe::join_hash_map_cache::build_location::left);
+
+  constexpr std::size_t num_threads = 4;
+  std::vector<std::thread> threads;
+  threads.reserve(num_threads);
+
+  std::vector<std::size_t> left_num_matches(num_threads, 0);
+  std::vector<std::size_t> right_num_matches(num_threads, 0);
+
+  // Filter out left_key == 3
+  auto build_filter = std::make_unique<gqe::not_equal_expression>(
+    std::make_shared<gqe::column_reference_expression>(0),
+    std::make_shared<gqe::literal_expression<int64_t>>(3));
+  for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
+    threads.emplace_back([thread_idx,
+                          left_view,
+                          right_view,
+                          &cache,
+                          &left_num_matches,
+                          &right_num_matches,
+                          build_filter = build_filter.get(),
+                          &probe_mask_data]() {
+      cudf::table_view empty_table;
+      auto const hash_join = cache.hash_map(left_view,
+                                            empty_table,
+                                            /*build_column_offset=*/0,
+                                            build_filter->clone(),
+                                            gqe::optimization_parameters(true),
+                                            gqe::join_algorithm::UNIQUE_KEY_JOIN,
+                                            cudf::null_equality::UNEQUAL);
+      cudf::test::fixed_width_column_wrapper<bool> probe_mask(probe_mask_data[thread_idx].begin(),
+                                                              probe_mask_data[thread_idx].end());
+      auto [right_indices, left_indices] =
+        hash_join->probe(right_view, probe_mask, gqe::join_type_type::inner);
+
+      left_num_matches[thread_idx]  = left_indices->size();
+      right_num_matches[thread_idx] = right_indices->size();
+    });
+  }
+
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  EXPECT_EQ(left_num_matches[0], 4);
+  EXPECT_EQ(left_num_matches[1], 3);
+  EXPECT_EQ(left_num_matches[2], 2);
+  EXPECT_EQ(left_num_matches[3], 1);
+
+  EXPECT_EQ(right_num_matches[0], 4);
+  EXPECT_EQ(right_num_matches[1], 3);
+  EXPECT_EQ(right_num_matches[2], 2);
+  EXPECT_EQ(right_num_matches[3], 1);
 }
 
 class NonEqualityJoinConditionTest : public ::testing::Test {
@@ -1130,6 +1222,212 @@ TEST_F(MaterializeJoinFromPositionListsTest, LeftAnti)
   ASSERT_EQ(materialize_task_result.has_value(), true);
   CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(materialize_task_result.value(), ref_table->view());
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(materialize_task_result.value(), ref_table->view());
+}
+
+/*
+ * This test suite constructs the input tables with handpicked values. Both the left and the right
+ * table have 2 columns, 1 key column and 1 payload column.
+ */
+class SingleKeyColumnJoinWithFilterTest : public ::testing::Test {
+ protected:
+  SingleKeyColumnJoinWithFilterTest()
+    : task_manager_ctx{},
+      query_ctx(gqe::optimization_parameters(true)),
+      ctx_ref{&task_manager_ctx, &query_ctx}
+  {
+  }
+  void construct_join_task(gqe::join_type_type join_type,
+                           std::vector<cudf::size_type> projection_indices,
+                           cache_strategy strategy,
+                           bool perfect_hashing)
+  {
+    // Left table keys are unique here.
+    int64_column_wrapper left_key({1, 2, 3, 4, 5, 6});
+    int64_column_wrapper left_payload({5, 4, 3, 2, 1, 0});
+    int64_column_wrapper right_key({3, 1, 5, 3, 2});
+    int64_column_wrapper right_payload({0, 1, 2, 3, 4});
+
+    std::vector<std::unique_ptr<cudf::column>> left_table_columns;
+    left_table_columns.push_back(left_key.release());
+    left_table_columns.push_back(left_payload.release());
+    auto left_table = std::make_unique<cudf::table>(std::move(left_table_columns));
+
+    std::vector<std::unique_ptr<cudf::column>> right_table_columns;
+    right_table_columns.push_back(right_key.release());
+    right_table_columns.push_back(right_payload.release());
+    auto right_table = std::make_unique<cudf::table>(std::move(right_table_columns));
+
+    constexpr int32_t left_task_id  = 0;
+    constexpr int32_t right_task_id = 1;
+    constexpr int32_t join_task_id  = 2;
+    constexpr int32_t stage_id      = 0;
+
+    auto left_task = std::make_shared<gqe::test::executed_task>(
+      ctx_ref, left_task_id, stage_id, std::move(left_table));
+    auto right_task = std::make_shared<gqe::test::executed_task>(
+      ctx_ref, right_task_id, stage_id, std::move(right_table));
+    auto join_condition = std::make_unique<gqe::equal_expression>(
+      std::make_shared<gqe::column_reference_expression>(0),
+      std::make_shared<gqe::column_reference_expression>(2));
+
+    // Left key > 2
+    auto left_filter_condition = std::make_unique<gqe::greater_expression>(
+      std::make_shared<gqe::column_reference_expression>(0),
+      std::make_shared<gqe::literal_expression<int64_t>>(2));
+
+    // Right key != 2
+    auto right_filter_condition = std::make_unique<gqe::not_equal_expression>(
+      std::make_shared<gqe::column_reference_expression>(2),
+      std::make_shared<gqe::literal_expression<int64_t>>(2));
+
+    std::shared_ptr<gqe::join_hash_map_cache> hash_map_cache = nullptr;
+    if (strategy == cache_strategy::use_cache) {
+      hash_map_cache =
+        std::make_shared<gqe::join_hash_map_cache>(gqe::join_hash_map_cache::build_location::left);
+    }
+
+    const bool late_materialize =
+      join_type == gqe::join_type_type::left_semi || join_type == gqe::join_type_type::left_anti;
+
+    join_task = std::make_shared<gqe::join_task>(ctx_ref,
+                                                 join_task_id,
+                                                 stage_id,
+                                                 left_task,
+                                                 right_task,
+                                                 join_type,
+                                                 std::move(join_condition),
+                                                 projection_indices,
+                                                 hash_map_cache,
+                                                 !late_materialize,
+                                                 gqe::unique_keys_policy::left,
+                                                 perfect_hashing,
+                                                 std::move(left_filter_condition),
+                                                 std::move(right_filter_condition),
+                                                 /*mark_join=*/true);
+
+    if (late_materialize) {
+      std::vector<std::shared_ptr<gqe::task>> tasks{{join_task}};
+      late_materialization = std::make_shared<gqe::materialize_join_from_position_lists_task>(
+        ctx_ref,
+        join_task_id + 1,
+        stage_id,
+        std::move(left_task),  // left table
+        std::move(tasks),      // positions lists
+        join_type,             // join type
+        projection_indices,    // projection indices
+        hash_map_cache,        // hash map
+        true);                 // use mark join
+    }
+  }
+
+  static void verify_inner_join(std::optional<cudf::table_view> join_result)
+  {
+    ASSERT_EQ(join_result.has_value(), true);
+    auto join_result_sorted = cudf::sort(*join_result);
+
+    int64_column_wrapper ref_result_col0({3, 3, 5});
+    int64_column_wrapper ref_result_col1({3, 3, 1});
+    int64_column_wrapper ref_result_col2({0, 3, 2});
+
+    std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+    ref_result_columns.push_back(ref_result_col0.release());
+    ref_result_columns.push_back(ref_result_col1.release());
+    ref_result_columns.push_back(ref_result_col2.release());
+
+    auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+  }
+
+  static void verify_left_semi_join(std::optional<cudf::table_view> join_result)
+  {
+    ASSERT_EQ(join_result.has_value(), true);
+    auto join_result_sorted = cudf::sort(*join_result);
+
+    int64_column_wrapper ref_result_col0({3, 5});
+    int64_column_wrapper ref_result_col1({3, 1});
+
+    std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+    ref_result_columns.push_back(ref_result_col0.release());
+    ref_result_columns.push_back(ref_result_col1.release());
+
+    auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+  }
+
+  static void verify_left_anti_join(std::optional<cudf::table_view> join_result)
+  {
+    ASSERT_EQ(join_result.has_value(), true);
+    auto join_result_sorted = cudf::sort(*join_result);
+
+    int64_column_wrapper ref_result_col0({4, 6});
+    int64_column_wrapper ref_result_col1({2, 0});
+
+    std::vector<std::unique_ptr<cudf::column>> ref_result_columns;
+    ref_result_columns.push_back(ref_result_col0.release());
+    ref_result_columns.push_back(ref_result_col1.release());
+
+    auto ref_result_table = std::make_unique<cudf::table>(std::move(ref_result_columns));
+
+    CUDF_TEST_EXPECT_TABLE_PROPERTIES_EQUAL(join_result_sorted->view(), ref_result_table->view());
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
+  }
+
+  gqe::task_manager_context task_manager_ctx;
+  gqe::query_context query_ctx;
+  gqe::context_reference ctx_ref;
+  std::shared_ptr<gqe::join_task> join_task;
+  std::shared_ptr<gqe::materialize_join_from_position_lists_task> late_materialization;
+};
+
+TEST_F(SingleKeyColumnJoinWithFilterTest, InnerJoinWithFilter)
+{
+  construct_join_task(
+    gqe::join_type_type::inner, {0, 1, 3}, cache_strategy::recompute, /*perfect_hashing=*/false);
+  join_task->execute();
+
+  verify_inner_join(join_task->result());
+}
+
+TEST_F(SingleKeyColumnJoinWithFilterTest, PerfectJoinWithFilter)
+{
+  construct_join_task(
+    gqe::join_type_type::inner, {0, 1, 3}, cache_strategy::recompute, /*perfect_hashing=*/true);
+  join_task->execute();
+
+  verify_inner_join(join_task->result());
+}
+
+TEST_F(SingleKeyColumnJoinWithFilterTest, CachedInnerJoinWithFilter)
+{
+  construct_join_task(
+    gqe::join_type_type::inner, {0, 1, 3}, cache_strategy::use_cache, /*perfect_hashing=*/false);
+  join_task->execute();
+
+  verify_inner_join(join_task->result());
+}
+
+TEST_F(SingleKeyColumnJoinWithFilterTest, CachedLeftSemiMarkJoinWithFilter)
+{
+  construct_join_task(
+    gqe::join_type_type::left_semi, {0, 1}, cache_strategy::use_cache, /*perfect_hashing=*/false);
+  join_task->execute();
+  late_materialization->execute();
+
+  verify_left_semi_join(late_materialization->result());
+}
+
+TEST_F(SingleKeyColumnJoinWithFilterTest, CachedLeftAntiMarkJoinWithFilter)
+{
+  construct_join_task(
+    gqe::join_type_type::left_anti, {0, 1}, cache_strategy::use_cache, /*perfect_hashing=*/false);
+  join_task->execute();
+  late_materialization->execute();
+
+  verify_left_anti_join(late_materialization->result());
 }
 
 // TODO: Add a test on multi column join keys

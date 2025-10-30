@@ -63,7 +63,10 @@ std::vector<ConstCudaGpuBufferPointer> table_to_buffers(cudf::table_view const& 
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-perfect_join(const cudf::table_view& left_keys, const cudf::table_view& right_keys)
+perfect_join(const cudf::table_view& left_keys,
+             const cudf::table_view& right_keys,
+             const cudf::column_view& left_mask,
+             const cudf::column_view& right_mask)
 {
   if (right_keys.num_rows() == 0 || left_keys.num_rows() == 0) {
     return std::make_pair(
@@ -85,12 +88,28 @@ perfect_join(const cudf::table_view& left_keys, const cudf::table_view& right_ke
   }
   std::vector<ConstCudaGpuBufferPointer> left  = table_to_buffers(left_keys);
   std::vector<ConstCudaGpuBufferPointer> right = table_to_buffers(right_keys);
-  auto ret                                     = masked_join(left,
+  if (!left_mask.is_empty()) {
+    assert(left_mask.type().id() == cudf::type_id::BOOL8);
+    assert(left_mask.size() == left_keys.num_rows());
+  }
+  if (!right_mask.is_empty()) {
+    assert(right_mask.type().id() == cudf::type_id::BOOL8);
+    assert(right_mask.size() == right_keys.num_rows());
+  }
+  std::optional<ConstCudaGpuBufferPointer> left_mask_ptr =
+    left_mask.is_empty() ? std::nullopt
+                         : std::make_optional(ConstCudaGpuBufferPointer(left_mask.data<bool>(),
+                                                                        left_mask.type().id()));
+  std::optional<ConstCudaGpuBufferPointer> right_mask_ptr =
+    right_mask.is_empty() ? std::nullopt
+                          : std::make_optional(ConstCudaGpuBufferPointer(right_mask.data<bool>(),
+                                                                         right_mask.type().id()));
+  auto ret          = masked_join(left,
                          left_keys.num_rows(),
                          right,
                          right_keys.num_rows(),
-                         std::nullopt,
-                         std::nullopt,
+                         left_mask_ptr,
+                         right_mask_ptr,
                          true,
                          false,
                          false);

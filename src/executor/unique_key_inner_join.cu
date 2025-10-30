@@ -16,6 +16,7 @@
 #include <gqe/executor/unique_key_inner_join.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
+#include <gqe/utility/kernel_fusion_helpers.hpp>
 
 #include <cuco/probing_scheme.cuh>
 #include <cuco/static_set.cuh>
@@ -144,10 +145,11 @@ __device__ void write_to_global(cudf::size_type* build_indices,
  * in a coalesced manner.The output location is calculated using
  * a global_offset variable, updated using atomic adds.
  */
-template <int block_size, typename SetRef, typename ProbeIter>
+template <int block_size, typename SetRef, typename ProbeIter, bool has_mask>
 __global__ void probe_hash_set(SetRef build_set_ref,
                                cudf::size_type probe_num_rows,
                                ProbeIter probe_iter,
+                               bool const* probe_mask,
                                cudf::size_type const in_rows_per_block,
                                cudf::size_type* build_indices,
                                cudf::size_type* probe_indices,
@@ -175,7 +177,7 @@ __global__ void probe_hash_set(SetRef build_set_ref,
     int16_t num_matches       = 0;  // 0 for no matches, 1 for a match
     cudf::size_type tuple_idx = -1;
 
-    if (thread_row_idx < end_idx) {
+    if (thread_row_idx < end_idx && (!has_mask || probe_mask[thread_row_idx])) {
       auto const tuple = build_set_ref.find(*(probe_iter + thread_row_idx));
       if (tuple != build_set_ref.end()) {
         tuple_idx   = static_cast<cudf::size_type>(tuple->second);
@@ -212,6 +214,7 @@ cudf::size_type perform_join(Set const& build_set,
                              cudf::table_view const& build_keys,
                              cudf::size_type* build_indices,
                              cudf::table_view const& probe_keys,
+                             cudf::column_view const& probe_mask,
                              cudf::size_type* probe_indices,
                              cudf::null_equality compare_nulls,
                              rmm::cuda_stream_view stream = cudf::get_default_stream())
@@ -233,6 +236,9 @@ cudf::size_type perform_join(Set const& build_set,
     0,
     create_input_pair<decltype(d_probe_hasher), cudf::experimental::row::lhs_index_type>{
       d_probe_hasher});
+  auto const probe_mask_iter = probe_mask.is_empty() ? nullptr : probe_mask.data<bool>();
+  GQE_EXPECTS(probe_mask.is_empty() || probe_mask.type().id() == cudf::type_id::BOOL8,
+              "The probe mask of unique key inner join is not a boolean column");
 
   // Thread block size of the "probe_hash_set" kernel, must be a multiple of `warp_size`
   constexpr int block_size = 128;
@@ -241,19 +247,22 @@ cudf::size_type perform_join(Set const& build_set,
   auto build_set_ref  = build_set_base.rebind_key_eq(comparator_adapter_obj);
 
   auto probe_hash_set_kernel =
-    probe_hash_set<block_size, decltype(build_set_ref), decltype(probe_iter)>;
+    probe_mask_iter == nullptr
+      ? probe_hash_set<block_size, decltype(build_set_ref), decltype(probe_iter), false>
+      : probe_hash_set<block_size, decltype(build_set_ref), decltype(probe_iter), true>;
   int grid_size = utility::detect_launch_grid_size(probe_hash_set_kernel, block_size);
 
   auto const in_rows_per_block = gqe::utility::divide_round_up(probe_keys.num_rows(), grid_size);
   rmm::device_scalar<cudf::size_type> global_offset(0, stream);
 
-  probe_hash_set<block_size><<<grid_size, block_size, 0, stream>>>(build_set_ref,
-                                                                   probe_keys.num_rows(),
-                                                                   probe_iter,
-                                                                   in_rows_per_block,
-                                                                   build_indices,
-                                                                   probe_indices,
-                                                                   global_offset.data());
+  probe_hash_set_kernel<<<grid_size, block_size, 0, stream>>>(build_set_ref,
+                                                              probe_keys.num_rows(),
+                                                              probe_iter,
+                                                              probe_mask_iter,
+                                                              in_rows_per_block,
+                                                              build_indices,
+                                                              probe_indices,
+                                                              global_offset.data());
   stream.synchronize();
 
   return global_offset.value(stream);
@@ -265,6 +274,7 @@ std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
 unique_key_inner_join_impl(Set const& build_set,
                            cudf::table_view build_keys,
                            cudf::table_view probe_keys,
+                           cudf::column_view const& probe_mask,
                            cudf::null_equality compare_nulls,
                            rmm::cuda_stream_view stream,
                            rmm::device_async_resource_ref mr)
@@ -277,6 +287,7 @@ unique_key_inner_join_impl(Set const& build_set,
                                                 build_keys,
                                                 build_indices.data(),
                                                 probe_keys,
+                                                probe_mask,
                                                 probe_indices.data(),
                                                 compare_nulls,
                                                 stream);
@@ -295,13 +306,15 @@ unique_key_inner_join_impl(Set const& build_set,
 namespace detail {
 
 unique_key_join::unique_key_join(cudf::table_view const& build,
+                                 cudf::column_view const& build_mask,
                                  cudf::null_equality compare_nulls,
                                  float load_factor,
                                  rmm::cuda_stream_view stream,
                                  rmm::device_async_resource_ref mr)
   : _build{build},
+    _build_mask{build_mask},
     _nulls_equal{compare_nulls},
-    _build_set{build.num_rows(),
+    _build_set{gqe::utility::get_num_active_keys(build.num_rows(), build_mask),
                load_factor,
                cuco::empty_key{cuco::pair{std::numeric_limits<cudf::hash_value_type>::max(),
                                           cudf::experimental::row::rhs_index_type{-1}}},
@@ -327,12 +340,23 @@ unique_key_join::unique_key_join(cudf::table_view const& build,
     0,
     create_input_pair<decltype(d_build_hasher), cudf::experimental::row::rhs_index_type>{
       d_build_hasher});
-  _build_set.insert(build_iter, build_iter + build.num_rows(), stream.value());
+  if (build_mask.is_empty()) {
+    _build_set.insert(build_iter, build_iter + build.num_rows(), stream.value());
+  } else {
+    GQE_EXPECTS(build_mask.type().id() == cudf::type_id::BOOL8,
+                "The build mask of unique key inner join is not a boolean column");
+    _build_set.insert_if(build_iter,
+                         build_iter + build.num_rows(),
+                         build_mask.data<bool>(),
+                         gqe::utility::identity_pred{},
+                         stream.value());
+  }
 }
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 unique_key_join::inner_join(cudf::table_view const& probe,
+                            cudf::column_view const& probe_mask,
                             rmm::cuda_stream_view stream,
                             rmm::device_async_resource_ref mr) const
 {
@@ -356,7 +380,7 @@ unique_key_join::inner_join(cudf::table_view const& probe,
               "Mismatch in joining column data types");
 
   auto [build_indices, probe_indices] = unique_key_inner_join_impl(
-    this->_build_set, this->_build, probe, this->_nulls_equal, stream, mr);
+    this->_build_set, this->_build, probe, probe_mask, this->_nulls_equal, stream, mr);
 
   return std::pair(std::move(probe_indices), std::move(build_indices));
 }
@@ -364,20 +388,22 @@ unique_key_join::inner_join(cudf::table_view const& probe,
 }  // namespace detail
 
 unique_key_join::unique_key_join(cudf::table_view const& build,
+                                 cudf::column_view const& build_mask,
                                  cudf::null_equality compare_nulls,
                                  float load_factor,
                                  rmm::cuda_stream_view stream,
                                  rmm::device_async_resource_ref mr)
 {
-  _impl =
-    std::make_unique<gqe::detail::unique_key_join>(build, compare_nulls, load_factor, stream, mr);
+  _impl = std::make_unique<gqe::detail::unique_key_join>(
+    build, build_mask, compare_nulls, load_factor, stream, mr);
 }
 
 unique_key_join::unique_key_join(cudf::table_view const& build,
+                                 cudf::column_view const& build_mask,
                                  cudf::null_equality compare_nulls,
                                  rmm::cuda_stream_view stream,
                                  rmm::device_async_resource_ref mr)
-  : unique_key_join(build, compare_nulls, 0.5, stream, mr)
+  : unique_key_join(build, build_mask, compare_nulls, 0.5, stream, mr)
 {
 }
 
@@ -386,10 +412,11 @@ unique_key_join::~unique_key_join() = default;
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 unique_key_join::inner_join(cudf::table_view const& probe,
+                            cudf::column_view const& probe_mask,
                             rmm::cuda_stream_view stream,
                             rmm::device_async_resource_ref mr) const
 {
-  return _impl->inner_join(probe, stream, mr);
+  return _impl->inner_join(probe, probe_mask, stream, mr);
 }
 
 bool unique_key_join_supported(cudf::table_view const& keys)
@@ -403,6 +430,8 @@ std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 unique_key_inner_join(cudf::table_view const& build,
                       cudf::table_view const& probe,
+                      cudf::column_view const& build_mask,
+                      cudf::column_view const& probe_mask,
                       cudf::null_equality compare_nulls,
                       float load_factor,
                       rmm::cuda_stream_view stream,
@@ -411,11 +440,14 @@ unique_key_inner_join(cudf::table_view const& build,
   if (!gqe::unique_key_join_supported(build) || !gqe::unique_key_join_supported(probe)) {
     GQE_LOG_WARN("Using cudf's distinct hash join, since keys are not numeric datatype");
     cudf::distinct_hash_join join_obj(build, compare_nulls, load_factor, stream);
+    GQE_EXPECTS(build_mask.is_empty() && probe_mask.is_empty(),
+                "Filter conditions are only supported in unique key inner join or perfect "
+                "join with numeric join keys.");
     return join_obj.inner_join(probe, stream, mr);
   }
 
-  auto join_obj = gqe::unique_key_join(build, compare_nulls, load_factor, stream, mr);
-  auto [probe_indices, build_indices] = join_obj.inner_join(probe, stream, mr);
+  auto join_obj = gqe::unique_key_join(build, build_mask, compare_nulls, load_factor, stream, mr);
+  auto [probe_indices, build_indices] = join_obj.inner_join(probe, probe_mask, stream, mr);
   return std::pair(std::move(build_indices), std::move(probe_indices));
 }
 }  // namespace gqe

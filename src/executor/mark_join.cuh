@@ -367,12 +367,14 @@ class mark_join {
    * @brief Constructs a mark join object for subsequent probe calls
    *
    * @param build The build table that contains unique elements
+   * @param build_mask The build table mask that indicates valid rows.
    * @param compare_nulls Controls whether null join-key values should match or not
    * @param load_factor The load factor used for the underlying has htable
    * @param stream CUDA stream used for device memory operations and kernel launches
    * @param mr Device memory resource.
    */
   mark_join(cudf::table_view const& build,
+            cudf::column_view const& build_mask,
             bool is_cached,
             cudf::null_equality compare_nulls = cudf::null_equality::UNEQUAL,
             double load_factor                = 0.5,
@@ -383,7 +385,8 @@ class mark_join {
    * @brief Returns the row indices that can be used to construct the result of performing
    * the left semi or anti join.
    *
-   * @param probe The probe table, from which the keys are probed
+   * @param probe The probe table, from which the keys are probed.
+   * @param probe_mask The probe table mask that indicates valid rows.
    * @param is_anti_join Determines if result is based on semi join or anti join.
    * @param left_conditional If this is a mixed join, contains the left column indices.
    * @param right_conditional If this is a mixed join, contains the right column indices.
@@ -400,6 +403,7 @@ class mark_join {
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
   perform_mark_join(cudf::table_view const& probe,
+                    cudf::column_view const& probe_mask,
                     bool is_anti_join,
                     cudf::table_view const& left_conditional,
                     cudf::table_view const& right_conditional,
@@ -423,6 +427,7 @@ class mark_join {
 
  private:
   cudf::table_view _build;
+  cudf::size_type _build_num_valid_rows;
   cudf::null_equality _nulls_equal;
   hash_table_type _mark_set;
   bloom_filter_type _bloom_filter;
@@ -454,6 +459,7 @@ class mark_join {
    * condition evaluation from the build side.
    * @param probe_conditional_device_view A table representing the rows/columns used in mixed
    * condition evaluation from the probe side.
+   * @param probe_mask The probe table mask that indicates valid rows.
    * @param expr_device_view The device data respresenting the mixed conditions used by the AST
    * evaluator.
    * @param comparator_adapter The operator used for equality comparisons.
@@ -468,6 +474,7 @@ class mark_join {
   _perform_mark_join(cudf::table_device_view const& probe_equality_device_view,
                      cudf::table_device_view const& build_conditional_device_view,
                      cudf::table_device_view const& probe_conditional_device_view,
+                     cudf::column_view const& probe_mask,
                      cudf::ast::detail::expression_device_view const& expr_device_view,
                      ComparatorAdapterType const& comparator_adapter,
                      bool is_anti_join,

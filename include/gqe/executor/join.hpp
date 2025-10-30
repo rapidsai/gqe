@@ -34,11 +34,14 @@ class join_interface {
 
   virtual std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
                     std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe, join_type_type join_type) const = 0;
+  probe(cudf::table_view const& probe,
+        cudf::column_view const& probe_mask,
+        join_type_type join_type) const = 0;
 
   virtual std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
                     std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
   probe(cudf::table_view const& probe,
+        cudf::column_view const& probe_mask,
         cudf::table_view const& left_conditional,
         cudf::table_view const& right_conditional,
         cudf::ast::expression const* binary_predicate,
@@ -54,11 +57,14 @@ class hash_join_interface : public join_interface {
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe, join_type_type join_type) const override;
+  probe(cudf::table_view const& probe,
+        cudf::column_view const& probe_mask,
+        join_type_type join_type) const override;
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
   probe(cudf::table_view const& probe,
+        cudf::column_view const& probe_mask,
         cudf::table_view const& left_conditional,
         cudf::table_view const& right_conditional,
         cudf::ast::expression const* binary_predicate,
@@ -75,16 +81,20 @@ class unique_key_join_interface : public join_interface {
  public:
   ~unique_key_join_interface() override = default;
   unique_key_join_interface(cudf::table_view const& build,
-                            cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
-                            rmm::cuda_stream_view stream      = rmm::cuda_stream_default);
-
-  std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
-            std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe, join_type_type join_type) const override;
+                            cudf::column_view const& build_mask = cudf::column_view(),
+                            cudf::null_equality compare_nulls   = cudf::null_equality::EQUAL,
+                            rmm::cuda_stream_view stream        = rmm::cuda_stream_default);
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
   probe(cudf::table_view const& probe,
+        cudf::column_view const& probe_mask,
+        join_type_type join_type) const override;
+
+  std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
+            std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+  probe(cudf::table_view const& probe,
+        cudf::column_view const& probe_mask,
         cudf::table_view const& left_conditional,
         cudf::table_view const& right_conditional,
         cudf::ast::expression const* binary_predicate,
@@ -101,17 +111,21 @@ class mark_join_interface : public join_interface {
  public:
   ~mark_join_interface() override = default;
   mark_join_interface(cudf::table_view const& build,
+                      cudf::column_view const& build_mask,
                       bool is_cached,
                       cudf::null_equality compare_nulls,
                       rmm::cuda_stream_view stream = rmm::cuda_stream_default);
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe, join_type_type join_type) const override;
+  probe(cudf::table_view const& probe,
+        cudf::column_view const& probe_mask,
+        join_type_type join_type) const override;
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
   probe(cudf::table_view const& probe,
+        cudf::column_view const& probe_mask,
         cudf::table_view const& left_conditional,
         cudf::table_view const& right_conditional,
         cudf::ast::expression const* binary_predicate,
@@ -169,6 +183,12 @@ class join_hash_map_cache {
    * @param[in] build_keys Key columns of the build table. Note that if this function is called
    * multiple times, this argument needs to refer to the same build table. Otherwise, the behavior
    * is undefined.
+   * @param[in] build_table The build table. This is needed to evaluate the build filter expression.
+   * @param[in] build_column_reference_offset The column reference offset for the build table.
+   * @param[in] build_filter An optional boolean expression to filter the build table before
+   * building the hash map.
+   * @param[in] parameters Optimization parameters for evaluating the filter expression.
+   * @param[in] join_algorithm The join algorithm to use.
    * @param[in] compare_nulls Whether NULL join keys should be compared as equal. Note that if
    * this function is called multiple times, this argument should be the same. Otherwise, the
    * behavior is undefined.
@@ -176,6 +196,10 @@ class join_hash_map_cache {
    * @return A hash join object that can be subsequently probed.
    */
   join_interface const* hash_map(cudf::table_view const& build_keys,
+                                 cudf::table_view const& build_table,
+                                 cudf::size_type build_column_reference_offset,
+                                 std::unique_ptr<gqe::expression> build_filter,
+                                 gqe::optimization_parameters const& parameters,
                                  join_algorithm join_algorithm,
                                  cudf::null_equality compare_nulls) const;
 
@@ -230,6 +254,9 @@ class join_task : public task {
    * @param[in] build_unique_keys_pol If `build_unique_keys_policy::right`, build on right side and
    * assume unique keys. Similarly if `build_unique_keys_policy::left`.
    * @param[in] perfect_hashing If `true`, use perfect hashing for the join.
+   * @param[in] left_filter_condition A boolean expression to filter the left table before the join.
+   * @param[in] right_filter_condition A boolean expression to filter the right table before the
+   * @param[in] mark_join If `true`, use the mark join implementation for left semi and anti joins.
    */
   join_task(context_reference ctx_ref,
             int32_t task_id,
@@ -243,6 +270,8 @@ class join_task : public task {
             bool materialize_output                             = true,
             gqe::unique_keys_policy unique_keys_pol             = gqe::unique_keys_policy::none,
             bool perfect_hashing                                = false,
+            std::unique_ptr<expression> left_filter_condition   = nullptr,
+            std::unique_ptr<expression> right_filter_condition  = nullptr,
             bool mark_join                                      = true);
 
   /**
@@ -267,6 +296,8 @@ class join_task : public task {
   bool _materialize_output;
   gqe::unique_keys_policy _unique_keys_policy;
   bool _perfect_hashing;
+  std::unique_ptr<expression> _left_filter_condition;
+  std::unique_ptr<expression> _right_filter_condition;
   bool _mark_join;
 };
 

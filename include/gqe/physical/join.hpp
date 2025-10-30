@@ -44,6 +44,9 @@ class join_relation_base : public relation {
    * are discarded.
    * @param[in] unique_keys_pol Whether to enable the unique keys optimization.
    * @param[in] perfect_hashing Whether to use perfect hashing.
+   * @param[in] left_filter_condition A boolean expression to filter the left table before the join.
+   * @param[in] right_filter_condition A boolean expression to filter the right table before the
+   * join.
    */
   join_relation_base(std::shared_ptr<relation> left,
                      std::shared_ptr<relation> right,
@@ -52,13 +55,17 @@ class join_relation_base : public relation {
                      std::unique_ptr<expression> condition,
                      std::vector<cudf::size_type> projection_indices,
                      gqe::unique_keys_policy unique_keys_pol,
-                     bool perfect_hashing)
+                     bool perfect_hashing,
+                     std::unique_ptr<expression> left_filter_condition  = nullptr,
+                     std::unique_ptr<expression> right_filter_condition = nullptr)
     : relation({std::move(left), std::move(right)}, std::move(subquery_relations)),
       _join_type(join_type),
       _condition(std::move(condition)),
       _projection_indices(std::move(projection_indices)),
       _unique_keys_policy(unique_keys_pol),
-      _perfect_hashing(perfect_hashing)
+      _perfect_hashing(perfect_hashing),
+      _left_filter_condition(std::move(left_filter_condition)),
+      _right_filter_condition(std::move(right_filter_condition))
   {
   }
 
@@ -83,7 +90,7 @@ class join_relation_base : public relation {
     return _projection_indices;
   }
 
-  /**
+  /*
    * @brief Return a unique_keys_policy indicating whether the unique keys optimization can
    * be enabled with building on the right or left.
    */
@@ -96,6 +103,20 @@ class join_relation_base : public relation {
    * @brief Return a boolean indicating whether to use perfect hashing.
    */
   [[nodiscard]] bool perfect_hashing() const noexcept { return _perfect_hashing; }
+
+  /**
+   * @brief Return the left filter condition.
+   *
+   * The left filter condition is a boolean expression to filter the left table before the join.
+   */
+  [[nodiscard]] expression* left_filter_condition() const { return _left_filter_condition.get(); }
+
+  /**
+   * @brief Return the right filter condition.
+   *
+   * The right filter condition is a boolean expression to filter the right table before the join.
+   */
+  [[nodiscard]] expression* right_filter_condition() const { return _right_filter_condition.get(); }
 
   /**
    * @copydoc relation::output_data_types()
@@ -113,6 +134,8 @@ class join_relation_base : public relation {
   std::vector<cudf::size_type> _projection_indices;
   gqe::unique_keys_policy _unique_keys_policy;
   bool _perfect_hashing;
+  std::unique_ptr<expression> _left_filter_condition;
+  std::unique_ptr<expression> _right_filter_condition;
 };
 
 /**
@@ -140,6 +163,9 @@ class broadcast_join_relation : public join_relation_base {
    * @param[in] policy Whether to broadcast the right relation or the left relation.
    * @param[in] unique_keys_pol Whether to enable the unique keys optimization.
    * @param[in] perfect_hashing Whether to use perfect hashing.
+   * @param[in] left_filter_condition A boolean expression to filter the left table before the join.
+   * @param[in] right_filter_condition A boolean expression to filter the right table before the
+   * join.
    */
   broadcast_join_relation(std::shared_ptr<relation> left,
                           std::shared_ptr<relation> right,
@@ -149,7 +175,9 @@ class broadcast_join_relation : public join_relation_base {
                           std::vector<cudf::size_type> projection_indices,
                           broadcast_policy policy,
                           gqe::unique_keys_policy unique_keys_pol = gqe::unique_keys_policy::none,
-                          bool perfect_hashing                    = false)
+                          bool perfect_hashing                    = false,
+                          std::unique_ptr<expression> left_filter_condition  = nullptr,
+                          std::unique_ptr<expression> right_filter_condition = nullptr)
     : join_relation_base(std::move(left),
                          std::move(right),
                          std::move(subquery_relations),
@@ -157,7 +185,9 @@ class broadcast_join_relation : public join_relation_base {
                          std::move(condition),
                          std::move(projection_indices),
                          unique_keys_pol,
-                         perfect_hashing),
+                         perfect_hashing,
+                         std::move(left_filter_condition),
+                         std::move(right_filter_condition)),
       _policy(policy)
   {
   }

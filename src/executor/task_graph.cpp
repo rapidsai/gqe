@@ -553,19 +553,22 @@ void task_graph_builder::generate_task_graph_visitor::visit(
 
     // Generate the join tasks
     for (auto& left_task : left_tasks) {
-      _generated_tasks.push_back(std::make_shared<join_task>(_builder->_ctx_ref,
-                                                             _builder->_current_task_id,
-                                                             _builder->_current_stage_id,
-                                                             std::move(left_task),
-                                                             concatenated_right_task,
-                                                             relation_join_type,
-                                                             relation->condition()->clone(),
-                                                             relation->projection_indices(),
-                                                             hash_map_cache,
-                                                             true,
-                                                             unique_keys_pol,
-                                                             perfect_hashing,
-                                                             mark_join));
+      _generated_tasks.push_back(std::make_shared<join_task>(
+        _builder->_ctx_ref,
+        _builder->_current_task_id,
+        _builder->_current_stage_id,
+        std::move(left_task),
+        concatenated_right_task,
+        relation_join_type,
+        relation->condition()->clone(),
+        relation->projection_indices(),
+        hash_map_cache,
+        true,
+        unique_keys_pol,
+        perfect_hashing,
+        relation->left_filter_condition() ? relation->left_filter_condition()->clone() : nullptr,
+        relation->right_filter_condition() ? relation->right_filter_condition()->clone() : nullptr,
+        mark_join));
       _builder->_current_task_id++;
     }
   } else {
@@ -615,19 +618,22 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     // Generate the join tasks
     std::vector<std::shared_ptr<task>> join_tasks;
     for (auto& right_task : right_tasks) {
-      join_tasks.push_back(std::make_shared<join_task>(_builder->_ctx_ref,
-                                                       _builder->_current_task_id,
-                                                       _builder->_current_stage_id,
-                                                       concatenated_left_task,
-                                                       std::move(right_task),
-                                                       relation_join_type,
-                                                       relation->condition()->clone(),
-                                                       relation->projection_indices(),
-                                                       hash_map_cache,
-                                                       !separate_materialization,
-                                                       unique_keys_pol,
-                                                       perfect_hashing,
-                                                       mark_join));
+      join_tasks.push_back(std::make_shared<join_task>(
+        _builder->_ctx_ref,
+        _builder->_current_task_id,
+        _builder->_current_stage_id,
+        concatenated_left_task,
+        std::move(right_task),
+        relation_join_type,
+        relation->condition()->clone(),
+        relation->projection_indices(),
+        hash_map_cache,
+        !separate_materialization,
+        unique_keys_pol,
+        perfect_hashing,
+        relation->left_filter_condition() ? relation->left_filter_condition()->clone() : nullptr,
+        relation->right_filter_condition() ? relation->right_filter_condition()->clone() : nullptr,
+        mark_join));
       _builder->_current_task_id++;
     }
 

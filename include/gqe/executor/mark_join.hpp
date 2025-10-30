@@ -50,6 +50,7 @@ class mark_join {
    * @brief Constructs a mark join object for subsequent probe calls
    *
    * @param build The build table that contains unique elements
+   * @param build_mask The build table mask that indicates valid rows
    * @param is_cached If caching is expected, mark counts are delayed until all partitions are
    * probed.
    * @param compare_nulls Controls whether null join-key values should match or not
@@ -58,6 +59,7 @@ class mark_join {
    * @param mr Device memory manager handle
    */
   mark_join(cudf::table_view const& build,
+            cudf::column_view const& build_mask,
             bool is_cached,
             cudf::null_equality compare_nulls = cudf::null_equality::UNEQUAL,
             double load_factor                = 0.5,
@@ -69,6 +71,7 @@ class mark_join {
    * an inner join between two tables.
    *
    * @param probe The probe table, from which the keys are probed
+   * @param probe_mask The probe table mask that indicates valid rows
    * @param is_anti_join Determines if result is based on semi join or anti join.
    * @param left_conditional If this is a mixed join, contains the left column positions.
    * @param right_conditional If this is a mixed join, contains the right column positions.
@@ -88,6 +91,7 @@ class mark_join {
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
   perform_mark_join(
     cudf::table_view const& probe,
+    cudf::column_view const& probe_mask,
     bool is_anti_join,
     cudf::table_view const& left_conditional,
     cudf::table_view const& right_conditional,

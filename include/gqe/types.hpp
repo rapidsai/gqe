@@ -457,4 +457,15 @@ enum class compression_format : int8_t {
                              ///< yield best decompression speed
 };
 
+/**
+ * @brief Construct compression_format from string representation
+ *
+ * @param format_str String representation of compression format
+ *
+ * @return compression_format from string representation
+ *
+ * @throw std::invalid_argument if format_str is not recognized
+ */
+compression_format compression_format_from_string(std::string const& format_str);
+
 }  // namespace gqe

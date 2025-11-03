@@ -25,6 +25,38 @@
 #include <unistd.h>  // sysconf
 
 namespace gqe {
+
+compression_format compression_format_from_string(std::string const& format_str)
+{
+  if (format_str == "none") {
+    return compression_format::none;
+  } else if (format_str == "ans") {
+    return compression_format::ans;
+  } else if (format_str == "lz4") {
+    return compression_format::lz4;
+  } else if (format_str == "snappy") {
+    return compression_format::snappy;
+  } else if (format_str == "gdeflate") {
+    return compression_format::gdeflate;
+  } else if (format_str == "deflate") {
+    return compression_format::deflate;
+  } else if (format_str == "cascaded") {
+    return compression_format::cascaded;
+  } else if (format_str == "zstd") {
+    return compression_format::zstd;
+  } else if (format_str == "gzip") {
+    return compression_format::gzip;
+  } else if (format_str == "bitcomp") {
+    return compression_format::bitcomp;
+  } else if (format_str == "best_compression_ratio") {
+    return compression_format::best_compression_ratio;
+  } else if (format_str == "best_decompression_speed") {
+    return compression_format::best_decompression_speed;
+  } else {
+    throw std::invalid_argument("Unrecognized compression format: " + format_str);
+  }
+}
+
 cpu_set::cpu_set()
 {
   auto cpu_set = CPU_ALLOC(max_count);

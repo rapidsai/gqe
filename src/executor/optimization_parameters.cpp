@@ -101,44 +101,13 @@ unsigned long parse_env_variable<unsigned long>(std::string const& env_variable,
   return value;
 }
 
-gqe::compression_format compression_format_from_str(std::string const& format_str)
-{
-  if (format_str == "none") {
-    return gqe::compression_format::none;
-  } else if (format_str == "ans") {
-    return gqe::compression_format::ans;
-  } else if (format_str == "lz4") {
-    return gqe::compression_format::lz4;
-  } else if (format_str == "snappy") {
-    return gqe::compression_format::snappy;
-  } else if (format_str == "gdeflate") {
-    return gqe::compression_format::gdeflate;
-  } else if (format_str == "deflate") {
-    return gqe::compression_format::deflate;
-  } else if (format_str == "cascaded") {
-    return gqe::compression_format::cascaded;
-  } else if (format_str == "zstd") {
-    return gqe::compression_format::zstd;
-  } else if (format_str == "gzip") {
-    return gqe::compression_format::gzip;
-  } else if (format_str == "bitcomp") {
-    return gqe::compression_format::bitcomp;
-  } else if (format_str == "best_compression_ratio") {
-    return gqe::compression_format::best_compression_ratio;
-  } else if (format_str == "best_decompression_speed") {
-    return gqe::compression_format::best_decompression_speed;
-  } else {
-    throw std::logic_error("Unrecognized compression format");
-  }
-}
-
 gqe::compression_format parse_nvcomp_compression_format(std::string const& env_variable,
                                                         gqe::compression_format const default_value)
 {
   auto const val_str = std::getenv(env_variable.c_str());
 
   if (val_str) {
-    return compression_format_from_str(val_str);
+    return gqe::compression_format_from_string(val_str);
   } else {
     return default_value;
   }

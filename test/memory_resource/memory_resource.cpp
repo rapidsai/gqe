@@ -44,7 +44,7 @@ class MemoryResourceTest<gqe::memory_resource::boost_shared_memory_resource>
   MemoryResourceTest()
   {
     auto segment = boost::interprocess::managed_shared_memory(
-      boost::interprocess::create_only, "gqe_shared_memory", 64 * 1024);
+      boost::interprocess::create_only, "gqe_shared_memory", 1024 * 1024);  // 1MB
     mr = std::make_unique<gqe::memory_resource::boost_shared_memory_resource>();
   }
 

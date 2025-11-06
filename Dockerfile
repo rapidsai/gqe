@@ -35,6 +35,7 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     gcc-14 \
     g++-14 \
     gdb \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Miniforge3

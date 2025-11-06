@@ -24,6 +24,7 @@ set_property(TARGET logical_test_common PROPERTY CUDA_ARCHITECTURES ${GPU_ARCHS}
 target_include_directories(logical_test_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_include_directories(logical_test_common PRIVATE ${CMAKE_BINARY_DIR})
 target_link_libraries(logical_test_common PUBLIC cudf::cudf)
+target_link_libraries(logical_test_common PUBLIC nvcomp::nvcomp)
 
 add_executable(run_substrait_consumer logical/run_substrait_consumer.cpp)
 target_link_libraries(run_substrait_consumer PUBLIC gqe)

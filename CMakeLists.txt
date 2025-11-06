@@ -40,7 +40,53 @@ rapids_cpm_init()
 project(gqe LANGUAGES CXX CUDA)
 
 # ##################################################################################################
+# * build options ---------------------------------------------------------------------------------
+
+option(GQE_ENABLE_CUSTOMIZED_PARQUET "Enable the customized Parquet reader" OFF)
+option(GQE_ENABLE_QUERY_COMPILER "Enable the query compiler" OFF)
+option(GQE_ENABLE_SUBSTRAIT_PRODUCER "Enable the Substrait producer" OFF)
+
+# ##################################################################################################
+# * shared dependencies ---------------------------------------------------------------------------
+# NOTE: Fetch shared dependencies FIRST so nvcomp uses the same versions
+# RMM must be fetched BEFORE cudf is found and BEFORE nvcomp is built
+find_package(spdlog REQUIRED)
+include(${rapids-cmake-dir}/cpm/gtest.cmake)
+include(${rapids-cmake-dir}/cpm/spdlog.cmake)
+include(${rapids-cmake-dir}/cpm/rmm.cmake)
+include(${rapids-cmake-dir}/cpm/cccl.cmake)
+
+rapids_cpm_gtest()
+rapids_cpm_spdlog()
+rapids_cpm_rmm()
+rapids_cpm_cccl()
+
+CPMAddPackage(
+    NAME NVTX
+    GITHUB_REPOSITORY NVIDIA/NVTX
+    GIT_TAG v3.1.0-c-cpp
+    GIT_SHALLOW TRUE)
+
+# ##################################################################################################
+# * nvcomp setup ----------------------------------------------------------------------------------
+
+# Fetch nvcomp from source using CPM
+CPMAddPackage(
+  NAME nvcomp
+  GIT_REPOSITORY https://gitlab-master.nvidia.com/Devtech-Compute/gqe-nvcomp.git
+  GIT_TAG 816d3f0c33fc92a7941bb04f05da087b4f1a99f6
+  GIT_SUBMODULES_RECURSE TRUE
+  OPTIONS
+    "BUILD_TESTS OFF"
+    "BUILD_BENCHMARKS OFF"
+    "BUILD_EXAMPLES OFF"
+    "BUILD_NVCOMP ON"
+    "BUILD_NVCOMPDX OFF"
+)
+
+# ##################################################################################################
 # * compiler options ------------------------------------------------------------------------------
+# NOTE: These are set AFTER nvcomp to avoid propagating strict flags to the nvcomp subproject
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CUDA_STANDARD 20)
@@ -60,16 +106,8 @@ add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--generate-line-info>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:-Wno-deprecated-gpu-targets>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>")
 
-
 # needed for clang-tidy
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# ##################################################################################################
-# * build options ---------------------------------------------------------------------------------
-
-option(GQE_ENABLE_CUSTOMIZED_PARQUET "Enable the customized Parquet reader" OFF)
-option(GQE_ENABLE_QUERY_COMPILER "Enable the query compiler" OFF)
-option(GQE_ENABLE_SUBSTRAIT_PRODUCER "Enable the Substrait producer" OFF)
 
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
@@ -93,12 +131,6 @@ CPMAddPackage(
 )
 
 CPMAddPackage(
-    NAME NVTX
-    GITHUB_REPOSITORY NVIDIA/NVTX
-    GIT_TAG v3.1.0-c-cpp
-    GIT_SHALLOW TRUE)
-
-CPMAddPackage(
     NAME substrait
     GITHUB_REPOSITORY substrait-io/substrait
     GIT_TAG v0.66.1)
@@ -110,7 +142,6 @@ endif()
 
 rapids_find_package(cudf CONFIG REQUIRED COMPONENTS testing)
 rapids_find_package(MPI REQUIRED) 
-rapids_find_package(nvcomp CONFIG REQUIRED)
 rapids_find_package(NVSHMEM REQUIRED)
 rapids_find_package(Threads REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem)

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -147,7 +147,7 @@ target_link_libraries(gqe PRIVATE nvtx3-cpp)
 target_link_libraries(gqe PUBLIC spdlog::spdlog_header_only)
 target_link_libraries(gqe PUBLIC substrait)
 target_link_libraries(gqe PRIVATE Threads::Threads)
-target_link_libraries(gqe PRIVATE nvcomp::nvcomp)
+target_link_libraries(gqe PUBLIC nvcomp::nvcomp)
 target_link_libraries(gqe PUBLIC uring)
 target_link_libraries(gqe PUBLIC MPI::MPI_CXX)
 target_link_libraries(gqe PUBLIC nvshmem::nvshmem_host)

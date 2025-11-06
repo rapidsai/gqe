@@ -1,3 +1,15 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
 #include <cudf/utilities/pinned_memory.hpp>
 
 #include <gqe/storage/in_memory.hpp>
@@ -194,8 +206,12 @@ rmm::device_buffer compressed_sliced_column::do_decompress(
         reinterpret_cast<uint8_t*>(decompressed_data.data()) + decompressed_offset;
       decompressed_offset += full_compression_configs[ix_partition].uncompressed_buffer_size;
     }
-    _nvcomp_manager.decompress_batch(
-      device_decompressed_ptrs, device_compressed_ptrs, buffer_decompression_configs, stream, mr);
+    _nvcomp_manager.decompress_batch(device_decompressed_ptrs,
+                                     device_compressed_ptrs,
+                                     buffer_decompression_configs,
+                                     host_compressed_ptrs,
+                                     stream,
+                                     mr);
     GQE_CUDA_TRY(cudaStreamSynchronize(stream));
     cudf_pinned_resource.deallocate_async(
       device_decompressed_ptrs, sizeof(uint8_t*) * remaining_partitions, stream);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -131,12 +131,14 @@ class compression_manager {
    * @param[in] device_decompressed Array of pointers to decompressed buffers
    * @param[in] device_compressed Array of pointers to compressed buffers
    * @param[in] buffer_decompression_configs Vector of decompression configs
+   * @param[in] host_compressed A copy of device_compressed available to host
    * @param[in] stream Stream to use for decompression
    * @param[in] mr Memory resource to use for decompression
    */
   void decompress_batch(uint8_t* const* device_decompressed,
                         const uint8_t* const* device_compressed,
                         std::vector<nvcomp::DecompressionConfig>& buffer_decompression_configs,
+                        const uint8_t* const* host_compressed,
                         rmm::cuda_stream_view stream,
                         rmm::device_async_resource_ref mr);
 

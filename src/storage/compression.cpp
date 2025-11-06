@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -225,12 +225,36 @@ void compression_manager::decompress_batch(
   uint8_t* const* device_decompressed,
   const uint8_t* const* device_compressed,
   std::vector<nvcomp::DecompressionConfig>& buffer_decompression_configs,
+  const uint8_t* const* host_compressed,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  _decompression_manager = create_manager(stream, mr);
-  _decompression_manager->decompress(
-    device_decompressed, device_compressed, buffer_decompression_configs);
+  // variable not needed for decomp
+  constexpr const size_t* compression_sizes = nullptr;
+  _decompression_manager                    = create_manager(stream, mr);
+
+  // This function assumes all pointers were allocated the same way and share the attributes of the
+  // first buffer. Otherwise, behavior is undefined.
+  cudaPointerAttributes attrs;
+  cudaError_t status = cudaPointerGetAttributes(&attrs, host_compressed[0]);
+
+  // if call succeeded and we have non-nullptr on hostPointer, this should be host-accessible
+  if (status == cudaSuccess && attrs.hostPointer) {
+    GQE_LOG_TRACE("decompress_batch: Using no-kernel batched decompression api");
+    // uses zero-copy no-kernel decompression api
+    _decompression_manager->decompress(device_decompressed,
+                                       device_compressed,
+                                       buffer_decompression_configs,
+                                       compression_sizes,
+                                       host_compressed);
+  } else {
+    GQE_LOG_TRACE(
+      "decompress_batch: Using fallback kernel-based batched decompression api due to host "
+      "compression buffer accessibility");
+    // fall back to decompression api that uses kernels
+    _decompression_manager->decompress(
+      device_decompressed, device_compressed, buffer_decompression_configs, compression_sizes);
+  }
   _decompression_manager->deallocate_gpu_mem();
 }
 

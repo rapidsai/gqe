@@ -282,7 +282,8 @@ class InMemoryReadTaskTest : public ::testing::Test {
              const cudf::size_type num_rows       = DEFAULT_NUM_ROWS,
              const cudf::size_type partition_size = DEFAULT_PARTITION_SIZE,
              const bool use_string_column         = false,
-             const size_t num_tables              = NUM_TABLES)
+             const size_t num_tables              = NUM_TABLES,
+             const bool use_host_allocator        = false)
   {
     _num_rows               = num_rows;
     _partition_size         = partition_size;
@@ -290,6 +291,11 @@ class InMemoryReadTaskTest : public ::testing::Test {
 
     // Explicitly enable pruning, in case it is disabled by default.
     _query_ctx->parameters.use_partition_pruning = true;
+
+    if (use_host_allocator) {
+      _memory_resource = std::make_unique<memory_resource::pinned_memory_resource>();
+      rmm::mr::set_current_device_resource(_memory_resource.get());
+    }
 
     // Create the four input tables, the corresponding column indexes, and the data types.
     for (size_t i = 0; i < num_tables; ++i) {
@@ -760,6 +766,36 @@ TEST_F(InMemoryReadTaskTest, PruningWithoutCompression)
 TEST_F(InMemoryReadTaskTest, PruningWithCompression)
 {
   SetUp(true, 2 * 64 * 1024, 64 * 1024);
+  // Compress input dat
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+  // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
+  std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
+  // one row groups.
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end());
+  storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+
+  constexpr cudf::size_type num_rows_in_result     = 64 * 1024;
+  constexpr cudf::size_type start_offset_in_result = 0;
+  auto expected = create_input_table(num_rows_in_result, start_offset_in_result);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
+}
+
+TEST_F(InMemoryReadTaskTest, DecompressionNoKernelAPI)
+{
+  // we use the PruningWithCompression test to test if the kernel API is working
+  SetUp(true, 2 * 64 * 1024, 64 * 1024, false, NUM_TABLES, true);
   // Compress input dat
   _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
   // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.

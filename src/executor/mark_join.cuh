@@ -332,7 +332,7 @@ class mark_join {
   using probing_scheme_type = cuco::linear_probing<1, hasher_adapter<cuda::std::identity>>;
   using hash_table_type     = cuco::static_multiset<
         key_type,
-        cudf::size_type,
+        std::size_t,
         cuda::thread_scope_device,
         equality_comparator_adapter,
         probing_scheme_type,

@@ -368,7 +368,7 @@ mark_join::mark_join(cudf::table_view const& build,
   : _build{build},
     _build_num_valid_rows(gqe::utility::get_num_active_keys(build.num_rows(), build_mask)),
     _nulls_equal{compare_nulls},
-    _mark_set{_build_num_valid_rows,
+    _mark_set{static_cast<size_t>(_build_num_valid_rows),
               load_factor,
               cuco::empty_key{
                 cuco::pair{detail::unset_mark(std::numeric_limits<cudf::hash_value_type>::max()),
@@ -674,8 +674,9 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mark_join::_mark_scan(
                           mark_set_key_type,
                           _slots_per_bucket,
                           is_anti_join>
-    mark_scan_op{
-      mark_set_ref, mark_set_ref.storage_ref(), mark_set_ref.storage_ref().num_buckets()};
+    mark_scan_op{mark_set_ref,
+                 mark_set_ref.storage_ref(),
+                 static_cast<cudf::size_type>(mark_set_ref.storage_ref().num_buckets())};
 
   auto mark_scan_kernel = iterator_to_vector_if<block_size,
                                                 mark_set_key_type,

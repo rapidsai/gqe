@@ -207,7 +207,7 @@ class unique_key_join {
   using cuco_storage_type = cuco::storage<1>;
   using hash_table_type =
     cuco::static_set<cuco::pair<cudf::hash_value_type, cudf::experimental::row::rhs_index_type>,
-                     cuco::extent<cudf::size_type>,
+                     cuco::extent<std::size_t>,  // size_t avoids overflow issues with large tables
                      cuda::thread_scope_device,
                      always_not_equal,
                      probing_scheme_type,

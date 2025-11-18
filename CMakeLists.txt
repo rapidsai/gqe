@@ -78,7 +78,7 @@ CPMAddPackage(
 CPMAddPackage(
   NAME nvcomp
   GIT_REPOSITORY https://gitlab-master.nvidia.com/Devtech-Compute/gqe-nvcomp.git
-  GIT_TAG 816d3f0c33fc92a7941bb04f05da087b4f1a99f6
+  GIT_TAG 069ebf2144f4efde8fee0c6b20b87a4a5f7f69ab
   GIT_SUBMODULES_RECURSE TRUE
   OPTIONS
     "BUILD_TESTS OFF"

@@ -125,7 +125,7 @@ void compressed_sliced_column::fill_copy_ptrs(
       reinterpret_cast<uint8_t*>(compressed_data_buffers[ix_partition]->data());
     device_compressed_ptrs[ix] = dst_ptr + compressed_offset;
 
-    if (_is_compressed) {
+    if (is_compressed) {
       decompression_configs.push_back(
         _nvcomp_manager.configure_decompression(compression_configs[ix_partition]));
     }

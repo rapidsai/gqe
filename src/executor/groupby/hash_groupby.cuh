@@ -37,6 +37,7 @@
 #include <cuda/std/optional>
 #include <thrust/iterator/counting_iterator.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cooperative_groups.h>
 #include <iostream>
@@ -554,6 +555,15 @@ size_t find_shmem_size(FuncType func, int block_size, int grid_size)
   int num_sms =
     device_properties::instance().get<device_properties::multiProcessorCount>(device_id);
   auto active_blocks_per_sm = gqe::utility::divide_round_up(grid_size, num_sms);
+
+  // Get max blocks we can schedule assuming 0 KB of shared memory usage
+  int max_active_blocks_per_sm = 0;
+  GQE_CUDA_TRY(
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&max_active_blocks_per_sm, func, block_size, 0));
+
+  // Number of active blocks on an SM can be atmost the minimum of blocks we want to schedule
+  // and blocks that "can" be scheudled by the hardware.
+  active_blocks_per_sm = std::min(active_blocks_per_sm, max_active_blocks_per_sm);
 
   size_t dynamic_smem_size;
   GQE_CUDA_TRY(cudaOccupancyAvailableDynamicSMemPerBlock(

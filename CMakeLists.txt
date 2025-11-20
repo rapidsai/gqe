@@ -74,19 +74,38 @@ CPMAddPackage(
 # ##################################################################################################
 # * nvcomp setup ----------------------------------------------------------------------------------
 
+# CMake variable for gqe-nvcomp tag
+set(GQE_NVCOMP_TAG "069ebf2144f4efde8fee0c6b20b87a4a5f7f69ab" CACHE STRING "Git tag for gqe-nvcomp")
+set(GQE_NVCOMP_SOURCE_DIR "" CACHE PATH "Local source directory for gqe-nvcomp (overrides GIT_TAG if set)")
+
 # Fetch nvcomp from source using CPM
-CPMAddPackage(
-  NAME nvcomp
-  GIT_REPOSITORY https://gitlab-master.nvidia.com/Devtech-Compute/gqe-nvcomp.git
-  GIT_TAG 069ebf2144f4efde8fee0c6b20b87a4a5f7f69ab
-  GIT_SUBMODULES_RECURSE TRUE
-  OPTIONS
-    "BUILD_TESTS OFF"
-    "BUILD_BENCHMARKS OFF"
-    "BUILD_EXAMPLES OFF"
-    "BUILD_NVCOMP ON"
-    "BUILD_NVCOMPDX OFF"
-)
+if(GQE_NVCOMP_SOURCE_DIR)
+  message(STATUS "Using nvcomp from local source directory: ${GQE_NVCOMP_SOURCE_DIR}")
+  CPMAddPackage(
+    NAME nvcomp
+    SOURCE_DIR ${GQE_NVCOMP_SOURCE_DIR}
+    OPTIONS
+      "BUILD_TESTS OFF"
+      "BUILD_BENCHMARKS OFF"
+      "BUILD_EXAMPLES OFF"
+      "BUILD_NVCOMP ON"
+      "BUILD_NVCOMPDX OFF"
+  )
+else()
+  message(STATUS "Using nvcomp from git with tag: ${GQE_NVCOMP_TAG}")
+  CPMAddPackage(
+    NAME nvcomp
+    GIT_REPOSITORY https://gitlab-master.nvidia.com/Devtech-Compute/gqe-nvcomp.git
+    GIT_TAG ${GQE_NVCOMP_TAG}
+    GIT_SUBMODULES_RECURSE TRUE
+    OPTIONS
+      "BUILD_TESTS OFF"
+      "BUILD_BENCHMARKS OFF"
+      "BUILD_EXAMPLES OFF"
+      "BUILD_NVCOMP ON"
+      "BUILD_NVCOMPDX OFF"
+  )
+endif()
 
 # ##################################################################################################
 # * compiler options ------------------------------------------------------------------------------

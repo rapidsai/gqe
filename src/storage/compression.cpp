@@ -81,13 +81,15 @@ compression_manager::compression_manager(gqe::compression_format comp_format,
                                          int compression_chunk_size,
                                          rmm::cuda_stream_view supplied_stream,
                                          rmm::device_async_resource_ref mr,
+                                         double compression_ratio_threshold,
                                          std::string column_name,
                                          cudf::data_type cudf_type)
   : _comp_format(comp_format),
     _data_type(data_format),
     _compression_chunk_size(compression_chunk_size),
     _column_name(column_name),
-    _cudf_type(cudf_type)
+    _cudf_type(cudf_type),
+    _compression_ratio_threshold(compression_ratio_threshold)
 {
   GQE_LOG_TRACE(
     "Created compression manager for column '{}': format={}, data_type={}, chunk_size={}, "
@@ -130,13 +132,13 @@ compression_result compression_manager::do_compress(rmm::device_buffer const* un
   auto const comp_size = _compression_manager->get_compressed_output_size(
     static_cast<uint8_t*>(compressed_buffer->data()));
 
-  compression_ratio = static_cast<float>(uncompressed->size()) / comp_size;
+  compression_ratio = static_cast<double>(uncompressed->size()) / comp_size;
 
   compressed_buffer->resize(comp_size, supplied_stream);
   compressed_buffer->shrink_to_fit(supplied_stream);
   _compression_manager->deallocate_gpu_mem();
 
-  if (comp_size > uncompressed->size()) {
+  if (compression_ratio < _compression_ratio_threshold) {
     is_compressed = false;
     GQE_LOG_TRACE(
       "Compression ineffective for column '{}' using compression algorithm {}: compressed_size={} "
@@ -308,9 +310,9 @@ compression_manager::compress_batch(const std::vector<rmm::device_buffer>& devic
     compressed_data_buffers[ix]->shrink_to_fit(stream);
   }
 
-  if (total_compressed_size < total_uncompressed_size) {
-    compression_ratio = static_cast<float>(total_uncompressed_size) / total_compressed_size;
-    is_compressed     = true;
+  compression_ratio = static_cast<double>(total_uncompressed_size) / total_compressed_size;
+  if (_compression_ratio_threshold < compression_ratio) {
+    is_compressed = true;
     GQE_LOG_TRACE(
       "Compression successful for column '{}' using compression algorithm {}: "
       "uncompressed_size={}, "
@@ -540,3 +542,8 @@ int compression_manager::get_compression_chunk_size() const { return _compressio
 std::string compression_manager::get_column_name() const { return _column_name; }
 
 cudf::data_type compression_manager::get_cudf_type() const { return _cudf_type; }
+
+double compression_manager::get_compression_ratio_threshold() const
+{
+  return _compression_ratio_threshold;
+}

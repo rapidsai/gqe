@@ -50,6 +50,7 @@ class compression_manager {
   cudf::data_type _cudf_type;
   std::unique_ptr<nvcompManagerBase> _compression_manager;
   std::unique_ptr<nvcompManagerBase> _decompression_manager;
+  double _compression_ratio_threshold;
 
   void print_usage() const;
   /**
@@ -71,6 +72,8 @@ class compression_manager {
    * @param[in] explicit_compression_chunk_size Chunk size to use for nvcomp
    * @param[in] stream Stream to use for compression/decompression
    * @param[in] mr Memory resource to use for allocator in nvcomp
+   * @param[in] compression_ratio_threshold Compression ratio threshold to decide whether to
+   * compress the columns or not.
    * @param[in] column_name Name of the column being compressed
    * @param[in] cudf_type CUDF data type of the column being compressed
    */
@@ -79,11 +82,12 @@ class compression_manager {
                       int explicit_compression_chunk_size,
                       rmm::cuda_stream_view stream,
                       rmm::device_async_resource_ref mr,
+                      double compression_ratio_threshold,
                       std::string column_name   = "",
                       cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
 
   /**
-   * @brief Function to perform compression on a column. Retuns a pair of
+   * @brief Function to perform compression on a column. Returns a pair of
    * 1) compressed column
    * 2) compression config
    *
@@ -187,6 +191,11 @@ class compression_manager {
    * @brief Function to fetch the CUDF data type used by the compression manager.
    * */
   cudf::data_type get_cudf_type() const;
+
+  /**
+   * @brief Function to fetch the compression ratio threshold used by the compression manager.
+   * */
+  double get_compression_ratio_threshold() const;
 };
 
 // Function to map cudf::type_id to nvcomp_data_format

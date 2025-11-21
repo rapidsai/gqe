@@ -29,6 +29,7 @@ compressed_sliced_column::compressed_sliced_column(cudf::column&& cudf_column,
                                                    nvcompType_t nvcomp_data_format,
                                                    int chunk_size,
                                                    int partition_size,
+                                                   double compression_ratio_threshold,
                                                    std::string column_name,
                                                    cudf::data_type cudf_type)
   : column_base(),
@@ -38,9 +39,16 @@ compressed_sliced_column::compressed_sliced_column(cudf::column&& cudf_column,
     _null_mask_compression_ratio(0.0),
     _is_compressed(false),
     _is_null_mask_compressed(false),
-    _nvcomp_manager(
-      comp_format, nvcomp_data_format, chunk_size, stream, mr, column_name, cudf_type),
-    _nvcomp_null_manager(comp_format, NVCOMP_TYPE_CHAR, chunk_size, stream, mr)
+    _nvcomp_manager(comp_format,
+                    nvcomp_data_format,
+                    chunk_size,
+                    stream,
+                    mr,
+                    compression_ratio_threshold,
+                    column_name,
+                    cudf_type),
+    _nvcomp_null_manager(
+      comp_format, NVCOMP_TYPE_CHAR, chunk_size, stream, mr, compression_ratio_threshold)
 {
   _size       = cudf_column.size();
   _dtype      = cudf_column.type();
@@ -56,6 +64,7 @@ compressed_sliced_column::compressed_sliced_column(const cudf::column& cudf_colu
                                                    nvcompType_t nvcomp_data_format,
                                                    int chunk_size,
                                                    int partition_size,
+                                                   double compression_ratio_threshold,
                                                    std::string column_name,
                                                    cudf::data_type cudf_type)
   : column_base(),
@@ -65,9 +74,16 @@ compressed_sliced_column::compressed_sliced_column(const cudf::column& cudf_colu
     _null_mask_compression_ratio(0.0),
     _is_compressed(false),
     _is_null_mask_compressed(false),
-    _nvcomp_manager(
-      comp_format, nvcomp_data_format, chunk_size, stream, mr, column_name, cudf_type),
-    _nvcomp_null_manager(comp_format, NVCOMP_TYPE_CHAR, chunk_size, stream, mr)
+    _nvcomp_manager(comp_format,
+                    nvcomp_data_format,
+                    chunk_size,
+                    stream,
+                    mr,
+                    compression_ratio_threshold,
+                    column_name,
+                    cudf_type),
+    _nvcomp_null_manager(
+      comp_format, NVCOMP_TYPE_CHAR, chunk_size, stream, mr, compression_ratio_threshold)
 
 {
   _size       = cudf_column.size();
@@ -424,6 +440,7 @@ string_compressed_sliced_column<large_string_mode>::string_compressed_sliced_col
   rmm::device_async_resource_ref mr,
   int chunk_size,
   int partition_size,
+  double compression_ratio_threshold,
   std::string column_name)
   : compressed_sliced_column(cudf_column,
                              comp_format,
@@ -432,9 +449,11 @@ string_compressed_sliced_column<large_string_mode>::string_compressed_sliced_col
                              NVCOMP_TYPE_CHAR,
                              chunk_size,
                              partition_size,
+                             compression_ratio_threshold,
                              column_name,
                              cudf::data_type(cudf::type_id::STRING)),
-    _nvcomp_offset_manager(comp_format, offset_nvcomp_data_type, chunk_size, stream, mr)
+    _nvcomp_offset_manager(
+      comp_format, offset_nvcomp_data_type, chunk_size, stream, mr, compression_ratio_threshold)
 {
   compress(std::move(cudf_column), stream, mr);
 }

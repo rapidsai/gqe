@@ -228,6 +228,7 @@ class compressed_column : public column_base {
                     rmm::device_async_resource_ref mr,
                     nvcompType_t nvcomp_data_format,
                     int compression_chunk_size,
+                    double compression_ratio_threshold,
                     std::string column_name   = "",
                     cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
 
@@ -302,6 +303,7 @@ class compressed_sliced_column : public column_base {
                            nvcompType_t nvcomp_data_format,
                            int compression_chunk_size,
                            int partition_size,
+                           double compression_ratio_threshold,
                            std::string column_name   = "",
                            cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
 
@@ -369,6 +371,7 @@ class compressed_sliced_column : public column_base {
                            nvcompType_t nvcomp_data_format,
                            int compression_chunk_size,
                            int partition_size,
+                           double compression_ratio_threshold,
                            std::string column_name,
                            cudf::data_type cudf_type);
 
@@ -481,6 +484,7 @@ class string_compressed_sliced_column : public compressed_sliced_column {
                                   rmm::device_async_resource_ref mr,
                                   int compression_chunk_size,
                                   int partition_size,
+                                  double compression_ratio_threshold,
                                   std::string column_name = "");
 
   std::vector<std::unique_ptr<rmm::device_buffer>> _compressed_offset_partitions;

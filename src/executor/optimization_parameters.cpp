@@ -106,6 +106,20 @@ unsigned long parse_env_variable<unsigned long>(std::string const& env_variable,
   return value;
 }
 
+/**
+ * Acceptable values are numbers in the range of the specified double type.
+ */
+template <>
+double parse_env_variable<double>(std::string const& env_variable, const double default_value)
+{
+  auto const val_str = std::getenv(env_variable.c_str());
+
+  double value = (val_str != nullptr) ? std::strtod(val_str, nullptr) : default_value;
+
+  GQE_LOG_DEBUG(env_variable + " = " + std::to_string(value));
+  return value;
+}
+
 gqe::compression_format parse_nvcomp_compression_format(std::string const& env_variable,
                                                         gqe::compression_format const default_value)
 {
@@ -237,6 +251,9 @@ optimization_parameters::optimization_parameters(bool only_defaults)
 
     num_shuffle_partitions =
       parse_env_variable("GQE_NUM_SHUFFLE_PARTITIONS", num_shuffle_partitions);
+
+    compression_ratio_threshold =
+      parse_env_variable("GQE_COMPRESSION_RATIO_THRESHOLD", compression_ratio_threshold);
   }
 }
 

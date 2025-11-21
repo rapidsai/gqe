@@ -250,6 +250,7 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
                                      rmm::device_async_resource_ref mr,
                                      nvcompType_t nvcomp_data_format,
                                      int compression_chunk_size,
+                                     double compression_ratio_threshold,
                                      std::string column_name,
                                      cudf::data_type cudf_type)
   : column_base(),
@@ -258,8 +259,14 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
     _null_mask_compression_ratio(0.0),
     _is_compressed(false),
     _is_null_mask_compressed(false),
-    _nvcomp_manager(
-      comp_format, nvcomp_data_format, compression_chunk_size, stream, mr, column_name, cudf_type)
+    _nvcomp_manager(comp_format,
+                    nvcomp_data_format,
+                    compression_chunk_size,
+                    stream,
+                    mr,
+                    compression_ratio_threshold,
+                    column_name,
+                    cudf_type)
 {
   _size       = cudf_column.size();
   _dtype      = cudf_column.type();
@@ -293,6 +300,7 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
                                                                        mr,
                                                                        nvcomp_data_format,
                                                                        compression_chunk_size,
+                                                                       compression_ratio_threshold,
                                                                        column_name + "_child",
                                                                        cudf_type));
   }
@@ -320,6 +328,7 @@ shared_compressed_column_base::shared_compressed_column_base(
                     compressed_column._nvcomp_manager.get_compression_chunk_size(),
                     stream,
                     mr,
+                    compressed_column._nvcomp_manager.get_compression_ratio_threshold(),
                     compressed_column._nvcomp_manager.get_column_name(),
                     compressed_column._nvcomp_manager.get_cudf_type()),
     _compressed_children(SharedColumnAllocator(segment.get_segment_manager())),
@@ -1056,6 +1065,7 @@ void in_memory_write_task::execute_default()
 
     auto comp_format = get_query_context()->parameters.in_memory_table_compression_format;
     auto const compression_chunk_size = get_query_context()->parameters.compression_chunk_size;
+    auto compression_ratio_threshold  = get_query_context()->parameters.compression_ratio_threshold;
 
     auto dtype = cudf_column.type().id();
 
@@ -1084,6 +1094,7 @@ void in_memory_write_task::execute_default()
                                               _non_owned_memory_resource,
                                               nvcomp_data_format,
                                               compression_chunk_size,
+                                              compression_ratio_threshold,
                                               _column_names[column_idx],
                                               cudf_column.type());
       } else if (dtype == cudf::type_id::STRING) {
@@ -1099,6 +1110,7 @@ void in_memory_write_task::execute_default()
                                                                     _non_owned_memory_resource,
                                                                     compression_chunk_size,
                                                                     partition_size,
+                                                                    compression_ratio_threshold,
                                                                     _column_names[column_idx]);
         } else {
           new_columns[_column_indexes[column_idx]] =
@@ -1108,6 +1120,7 @@ void in_memory_write_task::execute_default()
                                                                      _non_owned_memory_resource,
                                                                      compression_chunk_size,
                                                                      partition_size,
+                                                                     compression_ratio_threshold,
                                                                      _column_names[column_idx]);
         }
       } else {
@@ -1120,6 +1133,7 @@ void in_memory_write_task::execute_default()
                                                      nvcomp_data_format,
                                                      compression_chunk_size,
                                                      partition_size,
+                                                     compression_ratio_threshold,
                                                      _column_names[column_idx],
                                                      cudf_column.type());
       }
@@ -1194,6 +1208,7 @@ void in_memory_write_task::execute_shared_memory()
 
   for (decltype(num_columns) column_idx = 0; column_idx < num_columns; ++column_idx) {
     auto comp_format = get_query_context()->parameters.in_memory_table_compression_format;
+    auto compression_ratio_threshold = get_query_context()->parameters.compression_ratio_threshold;
 
     std::string shared_column_name = [&] {
       std::ostringstream oss;
@@ -1244,6 +1259,7 @@ void in_memory_write_task::execute_shared_memory()
                                                           rmm::mr::get_current_device_resource(),
                                                           nvcomp_data_format,
                                                           chunk_size,
+                                                          compression_ratio_threshold,
                                                           _column_names[column_idx]);
         segment.construct<gqe::storage::shared_compressed_column_base>(shared_column_name.c_str())(
           std::move(compressed_column), segment, stream, _non_owned_memory_resource);

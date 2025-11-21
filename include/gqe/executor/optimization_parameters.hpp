@@ -99,6 +99,9 @@ struct optimization_parameters {
   bool aggregation_use_perfect_hash =
     true;                              ///< Allow aggregation to be optimized with perfect hashing.
   int32_t num_shuffle_partitions = 2;  ///< Number of shuffle partitions for shuffle join.
+  double compression_ratio_threshold =
+    1.0;  ///< Compression ratio threshold to decide whether to compress the columns. Below this
+          ///< threshold, columns are stored uncompressed. Higher ratio means better compression.
 };
 
 }  // namespace gqe

@@ -50,9 +50,46 @@ namespace storage {
 
 class in_memory_readable_view;
 class in_memory_writeable_view;
-
 class row_group;
-using row_group_with_partitions = std::pair<const row_group*, std::vector<zone_map::partition>>;
+
+/**
+ * @brief Indicate which partitions of an in-memory table remain after partition pruning and which
+ * can be skipped.
+ *
+ * Depending on the column type, the projected columns of an in_memory_read_task compute the same
+ * information over the list of partitions returned by the zone map evaluation. For example,
+ * contiguous columns consolidate individual partitions into maximally large partitions, whereas
+ * compressed sliced columns require individual partition indices. All column classes require the
+ * number of rows remaining after partition pruning.
+ *
+ * This class precomputes these values, so that they are only computed once when accessed by
+ * multiple columns.
+ */
+class pruning_result_t {
+ public:
+  explicit pruning_result_t(const std::vector<zone_map::partition>& partitions);
+
+  /// @brief Return all partitions which are not pruned.
+  const std::vector<zone_map::partition>& candidate_partitions() const;
+
+  /// @brief Return maximally consolidated partitions.
+  const std::vector<zone_map::partition>& consolidated_partitions() const;
+
+  /// @brief Return the number of rows after pruning.
+  cudf::size_type num_rows() const;
+
+ private:
+  std::vector<zone_map::partition> _partitions;
+  std::vector<zone_map::partition> _candidate_partitions;
+  std::vector<zone_map::partition> _consolidated_partitions;
+  cudf::size_type _num_rows;
+};
+
+/// Pair a row group with its partition pruning result
+using row_group_with_pruning_result_t = std::pair<const row_group*, pruning_result_t>;
+
+/// Pruning results of all row groups of an in-memory table
+using pruning_results_t = std::vector<row_group_with_pruning_result_t>;
 
 enum class in_memory_column_type {
   CONTIGUOUS,
@@ -142,6 +179,11 @@ class column_base {
    * @brief Return the column size.
    */
   [[nodiscard]] virtual int64_t size() const = 0;
+
+  /**
+   * @brief Return the null count of the column.
+   */
+  [[nodiscard]] virtual cudf::size_type null_count() const = 0;
 };
 
 /**
@@ -164,6 +206,11 @@ class contiguous_column : public column_base {
    * @copydoc gqe::storage::column_base::size()
    */
   int64_t size() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::null_count()
+   */
+  [[nodiscard]] virtual cudf::size_type null_count() const override;
 
   /**
    * @brief Return a cuDF compatible column view.
@@ -206,6 +253,11 @@ class shared_contiguous_column : public column_base {
   int64_t size() const override { return view().size(); }
 
   /**
+   * @copydoc gqe::storage::column_base::null_count()
+   */
+  [[nodiscard]] virtual cudf::size_type null_count() const override;
+
+  /**
    * @brief Return a cuDF compatible column view.
    */
   cudf::column_view view() const;
@@ -246,6 +298,11 @@ class compressed_column : public column_base {
    * @copydoc gqe::storage::column_base::size()
    */
   int64_t size() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::null_count()
+   */
+  [[nodiscard]] virtual cudf::size_type null_count() const override;
 
   /**
    * @brief Compress the column.
@@ -321,6 +378,11 @@ class compressed_sliced_column : public column_base {
    * @copydoc gqe::storage::column_base::size()
    */
   int64_t size() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::null_count()
+   */
+  [[nodiscard]] virtual cudf::size_type null_count() const override;
 
   /**
    * @brief Decompress and construct an uncompressed version of the column.
@@ -570,6 +632,11 @@ class shared_compressed_column : public column_base {
   int64_t size() const override;
 
   /**
+   * @copydoc gqe::storage::column_base::null_count()
+   */
+  [[nodiscard]] virtual cudf::size_type null_count() const override;
+
+  /**
    * @brief Decompress and construct an uncompressed version of the column.
    *
    * @param[in] stream CUDA stream used for the decompression.
@@ -770,6 +837,53 @@ class in_memory_table : public table {
 };
 
 /**
+ * @brief Helper class to construct a CUDF column from the columns of the row groups of an in-memory
+ * table.
+ *
+ * Note: For now, this class uses cudf::concatenate to construct the CUDF column. In a subsequent
+ * MR, this will be changed to supported batched memcpy/decompression
+ */
+// TODO Better name?
+class output_column_helper {
+ public:
+  /**
+   * @brief Create a helper to construct a CUDF column from the columns of multiple row groups.
+   * @param pruning_results Partition pruning results
+   * @param column_idx The index of the output column in the base table schema
+   */
+  output_column_helper(std::shared_ptr<pruning_results_t> pruning_results,
+                       cudf::size_type column_idx);
+
+  /**
+   * @brief Decompress compressed columns, if necessary.
+   *
+   * Calls to nvCOMP should only occur in this method.
+   *
+   * @param decompression_stream The CUDA stream on which to execute operations.
+   * @return True, if the column of any row group was compressed.
+   */
+  [[nodiscard]] bool decompress_row_group_columns(rmm::cuda_stream_view decompression_stream);
+
+  /**
+   * @brief Construct the output CUDF column.
+   *
+   * Calls to kernels should only occur in this method.
+   *
+   * @param concatenation_stream The CUDA stream on which to execute kernels.
+   * @return A CUDF column representing the output column of the read task.
+   */
+  [[nodiscard]] std::unique_ptr<cudf::column> make_cudf_column(
+    rmm::cuda_stream_view concatenation_stream);
+
+ private:
+  std::shared_ptr<pruning_results_t> _pruning_results;
+  const cudf::size_type _column_idx;
+
+  /// Store decompressed columns between decompression and creation of the output CUDF column
+  std::unordered_map<const column_base*, std::unique_ptr<cudf::column>> _decompressed_columns;
+};
+
+/**
  * @brief A read task for loading data from memory.
  */
 class in_memory_read_task : public read_task_base {
@@ -813,49 +927,28 @@ class in_memory_read_task : public read_task_base {
   void execute() override;
 
  private:
-  /// Return true, if data transfers of read tasks (which use the copy engine) should be overlapped
-  /// with subsequent tasks from other workers.
-  bool should_use_overlap_mtx() const;
-
   /// Determine if partial pruning is supported. Returns true if partial pruning is enabled and a
   /// partial filter exists.
   bool can_prune_partitions() const;
 
-  /// Evaluate the partial filter on all row groups, and pair each row group with its qualifying
-  /// partitions. If a row group is completely pruned, it is removed from the result. Partitions are
-  /// maximally aggregated.
-  std::vector<row_group_with_partitions> evaluate_partial_filter();
-
-  /// Pair each row group with a "partition", which covers the entire row group. This makes the
-  /// remaining code independent of whether there is a partial filter or not. This operation
-  /// decompresses compressed columns.
-  std::vector<row_group_with_partitions> construct_fully_covering_partitions();
-
-  /// If column is an uncompressed column, return its cudf::column_view. Otherwise, decompress the
-  /// column before returning the cudf::column_view. Decompressed columns are stored in
-  /// _decompressed_columns to cache them and keep them valid through the lifetime of the read task.
-  cudf::column_view optionally_decompress_column(
-    column_base& column, const std::vector<zone_map::partition>& partitions);
-
-  /// For each row group and each of its partitions, slice the row group's columns and wrap them
-  /// inside a cudf::table_view. This operation decompresses compressed columns.
-  std::vector<cudf::table_view> slice_row_groups(
-    const std::vector<row_group_with_partitions>& row_groups_with_partitions);
+  /// Determine the partitions of the table that should be emitted. If a partial filter exists,
+  /// evaluate it on the zone map of on all row groups, and pair each row group with the evaluation
+  /// result. If no partial filter exists, pair each row group with a partition which covers the
+  /// entire row group.
+  std::unique_ptr<pruning_results_t> evaluate_partial_filter();
 
   /// Determine if a zero-copy read is possible, based on the number of row group partitions and
   /// environment parameters.
-  bool is_zero_copy_possible(const std::vector<cudf::table_view>& sliced_row_groups) const;
+  bool is_zero_copy_possible(const pruning_results_t& pruning_results) const;
 
   /// Construct an empty table with the schema of the read task and emit it as an owned result.
   void emit_empty_table();
 
-  /// Emit a single row group partition as a borrowed result.
-  void emit_single_partition(const std::vector<cudf::table_view>& sliced_row_groups);
+  /// Emit a single row group partition as a borrowed result, which is accessed via zero-copy.
+  void emit_zero_copy_result(std::unique_ptr<pruning_results_t> pruning_results);
 
-  /// Concatenate and emit one or more row group partitions as an owned result. Synchronizes the
-  /// cuDF default stream with _decompression_stream via ce_evt.
-  void emit_concatenated_partitions(const std::vector<cudf::table_view>& sliced_row_groups,
-                                    cudaEvent_t& ce_evt);
+  /// Copy one or more row groups to GPU memory and emit an owned result.
+  void emit_copied_result(std::unique_ptr<pruning_results_t> pruning_results);
 
   std::vector<const row_group*>
     _row_groups; /**< Non-owning references to the row groups assigned to this task. */
@@ -864,14 +957,6 @@ class in_memory_read_task : public read_task_base {
   memory_kind::type _memory_kind;
   std::unique_ptr<gqe::expression> _partial_filter;
   bool _force_zero_copy_disable;
-
-  /// Decompressed columns need to be kept valid during the lifetime of the read task. This map also
-  /// serves as a cache for decompressed columns.
-  std::unordered_map<const column_base*, std::unique_ptr<cudf::column>> _decompressed_columns;
-
-  /// The stream used to decompress columns. Either the shared copy engine stream if data transfers
-  /// are overlapped, or the CUDF default stream otherwise.
-  rmm::cuda_stream_view _decompression_stream;
 };
 
 /**

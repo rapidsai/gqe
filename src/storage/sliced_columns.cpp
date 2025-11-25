@@ -400,6 +400,8 @@ void compressed_sliced_column::compress(cudf::column&& cudf_column,
 
 int64_t compressed_sliced_column::size() const { return _size; }
 
+cudf::size_type compressed_sliced_column::null_count() const { return _null_count; }
+
 template <bool large_string_mode>
 string_compressed_sliced_column<large_string_mode>::string_compressed_sliced_column(
   cudf::column&& cudf_column,

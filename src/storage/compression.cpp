@@ -101,11 +101,12 @@ compression_manager::compression_manager(gqe::compression_format comp_format,
     cudf_type_to_string(_cudf_type.id()));
 }
 
-compression_result compression_manager::do_compress(rmm::device_buffer const* uncompressed,
-                                                    float& compression_ratio,
-                                                    bool& is_compressed,
-                                                    rmm::cuda_stream_view supplied_stream,
-                                                    rmm::device_async_resource_ref mr)
+std::unique_ptr<rmm::device_buffer> compression_manager::do_compress(
+  rmm::device_buffer const* uncompressed,
+  float& compression_ratio,
+  bool& is_compressed,
+  rmm::cuda_stream_view supplied_stream,
+  rmm::device_async_resource_ref mr)
 {
   is_compressed = true;
 
@@ -146,8 +147,7 @@ compression_result compression_manager::do_compress(rmm::device_buffer const* un
       comp_size,
       uncompressed->size(),
       compression_ratio);
-    return std::make_pair(std::make_unique<rmm::device_buffer>(*uncompressed, supplied_stream, mr),
-                          std::nullopt);
+    return std::make_unique<rmm::device_buffer>(*uncompressed, supplied_stream, mr);
   }
 
   GQE_LOG_TRACE(
@@ -159,12 +159,11 @@ compression_result compression_manager::do_compress(rmm::device_buffer const* un
     comp_size,
     compression_ratio);
 
-  return std::make_pair(std::move(compressed_buffer), std::move(comp_config));
+  return compressed_buffer;
 }
 
 std::unique_ptr<rmm::device_buffer> compression_manager::do_decompress(
   cudf::device_span<uint8_t const> compressed,
-  nvcomp::CompressionConfig const& compression_config,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -181,7 +180,7 @@ std::unique_ptr<rmm::device_buffer> compression_manager::do_decompress(
   auto decompression_manager = create_manager(stream, mr);
 
   DecompressionConfig decomp_config =
-    decompression_manager->configure_decompression(compression_config);
+    decompression_manager->configure_decompression(compressed.data());
 
   std::unique_ptr<rmm::device_buffer> decompressed_data =
     std::make_unique<rmm::device_buffer>(decomp_config.decomp_data_size, stream, mr);

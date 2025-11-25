@@ -340,8 +340,6 @@ class compressed_column : public column_base {
 
   std::unique_ptr<rmm::device_buffer> _compressed_data;
   std::unique_ptr<rmm::device_buffer> _compressed_null_mask;
-  std::optional<nvcomp::CompressionConfig> _compression_config;
-  std::optional<nvcomp::CompressionConfig> _null_mask_compression_config;
   std::vector<std::unique_ptr<compressed_column>> _compressed_children;
 };
 

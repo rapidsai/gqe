@@ -290,11 +290,10 @@ std::unique_ptr<rmm::device_buffer> compressed_column::compress(rmm::device_buff
 {
   std::unique_ptr<rmm::device_buffer> output;
   if (is_null_mask) {
-    std::tie(output, _null_mask_compression_config) = _nvcomp_manager.do_compress(
+    output = _nvcomp_manager.do_compress(
       input, _null_mask_compression_ratio, _is_null_mask_compressed, stream, mr);
   } else {
-    std::tie(output, _compression_config) =
-      _nvcomp_manager.do_compress(input, _compression_ratio, _is_compressed, stream, mr);
+    output = _nvcomp_manager.do_compress(input, _compression_ratio, _is_compressed, stream, mr);
   }
   return output;
 }
@@ -538,7 +537,6 @@ std::unique_ptr<cudf::column> compressed_column::decompress(rmm::cuda_stream_vie
       cudf::device_span<uint8_t const>(reinterpret_cast<uint8_t const*>(_compressed_data->data()),
                                        _compressed_size),
 
-      *_compression_config,
       stream,
       mr);
   } else {
@@ -552,7 +550,6 @@ std::unique_ptr<cudf::column> compressed_column::decompress(rmm::cuda_stream_vie
         cudf::device_span<uint8_t const>(
           reinterpret_cast<uint8_t const*>(_compressed_null_mask->data()),
           _compressed_null_mask->size()),
-        *_null_mask_compression_config,
         stream,
         mr);
     } else {

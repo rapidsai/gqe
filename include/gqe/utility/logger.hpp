@@ -55,6 +55,7 @@ inline spdlog::logger* logger()
 
     auto const log_level = std::getenv("GQE_LOG_LEVEL");
     if (log_level) { gqe_logger->set_level(spdlog::level::from_str(log_level)); }
+    gqe_logger->flush_on(spdlog::level::err);
 
     return gqe_logger;
   }();

@@ -189,8 +189,9 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
               curr_task->execute();
             }
             cudf::get_default_stream().synchronize();
-          } catch (const std::exception&) {
+          } catch (const std::exception& e) {
             worker_exception = std::current_exception();
+            GQE_LOG_ERROR("Error on worker {}: {}", worker_idx, e.what());
           }
         });
       }

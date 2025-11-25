@@ -39,8 +39,8 @@ unique_indices(std::vector<cudf::column_view> const& key_columns, cudf::column_v
 {
   if (key_columns.empty()) { throw std::invalid_argument("key_columns is empty"); }
   if (key_columns[0].is_empty()) {
-    return std::make_tuple(rmm::device_uvector<cudf::size_type>(0, rmm::cuda_stream_default),
-                           rmm::device_uvector<cudf::size_type>(0, rmm::cuda_stream_default));
+    return std::make_tuple(rmm::device_uvector<cudf::size_type>(0, cudf::get_default_stream()),
+                           rmm::device_uvector<cudf::size_type>(0, cudf::get_default_stream()));
   }
   PUSH_RANGE("perfect unique indices", 0);
   PUSH_RANGE("make hash table", 1);

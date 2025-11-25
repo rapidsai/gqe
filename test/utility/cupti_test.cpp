@@ -39,7 +39,7 @@
 
 class UserRangeProfilerTest : public ::testing::Test {
  public:
-  UserRangeProfilerTest() : stream(rmm::cuda_stream_default) {}
+  UserRangeProfilerTest() : stream(cudf::get_default_stream()) {}
 
   void SetUp() override
   {

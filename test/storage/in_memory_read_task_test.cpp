@@ -363,11 +363,11 @@ class InMemoryReadTaskTest : public ::testing::Test {
 
     rmm::device_buffer offsets_buffer(reinterpret_cast<uint8_t*>(offsets.data()),
                                       (num_rows + 1) * sizeof(int32_t),
-                                      rmm::cuda_stream_default,
+                                      cudf::get_default_stream(),
                                       _memory_resource.get());
     rmm::device_buffer values_buffer(reinterpret_cast<uint8_t*>(values.data()),
                                      offset_val,
-                                     rmm::cuda_stream_default,
+                                     cudf::get_default_stream(),
                                      _memory_resource.get());
     std::unique_ptr<cudf::column> offsets_col =
       std::make_unique<cudf::column>(cudf::data_type(cudf::type_id::INT32),
@@ -452,7 +452,7 @@ class InMemoryReadTaskTest : public ::testing::Test {
             } else if (not _use_sliced_compression) {
               return std::make_unique<gqe::storage::compressed_column>(cudf::column(column_view),
                                                                        comp_format,
-                                                                       rmm::cuda_stream_default,
+                                                                       cudf::get_default_stream(),
                                                                        *_memory_resource,
                                                                        nvcomp_data_format,
                                                                        chunk_size,
@@ -461,7 +461,7 @@ class InMemoryReadTaskTest : public ::testing::Test {
               return std::make_unique<gqe::storage::string_compressed_sliced_column<false>>(
                 cudf::column(column_view),
                 comp_format,
-                rmm::cuda_stream_default,
+                cudf::get_default_stream(),
                 *_memory_resource,
                 chunk_size,
                 _partition_size,
@@ -470,7 +470,7 @@ class InMemoryReadTaskTest : public ::testing::Test {
               return std::make_unique<gqe::storage::compressed_sliced_column>(
                 cudf::column(column_view),
                 comp_format,
-                rmm::cuda_stream_default,
+                cudf::get_default_stream(),
                 *_memory_resource,
                 nvcomp_data_format,
                 chunk_size,

@@ -135,7 +135,7 @@ class KernelLauncher final {
   void launch(std::string const& kernelName,
               LaunchConfiguration const& config,
               llvm::MutableArrayRef<void*> arguments,
-              rmm::cuda_stream_view stream = rmm::cuda_stream_default);
+              rmm::cuda_stream_view stream = cudf::get_default_stream());
 
  private:
   std::unique_ptr<detail::KernelLibrary> _library;

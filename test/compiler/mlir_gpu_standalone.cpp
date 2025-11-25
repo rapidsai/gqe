@@ -409,7 +409,7 @@ TEST_F(MLIRGPUStandaloneTest, simpleLaunch)
   gqe::utility::KernelLauncher launcher(*testKernel);
   launcher.launch(kernelName, launchConfig, args);
 
-  rmm::cuda_stream_default.synchronize();
+  cudf::get_default_stream().synchronize();
 }
 
 TEST_F(MLIRGPUStandaloneTest, scalarLiteralLaunch)
@@ -443,7 +443,7 @@ TEST_F(MLIRGPUStandaloneTest, scalarLiteralLaunch)
   gqe::utility::KernelLauncher launcher(*testKernel);
   launcher.launch(kernelName, launchConfig, voidArgs);
 
-  rmm::cuda_stream_default.synchronize();
+  cudf::get_default_stream().synchronize();
 }
 
 TEST_F(MLIRGPUStandaloneTest, scalarMemrefLaunch)
@@ -464,7 +464,7 @@ TEST_F(MLIRGPUStandaloneTest, scalarMemrefLaunch)
   EXPECT_TRUE(testKernel.has_value());
 
   // Allocate test data.
-  rmm::device_scalar<int32_t> gpuData(0xDEADBEEF, rmm::cuda_stream_default);
+  rmm::device_scalar<int32_t> gpuData(0xDEADBEEF, cudf::get_default_stream());
 
   // Prepare kernel arguments.
   gqe::utility::KernelArgsBuilder args;
@@ -477,7 +477,7 @@ TEST_F(MLIRGPUStandaloneTest, scalarMemrefLaunch)
   launcher.launch(kernelName, launchConfig, voidArgs);
 
   // Cleanup.
-  rmm::cuda_stream_default.synchronize();
+  cudf::get_default_stream().synchronize();
 }
 
 TEST_F(MLIRGPUStandaloneTest, dynamicMemrefLaunch)
@@ -505,7 +505,7 @@ TEST_F(MLIRGPUStandaloneTest, dynamicMemrefLaunch)
   }
 
   // Prepare kernel arguments.
-  auto gpuData = rmm::device_uvector<int32_t>(data.size(), rmm::cuda_stream_default);
+  auto gpuData = rmm::device_uvector<int32_t>(data.size(), cudf::get_default_stream());
   GQE_CUDA_TRY(
     cudaMemcpy(gpuData.data(), data.data(), sizeof(int32_t) * data.size(), cudaMemcpyDefault));
   auto column = cudf::column(std::move(gpuData), {}, 0);
@@ -519,5 +519,5 @@ TEST_F(MLIRGPUStandaloneTest, dynamicMemrefLaunch)
   launcher.launch(kernelName, launchConfig, voidArgs);
 
   // Cleanup.
-  rmm::cuda_stream_default.synchronize();
+  cudf::get_default_stream().synchronize();
 }

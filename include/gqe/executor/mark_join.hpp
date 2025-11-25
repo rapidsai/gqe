@@ -68,7 +68,7 @@ class mark_join {
             bool is_cached,
             cudf::null_equality compare_nulls = cudf::null_equality::UNEQUAL,
             double load_factor                = 0.5,
-            rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
+            rmm::cuda_stream_view stream      = cudf::get_default_stream(),
             rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
   /**
@@ -101,7 +101,7 @@ class mark_join {
     cudf::table_view const& left_conditional,
     cudf::table_view const& right_conditional,
     cudf::ast::expression const* binary_predicate,
-    rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
+    rmm::cuda_stream_view stream      = cudf::get_default_stream(),
     rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref()) const;
 
   /**
@@ -128,7 +128,7 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_semi_mark_join(
   cudf::table_view const& right_keys,
   cudf::null_equality compare_nulls = cudf::null_equality::UNEQUAL,
   double load_factor                = 0.5,
-  rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_anti_mark_join(
@@ -136,7 +136,7 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> left_anti_mark_join(
   cudf::table_view const& right_keys,
   cudf::null_equality compare_nulls = cudf::null_equality::UNEQUAL,
   double load_factor                = 0.5,
-  rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_semi_mark_join(
@@ -147,7 +147,7 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_semi_mark_join(
   cudf::ast::expression const& binary_predicate,
   cudf::null_equality compare_nulls = cudf::null_equality::UNEQUAL,
   double load_factor                = 0.5,
-  rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_anti_mark_join(
@@ -158,7 +158,7 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_left_anti_mark_join(
   cudf::ast::expression const& binary_predicate,
   cudf::null_equality compare_nulls = cudf::null_equality::UNEQUAL,
   double load_factor                = 0.5,
-  rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 }  // namespace gqe

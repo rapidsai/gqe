@@ -19,9 +19,12 @@
 
 #include "memory_pool.hpp"
 #include <cudf/types.hpp>
+#include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
-#include <iostream>
+
 #include <rmm/device_uvector.hpp>
+
+#include <iostream>
 #include <sstream>
 #include <stdint.h>
 
@@ -417,7 +420,7 @@ class CudaGpuArray {
   using const_pointer     = CudaPointer<T const, ACCESS_FROM_HOST, ACCESS_FROM_DEVICE>;
   using element_type      = T;
   explicit CudaGpuArray() = default;
-  explicit CudaGpuArray(size_t count) : buffer(count, rmm::cuda_stream_default) {}
+  explicit CudaGpuArray(size_t count) : buffer(count, cudf::get_default_stream()) {}
   explicit CudaGpuArray(std::vector<T> const& source_elements)
     : CudaGpuArray(source_elements.size())
   {
@@ -458,7 +461,7 @@ class CudaGpuArray {
     }
   }
 
-  void resize(size_t new_count) { buffer.resize(new_count, rmm::cuda_stream_default); }
+  void resize(size_t new_count) { buffer.resize(new_count, cudf::get_default_stream()); }
   size_t numel() const { return buffer.size(); }
   rmm::device_uvector<T>& get_buffer() { return buffer; }
 
@@ -473,7 +476,7 @@ class CudaGpuBuffer {
   constexpr static bool ACCESS_FROM_HOST   = false;
   constexpr static bool ACCESS_FROM_DEVICE = true;
   explicit CudaGpuBuffer(size_t count, cudf::type_id id)
-    : elements(count * size_of_id(id), rmm::cuda_stream_default), id(id)
+    : elements(count * size_of_id(id), cudf::get_default_stream()), id(id)
   {
   }
   auto get()
@@ -488,7 +491,7 @@ class CudaGpuBuffer {
   size_t numel() const noexcept { return elements.size() / size_of_id(id); }
   void resize(size_t new_count)
   {
-    elements.resize(new_count * size_of_id(id), rmm::cuda_stream_default);
+    elements.resize(new_count * size_of_id(id), cudf::get_default_stream());
   }
   cudf::type_id get_id() const { return id; }
   template <typename T>

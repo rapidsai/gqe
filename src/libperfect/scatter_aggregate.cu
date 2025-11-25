@@ -570,7 +570,7 @@ cudf::column scatter_aggregate(cudf::column_view const& values,
   return cudf::column(cudf::data_type(output_type_id),
                       ret.numel(),
                       std::move(ret.get_buffer()),
-                      rmm::device_buffer(0, rmm::cuda_stream_default),
+                      rmm::device_buffer(0, cudf::get_default_stream()),
                       0);
 }
 

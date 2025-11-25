@@ -83,7 +83,7 @@ CudaGpuArray<cudf::size_type> condense(input_type& input)
     input.get(), input_count, condensed.get(), condensed_count.get());
   CudaPinnedArray<input_count_type> pinned_condensed_count(1);
   pinned_condensed_count.get().copy_from(
-    condensed_count.get(), condensed_count.get() + 1, rmm::cuda_stream_default);
+    condensed_count.get(), condensed_count.get() + 1, cudf::get_default_stream());
   gpu_throw(cudaDeviceSynchronize());
   condensed.resize(pinned_condensed_count.get()[0]);
   return condensed;

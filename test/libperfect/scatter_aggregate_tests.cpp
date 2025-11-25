@@ -75,7 +75,8 @@ TYPED_TEST_P(scatter_aggregate_single_column_test, basic_single_column)
   for (const auto& [aggregation_kind, initial_value, binary_operation] : aggregation_kinds) {
     for (const auto& [keys_data, groups_data] : test_cases) {
       cudf::test::fixed_width_column_wrapper<T> keys(keys_data.begin(), keys_data.end());
-      rmm::device_uvector<cudf::size_type> group_ids(groups_data.size(), rmm::cuda_stream_default);
+      rmm::device_uvector<cudf::size_type> group_ids(groups_data.size(),
+                                                     cudf::get_default_stream());
       cudaMemcpy(group_ids.data(),
                  groups_data.data(),
                  groups_data.size() * sizeof(cudf::size_type),
@@ -116,7 +117,7 @@ TEST_F(scatter_aggregate_test, string_input_throws_exception)
   std::vector<cudf::size_type> groups_data{0, 1, 0, 1, 2};
 
   cudf::test::strings_column_wrapper string_keys(string_data.begin(), string_data.end());
-  rmm::device_uvector<cudf::size_type> group_ids(groups_data.size(), rmm::cuda_stream_default);
+  rmm::device_uvector<cudf::size_type> group_ids(groups_data.size(), cudf::get_default_stream());
   cudaMemcpy(group_ids.data(),
              groups_data.data(),
              groups_data.size() * sizeof(cudf::size_type),

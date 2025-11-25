@@ -473,7 +473,7 @@ TEST_F(MlirTpchTest, Q6Execution)
     args.append(column);
   }
 
-  rmm::device_scalar<double> resultValue(0, rmm::cuda_stream_default);
+  rmm::device_scalar<double> resultValue(0, cudf::get_default_stream());
   args.append(resultValue);
 
   // Get the kernel and arguments.
@@ -486,9 +486,9 @@ TEST_F(MlirTpchTest, Q6Execution)
   launcher.launch(kernelName, launchConfig, voidArgs);
 
   // Stream synchronize.
-  rmm::cuda_stream_default.synchronize();
+  cudf::get_default_stream().synchronize();
 
-  auto queryResult = resultValue.value(rmm::cuda_stream_default);
+  auto queryResult = resultValue.value(cudf::get_default_stream());
   llvm::outs() << "TPC-H Q6 result: " << llvm::format("%0.4f", queryResult) << "\n";
 
   constexpr double expected = 123141078.2283;

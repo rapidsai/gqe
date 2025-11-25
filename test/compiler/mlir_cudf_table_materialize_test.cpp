@@ -468,7 +468,7 @@ TEST_F(CudfTableMaterializeTest, RealGPUExecution)
   args.append(output_value_column->mutable_view());
 
   // Atomic counter for CudfTableMaterialize
-  rmm::device_scalar<int64_t> atomic_counter(0, rmm::cuda_stream_default);
+  rmm::device_scalar<int64_t> atomic_counter(0, cudf::get_default_stream());
   args.append(atomic_counter);
 
   // Launch kernel
@@ -478,10 +478,10 @@ TEST_F(CudfTableMaterializeTest, RealGPUExecution)
 
   auto launchConfig = launcher.detectLaunchConfiguration(kernelName);
   launcher.launch(kernelName, launchConfig, voidArgs);
-  rmm::cuda_stream_default.synchronize();
+  cudf::get_default_stream().synchronize();
 
   // Verify results
-  auto final_counter = atomic_counter.value(rmm::cuda_stream_default);
+  auto final_counter = atomic_counter.value(cudf::get_default_stream());
   ASSERT_EQ(final_counter, input_table->num_rows()) << "All rows should have been written";
 
   // Create output table and verify
@@ -573,7 +573,7 @@ TEST_F(CudfTableMaterializeTest, LineitemParquetExecution)
   args.append(output_extendedprice_column->mutable_view());
 
   // Atomic counter for CudfTableMaterialize
-  rmm::device_scalar<int64_t> atomic_counter(0, rmm::cuda_stream_default);
+  rmm::device_scalar<int64_t> atomic_counter(0, cudf::get_default_stream());
   args.append(atomic_counter);
 
   // Launch kernel
@@ -583,10 +583,10 @@ TEST_F(CudfTableMaterializeTest, LineitemParquetExecution)
 
   auto launchConfig = launcher.detectLaunchConfiguration(kernelName);
   launcher.launch(kernelName, launchConfig, voidArgs);
-  rmm::cuda_stream_default.synchronize();
+  cudf::get_default_stream().synchronize();
 
   // Verify results
-  auto final_counter = atomic_counter.value(rmm::cuda_stream_default);
+  auto final_counter = atomic_counter.value(cudf::get_default_stream());
   ASSERT_EQ(final_counter, input_table->num_rows()) << "All lineitem rows should have been written";
 
   // Create output table and verify (lineitem columns)

@@ -58,7 +58,7 @@ class hash_join_interface : public join_interface {
   ~hash_join_interface() override = default;
   hash_join_interface(cudf::table_view const& build,
                       cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
-                      rmm::cuda_stream_view stream      = rmm::cuda_stream_default);
+                      rmm::cuda_stream_view stream      = cudf::get_default_stream());
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
@@ -88,7 +88,7 @@ class unique_key_join_interface : public join_interface {
   unique_key_join_interface(cudf::table_view const& build,
                             cudf::column_view const& build_mask = cudf::column_view(),
                             cudf::null_equality compare_nulls   = cudf::null_equality::EQUAL,
-                            rmm::cuda_stream_view stream        = rmm::cuda_stream_default);
+                            rmm::cuda_stream_view stream        = cudf::get_default_stream());
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
@@ -119,7 +119,7 @@ class mark_join_interface : public join_interface {
                       cudf::column_view const& build_mask,
                       bool is_cached,
                       cudf::null_equality compare_nulls,
-                      rmm::cuda_stream_view stream = rmm::cuda_stream_default);
+                      rmm::cuda_stream_view stream = cudf::get_default_stream());
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>

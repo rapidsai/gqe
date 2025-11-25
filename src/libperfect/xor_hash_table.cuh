@@ -929,7 +929,7 @@ class HashTable {
                                                     reverse_indices.get().data());
         CudaPinnedArray<hash_key_type> pinned_num_unique_indices(1);
         pinned_num_unique_indices.get().copy_from(
-          num_unique_indices.get(), num_unique_indices.get() + 1, rmm::cuda_stream_default);
+          num_unique_indices.get(), num_unique_indices.get() + 1, cudf::get_default_stream());
         gpu_throw(cudaDeviceSynchronize());
         auto output_size = pinned_num_unique_indices.get()[0];
         unique_indices.resize(output_size);
@@ -1167,7 +1167,7 @@ class HashTable {
                                                    match_count->get().data());
       CudaPinnedArray<int64_t> pinned_match_count(1);
       pinned_match_count.get().copy_from(
-        match_count->get(), match_count->get() + 1, rmm::cuda_stream_default);
+        match_count->get(), match_count->get() + 1, cudf::get_default_stream());
       gpu_throw(cudaDeviceSynchronize());
       auto local_match_count = pinned_match_count.get()[0];
       match_left.resize(local_match_count);

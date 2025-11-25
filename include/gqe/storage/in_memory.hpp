@@ -360,10 +360,6 @@ class compressed_sliced_column : public column_base {
   std::vector<cudf::size_type> _compressed_data_sizes;
   std::vector<cudf::size_type> _compressed_null_mask_sizes;
 
-  // These must come after the compression managers for proper destruction order
-  std::vector<nvcomp::CompressionConfig> _compression_configs;
-  std::vector<nvcomp::CompressionConfig> _null_compression_configs;
-
   compressed_sliced_column(const cudf::column& cudf_column,
                            compression_format comp_format,
                            rmm::cuda_stream_view stream,
@@ -384,7 +380,6 @@ class compressed_sliced_column : public column_base {
    *
    * @param[in] input The input buffer to compress
    * @param[out] compressed_data_buffers The compressed data buffers
-   * @param[out] compression_configs The compression configs
    * @param[out] compressed_sizes The compressed sizes
    * @param[in] num_rows The number of rows in the column
    * @param[in] num_partitions The number of partitions in the column
@@ -396,7 +391,6 @@ class compressed_sliced_column : public column_base {
    */
   void do_compress(rmm::device_buffer const* input,
                    std::vector<std::unique_ptr<rmm::device_buffer>>& compressed_data_buffers,
-                   std::vector<nvcomp::CompressionConfig>& compression_configs,
                    std::vector<cudf::size_type>& compressed_sizes,
                    size_t num_rows,
                    size_t num_partitions,
@@ -416,7 +410,6 @@ class compressed_sliced_column : public column_base {
    * @param[in] ix_partition_slices Indices of the partitions to decompress
    * @param[out] full_compressed_sizes Array of full compressed sizes of the column
    * @param[out] full_compressed_data_buffers Array of full compressed data buffers of the column
-   * @param[out] full_compression_configs Array of full compression configs of the column
    * @param[in] is_compressed Whether the column is compressed
    */
   rmm::device_buffer do_decompress(
@@ -427,7 +420,6 @@ class compressed_sliced_column : public column_base {
     const std::vector<size_t>& ix_partition_slices,
     std::vector<cudf::size_type>& full_compressed_sizes,
     std::vector<std::unique_ptr<rmm::device_buffer>>& full_compressed_data_buffers,
-    std::vector<nvcomp::CompressionConfig>& full_compression_configs,
     const bool is_compressed);
 
   /**
@@ -437,8 +429,6 @@ class compressed_sliced_column : public column_base {
    * @param[out] device_compressed_ptrs Array of pointers to the compressed data on the device
    * @param[in] compressed_sizes Array of sizes of the compressed data
    * @param[in] ix_partition_slices The indices of the partitions to decompress
-   * @param[out] decompression_configs Array of decompression configs
-   * @param[in] compression_configs Array of compression configs
    * @param[out] reduced_compressed_sizes Array of reduced compressed sizes
    * @param[out] compressed_data_buffers Array of compressed data buffers
    * @param[in] dst_ptr The buffer we've allocated for the device compressed ptrs
@@ -449,8 +439,6 @@ class compressed_sliced_column : public column_base {
                       uint8_t** device_compressed_ptrs,
                       const std::vector<cudf::size_type>& compressed_sizes,
                       const std::vector<size_t>& ix_partition_slices,
-                      std::vector<nvcomp::DecompressionConfig>& decompression_configs,
-                      const std::vector<nvcomp::CompressionConfig>& compression_configs,
                       std::vector<size_t>& reduced_compressed_sizes,
                       std::vector<std::unique_ptr<rmm::device_buffer>>& compressed_data_buffers,
                       uint8_t* dst_ptr,
@@ -492,8 +480,6 @@ class string_compressed_sliced_column : public compressed_sliced_column {
   std::vector<cudf::size_type> _partition_char_array_sizes;
   std::vector<cudf::size_type> _partition_row_counts;
   compression_manager _nvcomp_offset_manager;
-  // This needs to come after the manager for proper destruction order
-  std::vector<nvcomp::CompressionConfig> _compressed_offset_configs;
 
   void compress(cudf::column&& cudf_column,
                 rmm::cuda_stream_view stream,

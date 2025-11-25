@@ -48,8 +48,6 @@ class compression_manager {
   int _compression_chunk_size;
   std::string _column_name;
   cudf::data_type _cudf_type;
-  std::unique_ptr<nvcompManagerBase> _compression_manager;
-  std::unique_ptr<nvcompManagerBase> _decompression_manager;
   double _compression_ratio_threshold;
 
   void print_usage() const;
@@ -121,17 +119,17 @@ class compression_manager {
   /**
    * @brief Function to perform decompression of a batch of compressed buffers
    *
-   * @param[in] device_decompressed Array of pointers to decompressed buffers
+   * @param[in] device_decompressed_base_ptr Base decompression output buffer
    * @param[in] device_compressed Array of pointers to compressed buffers
-   * @param[in] buffer_decompression_configs Vector of decompression configs
    * @param[in] host_compressed A copy of device_compressed available to host
+   * @param[in] batch_count the number of compressed batches to decompress
    * @param[in] stream Stream to use for decompression
    * @param[in] mr Memory resource to use for decompression
    */
-  void decompress_batch(uint8_t* const* device_decompressed,
+  void decompress_batch(uint8_t* const device_decompressed_base_ptr,
                         const uint8_t* const* device_compressed,
-                        std::vector<nvcomp::DecompressionConfig>& buffer_decompression_configs,
                         const uint8_t* const* host_compressed,
+                        const size_t batch_count,
                         rmm::cuda_stream_view stream,
                         rmm::device_async_resource_ref mr);
 
@@ -146,15 +144,14 @@ class compression_manager {
    * @param[in] stream Stream to use for compression
    * @param[in] mr Memory resource to use for compression
    */
-  std::pair<std::vector<std::unique_ptr<rmm::device_buffer>>,
-            std::vector<nvcomp::CompressionConfig>>
-  compress_batch(const std::vector<rmm::device_buffer>& device_uncompressed,
-                 float& compression_ratio,
-                 bool& is_compressed,
-                 size_t& compressed_size,
-                 std::vector<cudf::size_type>& compressed_sizes,
-                 rmm::cuda_stream_view stream,
-                 rmm::device_async_resource_ref mr);
+  std::vector<std::unique_ptr<rmm::device_buffer>> compress_batch(
+    const std::vector<rmm::device_buffer>& device_uncompressed,
+    float& compression_ratio,
+    bool& is_compressed,
+    size_t& compressed_size,
+    std::vector<cudf::size_type>& compressed_sizes,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr);
 
   nvcomp::DecompressionConfig configure_decompression(
     nvcomp::CompressionConfig const& compression_config);

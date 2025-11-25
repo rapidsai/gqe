@@ -99,8 +99,6 @@ compression_manager::compression_manager(gqe::compression_format comp_format,
     static_cast<int>(_data_type),
     _compression_chunk_size,
     cudf_type_to_string(_cudf_type.id()));
-
-  _compression_manager = create_manager(supplied_stream, mr);
 }
 
 compression_result compression_manager::do_compress(rmm::device_buffer const* uncompressed,
@@ -121,22 +119,22 @@ compression_result compression_manager::do_compress(rmm::device_buffer const* un
     _compression_chunk_size,
     cudf_type_to_string(_cudf_type.id()));
 
-  auto comp_config       = _compression_manager->configure_compression(uncompressed->size());
-  auto compressed_buffer = std::make_unique<rmm::device_buffer>(
+  auto compression_manager = create_manager(supplied_stream, mr);
+  auto comp_config         = compression_manager->configure_compression(uncompressed->size());
+  auto compressed_buffer   = std::make_unique<rmm::device_buffer>(
     comp_config.max_compressed_buffer_size, supplied_stream, mr);
 
-  _compression_manager->compress(static_cast<uint8_t const*>(uncompressed->data()),
-                                 static_cast<uint8_t*>(compressed_buffer->data()),
-                                 comp_config);
+  compression_manager->compress(static_cast<uint8_t const*>(uncompressed->data()),
+                                static_cast<uint8_t*>(compressed_buffer->data()),
+                                comp_config);
 
-  auto const comp_size = _compression_manager->get_compressed_output_size(
+  auto const comp_size = compression_manager->get_compressed_output_size(
     static_cast<uint8_t*>(compressed_buffer->data()));
 
   compression_ratio = static_cast<double>(uncompressed->size()) / comp_size;
 
   compressed_buffer->resize(comp_size, supplied_stream);
   compressed_buffer->shrink_to_fit(supplied_stream);
-  _compression_manager->deallocate_gpu_mem();
 
   if (compression_ratio < _compression_ratio_threshold) {
     is_compressed = false;
@@ -164,14 +162,6 @@ compression_result compression_manager::do_compress(rmm::device_buffer const* un
   return std::make_pair(std::move(compressed_buffer), std::move(comp_config));
 }
 
-nvcomp::DecompressionConfig compression_manager::configure_decompression(
-  nvcomp::CompressionConfig const& compression_config)
-{
-  // Use compression manager because it will always be constructed -- this doesn't involve any
-  // device code
-  return _compression_manager->configure_decompression(compression_config);
-}
-
 std::unique_ptr<rmm::device_buffer> compression_manager::do_decompress(
   cudf::device_span<uint8_t const> compressed,
   nvcomp::CompressionConfig const& compression_config,
@@ -188,15 +178,15 @@ std::unique_ptr<rmm::device_buffer> compression_manager::do_decompress(
     _compression_chunk_size,
     cudf_type_to_string(_cudf_type.id()));
 
-  _decompression_manager = create_manager(stream, mr);
+  auto decompression_manager = create_manager(stream, mr);
 
   DecompressionConfig decomp_config =
-    _decompression_manager->configure_decompression(compression_config);
+    decompression_manager->configure_decompression(compression_config);
 
   std::unique_ptr<rmm::device_buffer> decompressed_data =
     std::make_unique<rmm::device_buffer>(decomp_config.decomp_data_size, stream, mr);
 
-  _decompression_manager->decompress(
+  decompression_manager->decompress(
     (uint8_t*)decompressed_data->data(), compressed.data(), decomp_config);
 
   GQE_LOG_TRACE(
@@ -207,46 +197,68 @@ std::unique_ptr<rmm::device_buffer> compression_manager::do_decompress(
     compressed.size(),
     decompressed_data->size());
 
-  _decompression_manager->deallocate_gpu_mem();
-
   return decompressed_data;
 }
 
-void compression_manager::decompress_batch(
-  uint8_t* const* device_decompressed,
-  const uint8_t* const* device_compressed,
-  std::vector<nvcomp::DecompressionConfig>& buffer_decompression_configs,
-  const uint8_t* const* host_compressed,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+void compression_manager::decompress_batch(uint8_t* const device_decompressed_base_ptr,
+                                           const uint8_t* const* device_compressed,
+                                           const uint8_t* const* host_compressed,
+                                           const size_t batch_count,
+                                           rmm::cuda_stream_view stream,
+                                           rmm::device_async_resource_ref mr)
 {
   // variable not needed for decomp
   constexpr const size_t* compression_sizes = nullptr;
-  _decompression_manager                    = create_manager(stream, mr);
+  auto decompression_manager                = create_manager(stream, mr);
+  auto cudf_pinned_resource                 = cudf::get_pinned_memory_resource();
+  uint8_t** device_decompressed             = reinterpret_cast<uint8_t**>(
+    cudf_pinned_resource.allocate_async(sizeof(uint8_t*) * batch_count, alignof(uint8_t*), stream));
+  GQE_CUDA_TRY(cudaStreamSynchronize(stream));
 
   // This function assumes all pointers were allocated the same way and share the attributes of the
   // first buffer. Otherwise, behavior is undefined.
   cudaPointerAttributes attrs;
   cudaError_t status = cudaPointerGetAttributes(&attrs, host_compressed[0]);
 
+  // for host api we still pass in an empty vector, otherwise populate
+  std::vector<nvcomp::DecompressionConfig> decompression_configs;
   // if call succeeded and we have non-nullptr on hostPointer, this should be host-accessible
   if (status == cudaSuccess && attrs.hostPointer) {
     GQE_LOG_TRACE("decompress_batch: Using no-kernel batched decompression api");
+    size_t decompressed_offset = 0;
+    for (size_t i = 0; i < batch_count; ++i) {
+      device_decompressed[i] = device_decompressed_base_ptr + decompressed_offset;
+      decompressed_offset +=
+        decompression_manager->get_decompressed_output_size_host(host_compressed[i]);
+    }
     // uses zero-copy no-kernel decompression api
-    _decompression_manager->decompress(device_decompressed,
-                                       device_compressed,
-                                       buffer_decompression_configs,
-                                       compression_sizes,
-                                       host_compressed);
+    decompression_manager->decompress(device_decompressed,
+                                      device_compressed,
+                                      decompression_configs,
+                                      batch_count,
+                                      compression_sizes,
+                                      host_compressed);
   } else {
+    // fall back to decompression api that uses kernels
     GQE_LOG_TRACE(
       "decompress_batch: Using fallback kernel-based batched decompression api due to host "
       "compression buffer accessibility");
-    // fall back to decompression api that uses kernels
-    _decompression_manager->decompress(
-      device_decompressed, device_compressed, buffer_decompression_configs, compression_sizes);
+    size_t decompressed_offset = 0;
+    for (size_t i = 0; i < batch_count; ++i) {
+      decompression_configs.push_back(
+        decompression_manager->configure_decompression(device_compressed[i]));
+      device_decompressed[i] = device_decompressed_base_ptr + decompressed_offset;
+      decompressed_offset += decompression_configs[i].decomp_data_size;
+    }
+    decompression_manager->decompress(device_decompressed,
+                                      device_compressed,
+                                      decompression_configs,
+                                      batch_count,
+                                      compression_sizes);
   }
-  _decompression_manager->deallocate_gpu_mem();
+  GQE_CUDA_TRY(cudaStreamSynchronize(stream));
+  cudf_pinned_resource.deallocate_async(
+    device_decompressed, sizeof(uint8_t*) * batch_count, stream);
 }
 
 /*
@@ -254,14 +266,14 @@ std::tie(compressed_data_buffers, compression_configs) = manager.compress_batch(
     device_uncompressed_data_buffers, _compression_ratio,
     is_compressed, compressed_size, compressed_sizes, stream, mr);
 */
-std::pair<std::vector<std::unique_ptr<rmm::device_buffer>>, std::vector<nvcomp::CompressionConfig>>
-compression_manager::compress_batch(const std::vector<rmm::device_buffer>& device_uncompressed,
-                                    float& compression_ratio,
-                                    bool& is_compressed,
-                                    size_t& compressed_size,
-                                    std::vector<cudf::size_type>& compressed_sizes,
-                                    rmm::cuda_stream_view stream,
-                                    rmm::device_async_resource_ref mr)
+std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_batch(
+  const std::vector<rmm::device_buffer>& device_uncompressed,
+  float& compression_ratio,
+  bool& is_compressed,
+  size_t& compressed_size,
+  std::vector<cudf::size_type>& compressed_sizes,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
 {
   std::vector<std::unique_ptr<rmm::device_buffer>> compressed_data_buffers;
   std::vector<nvcomp::CompressionConfig> compression_configs;
@@ -275,9 +287,10 @@ compression_manager::compress_batch(const std::vector<rmm::device_buffer>& devic
   uint8_t const** decompressed_ptrs =
     (uint8_t const**)(compressed_ptrs + device_uncompressed.size());
 
+  auto compression_manager = create_manager(stream, mr);
   for (size_t ix = 0; ix < device_uncompressed.size(); ix++) {
     auto& uncompressed = device_uncompressed[ix];
-    auto config        = _compression_manager->configure_compression(uncompressed.size());
+    auto config        = compression_manager->configure_compression(uncompressed.size());
     compression_configs.push_back(config);
     compressed_data_buffers.push_back(
       std::make_unique<rmm::device_buffer>(config.max_compressed_buffer_size, stream, mr));
@@ -298,11 +311,11 @@ compression_manager::compress_batch(const std::vector<rmm::device_buffer>& devic
     _compression_chunk_size,
     cudf_type_to_string(_cudf_type.id()));
 
-  _compression_manager->compress(decompressed_ptrs, compressed_ptrs, compression_configs);
+  compression_manager->compress(decompressed_ptrs, compressed_ptrs, compression_configs);
 
   size_t total_compressed_size = 0;
   for (size_t ix = 0; ix < compressed_data_buffers.size(); ix++) {
-    size_t comp_size = _compression_manager->get_compressed_output_size(
+    size_t comp_size = compression_manager->get_compressed_output_size(
       reinterpret_cast<const uint8_t*>(compressed_data_buffers[ix]->data()));
     total_compressed_size += comp_size;
     compressed_sizes.push_back(comp_size);
@@ -347,10 +360,10 @@ compression_manager::compress_batch(const std::vector<rmm::device_buffer>& devic
 
   compressed_size = total_compressed_size;
 
-  _compression_manager->deallocate_gpu_mem();
   cudf_pinned_resource.deallocate_async(pinned_alloc, pinned_mem_size, stream);
 
-  return std::make_pair(std::move(compressed_data_buffers), std::move(compression_configs));
+  // no need to std::move, copy elision
+  return compressed_data_buffers;
 }
 
 std::unique_ptr<rmm::device_buffer> compression_manager::do_decompress(
@@ -380,7 +393,6 @@ std::unique_ptr<rmm::device_buffer> compression_manager::do_decompress(
 
   manager->decompress(
     static_cast<uint8_t*>(decompressed_buffer->data()), comp_buffer, decomp_config);
-  manager->deallocate_gpu_mem();
 
   GQE_LOG_TRACE(
     "Decompression completed for column '{}' using compression algorithm {}: compressed_size={}, "

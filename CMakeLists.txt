@@ -75,7 +75,7 @@ CPMAddPackage(
 # * nvcomp setup ----------------------------------------------------------------------------------
 
 # CMake variable for gqe-nvcomp tag
-set(GQE_NVCOMP_TAG "069ebf2144f4efde8fee0c6b20b87a4a5f7f69ab" CACHE STRING "Git tag for gqe-nvcomp")
+set(GQE_NVCOMP_TAG "aab6b669b6e5fe1a370aa5c87c2dfdf0dbe82c69" CACHE STRING "Git tag for gqe-nvcomp")
 set(GQE_NVCOMP_SOURCE_DIR "" CACHE PATH "Local source directory for gqe-nvcomp (overrides GIT_TAG if set)")
 
 # Fetch nvcomp from source using CPM

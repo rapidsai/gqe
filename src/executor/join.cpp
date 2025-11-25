@@ -206,8 +206,9 @@ join_interface const* join_hash_map_cache::hash_map(cudf::table_view const& buil
         break;
       }
     }
+    // Necessary sync since the probe on this hash table can be on another stream
+    cudf::get_default_stream().synchronize();
   }
-
   return _hash_map.get();
 }
 

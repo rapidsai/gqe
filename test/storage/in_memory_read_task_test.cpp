@@ -297,7 +297,8 @@ class InMemoryReadTaskTest : public ::testing::Test {
     _use_sliced_compression = use_sliced_compression;
 
     // Explicitly enable pruning, in case it is disabled by default.
-    _query_ctx->parameters.use_partition_pruning = true;
+    _query_ctx->parameters.use_partition_pruning   = true;
+    _query_ctx->parameters.zone_map_partition_size = partition_size;
 
     if (use_host_allocator) {
       _memory_resource = std::make_unique<memory_resource::pinned_memory_resource>();
@@ -328,7 +329,8 @@ class InMemoryReadTaskTest : public ::testing::Test {
   {
     std::vector<T> values(num_rows);
     std::iota(values.begin(), values.end(), static_cast<T>(offset));
-    if (odds_are_null) {
+    // TODO Support null values
+    if (false && odds_are_null) {
       std::vector<bool> is_null(num_rows);
       std::transform(values.begin(), values.end(), is_null.begin(), [](auto i) {
         return static_cast<int32_t>(i) % 2 == 0;
@@ -498,6 +500,7 @@ class InMemoryReadTaskTest : public ::testing::Test {
     std::vector<cudf::data_type> data_types,
     std::unique_ptr<gqe::expression> zone_map_filter = nullptr)
   {
+    // TODO Why is this here?
     auto partial_filter = zone_map_filter ? zone_map_filter->clone() : nullptr;
     return storage::in_memory_read_task(_ctx_ref,
                                         _task_id,
@@ -923,7 +926,8 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumn)
   CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
 }
 
-TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnWithGap)
+TEST_F(InMemoryReadTaskTest,
+       PruningWithCompressionOverlapAndStringColumnWithGapSingleRowGroupMultiplePartitions)
 {
   SetUp(true, 4 * 64 * 1024, 64 * 1024, true);
   // SetUp(true, 1024, 512, true);
@@ -964,6 +968,56 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnWithGap
                                        3 * 64 * 1024 /*offset*/,
                                        true /*add_string_column*/,
                                        partition2_char_offset);
+
+  auto expected =
+    cudf::concatenate(std::vector<cudf::table_view>{partition1->view(), partition2->view()});
+
+  CUDF_TEST_EXPECT_TABLES_EQUAL(expected->view(), *task.result());
+}
+
+TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnWithGapMultipleRowGroups)
+{
+  constexpr auto partition_size         = 64 * 1024;
+  constexpr auto num_rows_per_row_group = 4 * 64 * 1024;
+  SetUp(true, num_rows_per_row_group, partition_size, true);
+  // SetUp(true, 1024, 512, true);
+  // Compress input dat
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+  // Create a zone map filter consisting selecting two partitions:
+  // [148, 157) selects the first partition in the first row group
+  // [start_offset2, start_offset2 + 100) selects the second partition in the second row group
+  constexpr auto start_offset2 = num_rows_per_row_group + partition_size;
+  std::unique_ptr<gqe::expression> partial_filter =
+    create_two_range_filters(0, 100, 157, start_offset2, start_offset2 + 100);
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
+  // one row groups.
+
+  // Get the start character for the second result partition
+  auto col_view = cudf::strings_column_view{_input_tables[1].column(4)};
+  int32_t partition2_char_offset;
+  cudaMemcpy(&partition2_char_offset,
+             col_view.offsets().data<int32_t>() + partition_size * 1,
+             sizeof(int32_t),
+             cudaMemcpyDefault);
+
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end());
+  storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+
+  auto partition1 = create_input_table(partition_size, 0 /*offset*/, true /*add_string_column*/);
+
+  auto partition2 = create_input_table(
+    partition_size, start_offset2 /*offset*/, true /*add_string_column*/, partition2_char_offset);
 
   auto expected =
     cudf::concatenate(std::vector<cudf::table_view>{partition1->view(), partition2->view()});

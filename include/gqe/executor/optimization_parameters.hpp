@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cudf/types.hpp>
 #include <gqe/types.hpp>
 #include <nvcomp.hpp>
 
@@ -91,8 +92,8 @@ struct optimization_parameters {
                                     ///< customized Parquet reader for io_uring.
   bool use_overlap_mtx =
     true;  ///< Enable better overlap and pipelining by using locks in memory read task
-  bool use_partition_pruning          = false;  ///< Enable partition pruning for in-memory tables.
-  std::size_t zone_map_partition_size = 100'000;  ///< Number of rows per zone map partition.
+  bool use_partition_pruning = false;  ///< Enable partition pruning for in-memory tables.
+  cudf::size_type zone_map_partition_size = 100'000;  ///< Number of rows per zone map partition.
   bool filter_use_like_shift_and =
     true;  ///< Allow like filter to be optimized for using shift_and in the middle patterns.
            ///< Like_shift_and requires that the max length of middle patterns is <= 64 chars.

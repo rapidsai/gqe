@@ -54,8 +54,11 @@
 #include <nvcomp/ans.hpp>
 #include <nvcomp/nvcompManagerFactory.hpp>
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <cstddef>
+#include <cuda/__barrier/barrier_arrive_tx.h>
 #include <cudf_test/default_stream.hpp>
 #include <deque>
 #include <gqe/expression/json_formatter.hpp>
@@ -89,8 +92,18 @@ constexpr auto format_as(const in_memory_column_type type)
   throw std::runtime_error("in_memory_column_type not supported for log formatting");
 }
 
-pruning_result_t::pruning_result_t(const std::vector<zone_map::partition>& partitions)
-  : _partitions(partitions)
+// Cast a column from a row group to a desired type
+template <typename T>
+const T& get_column(const row_group* row_group, size_t column_idx)
+{
+  const auto& column_base = row_group->get_column(column_idx);
+  const T& column         = static_cast<const T&>(column_base);
+  return column;
+}
+
+pruning_result_t::pruning_result_t(const std::vector<zone_map::partition>& partitions,
+                                   cudf::size_type partition_size)
+  : _partitions(partitions), _partition_size(partition_size)
 {
   // Compute candidate partitions
   std::copy_if(partitions.begin(),
@@ -105,15 +118,23 @@ pruning_result_t::pruning_result_t(const std::vector<zone_map::partition>& parti
                            [](const zone_map::partition& partition) { return partition.pruned; });
   _consolidated_partitions.erase(it, _consolidated_partitions.end());
 
-  // Compute total rows
+  // Compute vector of partition indexes
+  for (const auto& partition : _consolidated_partitions) {
+    size_t start_idx = partition.start / _partition_size;
+    size_t end_idx   = gqe::utility::divide_round_up(partition.end, _partition_size);
+    for (size_t partition_idx = start_idx; partition_idx < end_idx; ++partition_idx) {
+      _partition_indexes.emplace_back(partition_idx);
+    }
+  }
+
+  // Compute total number of rows
   _num_rows = 0;
   for (const auto& partition : _consolidated_partitions) {
-    if (partition.pruned) { continue; }
     _num_rows += partition.end - partition.start;
   }
 }
 
-cudf::size_type pruning_result_t::num_rows() const { return _num_rows; }
+cudf::size_type pruning_result_t::partition_size() const { return _partition_size; }
 
 const std::vector<zone_map::partition>& pruning_result_t::candidate_partitions() const
 {
@@ -124,6 +145,13 @@ const std::vector<zone_map::partition>& pruning_result_t::consolidated_partition
 {
   return _consolidated_partitions;
 }
+
+const std::vector<size_t>& pruning_result_t::partition_indexes() const
+{
+  return _partition_indexes;
+}
+
+cudf::size_type pruning_result_t::num_rows() const { return _num_rows; }
 
 shared_column::shared_column(cudf::column_view col,
                              boost::interprocess::managed_shared_memory& segment,
@@ -716,18 +744,143 @@ cudf::column_view slice_column(const cudf::column_view& full_column,
   return cudf::column_view(type, size, head, null_mask, null_counts, offset, children);
 }
 
-output_column_helper::output_column_helper(std::shared_ptr<pruning_results_t> pruning_results,
+void do_batched_memcpy(std::byte** dst_ptrs,
+                       std::byte** src_ptrs,
+                       size_t* sizes,
+                       size_t num_buffers,
+                       rmm::cuda_stream_view stream)
+{
+  assert(num_buffers > 0 && "Must at least copy a single buffer");
+  std::vector<cudaMemcpyAttributes> attrs(1);
+  attrs[0].srcAccessOrder       = cudaMemcpySrcAccessOrderStream;
+  attrs[0].flags                = 0;
+  std::vector<size_t> attrsIdxs = {0};
+  size_t numAttrs               = attrs.size();
+  size_t fail_idx;
+#ifndef NDEBUG
+  for (size_t i = 0; i < num_buffers; ++i) {
+    GQE_LOG_DEBUG("i = {}, dst_ptrs[i] = {}, src_ptrs[i] = {}, sizes[i] = {}",
+                  i,
+                  (void*)dst_ptrs[i],
+                  (void*)src_ptrs[i],
+                  sizes[i]);
+  }
+#endif
+  GQE_CUDA_TRY(cudaMemcpyBatchAsync((void**)dst_ptrs,
+                                    (void**)src_ptrs,
+                                    sizes,
+                                    num_buffers,
+                                    attrs.data(),
+                                    attrsIdxs.data(),
+                                    numAttrs,
+                                    &fail_idx,
+                                    stream));
+}
+
+// This is called for all columns but always returns the same value.
+// We could make pruning_results_t a dedicated type which caches this information. Then we would
+// have to adapt the logic that iterates over individual row groups. But that is an opportunity to
+// DRY the casting of the column. Probably not worth the effort.
+size_t compute_num_rows(const pruning_results_t& pruning_results)
+{
+  size_t num_rows = 0;
+  for (const auto& [row_group, pruning_result] : pruning_results) {
+    num_rows += pruning_result.num_rows();
+  }
+  return num_rows;
+}
+
+output_column_helper::output_column_helper(cudf::data_type cudf_type,
+                                           std::shared_ptr<pruning_results_t> pruning_results,
                                            cudf::size_type column_idx)
-  : _pruning_results(std::move(pruning_results)), _column_idx(column_idx)
+  : _cudf_type(cudf_type),
+    _pruning_results(std::move(pruning_results)),
+    _column_idx(column_idx),
+    _num_rows(compute_num_rows(*_pruning_results))
 {
 }
 
-bool output_column_helper::decompress_row_group_columns(rmm::cuda_stream_view decompression_stream)
+std::unique_ptr<output_column_helper> make_output_column_helper(
+  const cudf::data_type cudf_type,
+  const in_memory_column_type column_type,
+  std::shared_ptr<pruning_results_t> pruning_results,
+  cudf::size_type column_idx,
+  const row_group* first_row_group)
+{
+  if (column_type == in_memory_column_type::CONTIGUOUS &&
+      cudf_type != cudf::data_type(cudf::type_id::STRING)) {
+    GQE_LOG_DEBUG(
+      "Creating helper for contiguous fixed-width column; column_idx = {}, column_type = {}, "
+      "cudf_type = {}",
+      column_idx,
+      column_type,
+      cudf_type);
+    return std::make_unique<contiguous_output_column_helper<contiguous_column>>(
+      cudf_type, pruning_results, column_idx);
+  } else if (column_type == in_memory_column_type::COMPRESSED_SLICED &&
+             cudf_type != cudf::data_type(cudf::type_id::STRING)) {
+    GQE_LOG_DEBUG(
+      "Creating helper for compressed_sliced fixed-width column; column_idx = {}, column_type = "
+      "{}, cudf_type = {}",
+      column_idx,
+      column_type,
+      cudf_type);
+    return std::make_unique<compressed_sliced_output_column_helper>(
+      cudf_type, pruning_results, column_idx);
+  } else if (column_type == in_memory_column_type::COMPRESSED_SLICED &&
+             cudf_type == cudf::data_type(cudf::type_id::STRING)) {
+    auto& string_column =
+      get_column<string_compressed_sliced_column_base>(first_row_group, column_idx);
+    bool is_large_string = string_column.is_large_string();
+    GQE_LOG_DEBUG(
+      "Creating helper for string_compressed_sliced column; column_idx = {}, is_large_string = {}",
+      column_idx,
+      is_large_string);
+    if (is_large_string) {
+      return std::make_unique<string_compressed_sliced_output_column_helper<true>>(
+        cudf_type, pruning_results, column_idx);
+    } else {
+      return std::make_unique<string_compressed_sliced_output_column_helper<false>>(
+        cudf_type, pruning_results, column_idx);
+    }
+  }
+  // Use cudf::concatenate for all other columns
+  GQE_LOG_DEBUG("Creating concatenating helper; column_idx = {}, column_type = {}, cudf_type = {}",
+                column_idx,
+                column_type,
+                cudf_type);
+  return std::make_unique<concatenating_output_column_helper>(
+    cudf_type, pruning_results, column_idx);
+}
+
+size_t concatenating_output_column_helper::num_copied_buffers(size_t partition_size)
+{
+  // concatenating_output_column_helper uses cudf::concatenate and does not participate in the
+  // batched memcpy
+  return 0;
+}
+
+void concatenating_output_column_helper::prepare_batched_memcpy(std::byte** dst_ptrs,
+                                                                std::byte** src_ptrs,
+                                                                size_t* sizes,
+                                                                rmm::cuda_stream_view stream)
+{
+  // concatenating_output_column_helper uses cudf::concatenate and does not participate in the
+  // batched memcpy; do nothing
+  return;
+}
+
+bool concatenating_output_column_helper::decompress_row_group_columns(
+  rmm::cuda_stream_view decompression_stream)
 {
   bool has_compressed_column = false;
   for (auto& [row_group, pruning_result] : *_pruning_results) {
     auto& column = row_group->get_column(_column_idx);
     switch (column.type()) {
+      case in_memory_column_type::COMPRESSED_SLICED: {
+        throw std::logic_error("Use dedicated compressed_sliced_output_column_helper instead");
+        break;
+      }
       case in_memory_column_type::CONTIGUOUS:  // Fall through
       case in_memory_column_type::SHARED_CONTIGUOUS:
         // Nothing to do since has_compressed_column is initialized to false
@@ -741,13 +894,6 @@ bool output_column_helper::decompress_row_group_columns(rmm::cuda_stream_view de
         has_compressed_column = true;
         break;
       }
-      case in_memory_column_type::COMPRESSED_SLICED: {
-        auto decompressed_column = dynamic_cast<compressed_sliced_column&>(column).decompress(
-          decompression_stream, pruning_result.candidate_partitions());
-        _decompressed_columns.emplace(&column, std::move(decompressed_column));
-        has_compressed_column = true;
-        break;
-      }
       case in_memory_column_type::SHARED_COMPRESSED: {
         auto decompressed_column =
           dynamic_cast<shared_compressed_column&>(column).decompress(decompression_stream);
@@ -755,12 +901,16 @@ bool output_column_helper::decompress_row_group_columns(rmm::cuda_stream_view de
         has_compressed_column = true;
         break;
       }
+      default:
+        GQE_LOG_ERROR("Column type not supported by concatenating_output_column_helper: {}",
+                      column.type());
+        throw std::logic_error("Column type not supported");
     }
   }
   return has_compressed_column;
 }
 
-std::unique_ptr<cudf::column> output_column_helper::make_cudf_column(
+std::unique_ptr<cudf::column> concatenating_output_column_helper::make_cudf_column(
   rmm::cuda_stream_view concatenation_stream)
 {
   std::vector<cudf::column_view> pruned_columns;
@@ -771,6 +921,10 @@ std::unique_ptr<cudf::column> output_column_helper::make_cudf_column(
       // Get the (potentially decompressed) column view
       cudf::column_view full_column_view;
       switch (column.type()) {
+        case in_memory_column_type::COMPRESSED_SLICED: {
+          throw std::logic_error("Use dedicated compressed_sliced_output_column_helper instead");
+          break;
+        }
         case in_memory_column_type::CONTIGUOUS: {
           full_column_view = dynamic_cast<contiguous_column&>(column).view();
           break;
@@ -780,7 +934,6 @@ std::unique_ptr<cudf::column> output_column_helper::make_cudf_column(
           break;
         }
         case in_memory_column_type::COMPRESSED:  // Fall through
-        case in_memory_column_type::COMPRESSED_SLICED:
         case in_memory_column_type::SHARED_COMPRESSED: {
           auto stored_decompressed_column = _decompressed_columns.find(&column);
           if (stored_decompressed_column != _decompressed_columns.end()) {
@@ -793,20 +946,11 @@ std::unique_ptr<cudf::column> output_column_helper::make_cudf_column(
         default: throw std::logic_error("Unknown column type");
       }
       // Construct the partitioned column view
-      const auto size = column.type() == in_memory_column_type::COMPRESSED_SLICED
-                          ? pruning_result.num_rows()
-                          : partition.end - partition.start;
-      const auto offset =
-        column.type() == in_memory_column_type::COMPRESSED_SLICED ? 0 : partition.start;
+      const auto size               = partition.end - partition.start;
+      const auto offset             = partition.start;
       const auto null_counts        = partition.null_counts[_column_idx];
       const auto pruned_column_view = slice_column(full_column_view, size, offset, null_counts);
       pruned_columns.push_back(std::move(pruned_column_view));
-      // compressed_sliced_column::decompress (which created the column stored in
-      // decompressed_columns) already creates the entire output column
-      if (column.type() == in_memory_column_type::COMPRESSED_SLICED) {
-        GQE_LOG_DEBUG("Skipping remaining partitions for compressed_sliced column");
-        break;
-      }
     }
   }
 
@@ -822,6 +966,336 @@ std::unique_ptr<cudf::column> output_column_helper::make_cudf_column(
     cudf_column->size());
   return cudf_column;
 }
+
+// Allocate the output buffer belonging to an output_column_helper and return a pointer to it.
+std::byte* allocate_output_buffer(
+  std::unique_ptr<rmm::device_buffer>& buffer,
+  size_t buffer_size,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource())
+{
+  buffer                = std::make_unique<rmm::device_buffer>(buffer_size, stream, mr);
+  std::byte* target_ptr = static_cast<std::byte*>(buffer->data());
+  return target_ptr;
+}
+
+// Allocate the output buffer belonging to an output_column_helper and return a pointer to it.
+// The size is also returned for logging.
+std::byte* allocate_output_buffer(
+  std::unique_ptr<rmm::device_buffer>& buffer,
+  size_t num_values,
+  size_t value_size,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource())
+{
+  size_t buffer_size    = num_values * value_size;
+  std::byte* target_ptr = allocate_output_buffer(buffer, buffer_size, stream, mr);
+  return target_ptr;
+}
+
+template <typename T>
+size_t contiguous_output_column_helper<T>::num_copied_buffers(size_t partition_size)
+{
+  size_t num_copied_buffers = 0;
+  for (const auto& [row_group, pruning_result] : *_pruning_results) {
+    num_copied_buffers += pruning_result.consolidated_partitions().size();
+  }
+  return num_copied_buffers;
+}
+
+template <typename T>
+void contiguous_output_column_helper<T>::prepare_batched_memcpy(std::byte** dst_ptrs,
+                                                                std::byte** src_ptrs,
+                                                                size_t* sizes,
+                                                                rmm::cuda_stream_view stream)
+{
+  std::byte* target_ptr =
+    allocate_output_buffer(_output_buffer, _num_rows, cudf::size_of(_cudf_type), stream);
+  GQE_LOG_DEBUG("_column_idx = {}, target_ptr = {}, _output_buffer->size = {}",
+                _column_idx,
+                (void*)target_ptr,
+                _output_buffer->size());
+  // Fill pointer and size arrays
+  size_t buffer_idx = 0;
+  for (const auto& [row_group, pruning_result] : *_pruning_results) {
+    const T& column        = get_column<T>(row_group, _column_idx);
+    const auto column_view = column.view();
+    std::byte* source_ptr  = const_cast<std::byte*>(column_view.template data<std::byte>());
+    GQE_LOG_DEBUG("Filling array for batched memcpy; _column_idx = {}, buffer_idx, source_ptr = {}",
+                  _column_idx,
+                  buffer_idx,
+                  (void*)source_ptr);
+    for (const auto& partition : pruning_result.consolidated_partitions()) {
+      const size_t size_in_bytes = (partition.end - partition.start) * cudf::size_of(_cudf_type);
+      dst_ptrs[buffer_idx]       = target_ptr;
+      src_ptrs[buffer_idx]       = source_ptr + partition.start * cudf::size_of(_cudf_type);
+      sizes[buffer_idx]          = size_in_bytes;
+#ifndef NDEBUG
+      GQE_LOG_DEBUG(
+        "_column_idx = {}, buffer_idx = {}, dst_ptrs[buffer_idx] = {}, src_ptrs[buffer_idx] = {}, "
+        "size_in_bytes = {}",
+        _column_idx,
+        buffer_idx,
+        (void*)dst_ptrs[buffer_idx],
+        (void*)src_ptrs[buffer_idx],
+        size_in_bytes);
+#endif
+      target_ptr += size_in_bytes;
+      ++buffer_idx;
+    }
+  }
+}
+
+template <typename T>
+bool contiguous_output_column_helper<T>::decompress_row_group_columns(
+  rmm::cuda_stream_view decompression_stream)
+{
+  // Contiguous columns are not compressed; do nothing
+  return false;
+}
+
+template <typename T>
+std::unique_ptr<cudf::column> contiguous_output_column_helper<T>::make_cudf_column(
+  rmm::cuda_stream_view concatenation_stream)
+{
+  auto null_mask             = std::make_unique<rmm::device_buffer>();
+  cudf::size_type null_count = 0;
+  return std::make_unique<cudf::column>(
+    _cudf_type, _num_rows, std::move(*_output_buffer), std::move(*null_mask), null_count);
+}
+
+size_t compressed_sliced_output_column_helper::num_copied_buffers(size_t partition_size)
+{
+  size_t num_copied_buffers = 0;
+  for (const auto& [row_group, pruning_result] : *_pruning_results) {
+    num_copied_buffers += gqe::utility::divide_round_up(pruning_result.num_rows(), partition_size);
+  }
+  return num_copied_buffers;
+}
+
+void compressed_sliced_output_column_helper::prepare_batched_memcpy(std::byte** dst_ptrs,
+                                                                    std::byte** src_ptrs,
+                                                                    size_t* sizes,
+                                                                    rmm::cuda_stream_view stream)
+{
+  std::byte* target_ptr =
+    allocate_output_buffer(_output_buffer, _num_rows, cudf::size_of(_cudf_type), stream);
+  GQE_LOG_DEBUG(
+    "Created output buffer; _column_idx = {}, target_ptr = {}, _output_buffer->size() = {}, "
+    "num_rows = {}, "
+    "_cudf_type = {}",
+    _column_idx,
+    (void*)target_ptr,
+    _output_buffer->size(),
+    _num_rows,
+    _cudf_type);
+  size_t arrays_offset     = 0;
+  size_t target_ptr_offset = 0;
+  for (const auto& [row_group, pruning_result] : *_pruning_results) {
+    const auto& column = get_column<compressed_sliced_column>(row_group, _column_idx);
+    column.prepare_batched_memcpy(dst_ptrs + arrays_offset,
+                                  src_ptrs + arrays_offset,
+                                  sizes + arrays_offset,
+                                  _compression_buffers,
+                                  pruning_result,
+                                  target_ptr + target_ptr_offset,
+                                  stream);
+    arrays_offset += pruning_result.partition_indexes().size();
+    target_ptr_offset += pruning_result.num_rows() * cudf::size_of(_cudf_type);
+  }
+}
+
+bool compressed_sliced_output_column_helper::decompress_row_group_columns(
+  rmm::cuda_stream_view decompression_stream)
+{
+  bool has_compressed_column  = false;
+  size_t decompression_offset = 0;
+  for (const auto& [row_group, pruning_result] : *_pruning_results) {
+    auto& column          = get_column<compressed_sliced_column>(row_group, _column_idx);
+    std::byte* target_ptr = static_cast<std::byte*>(_output_buffer->data()) + decompression_offset;
+    rmm::device_buffer* compression_buffer = _compression_buffers[&column].get();
+    const auto was_compressed =
+      column.decompress(target_ptr, compression_buffer, pruning_result, decompression_stream);
+    GQE_LOG_DEBUG(
+      "Decompressed row group column; target_ptr = {}, compression_buffer = {}, was_compressed = "
+      "{}",
+      (void*)target_ptr,
+      (void*)compression_buffer,
+      was_compressed);
+    has_compressed_column |= was_compressed;
+    decompression_offset += pruning_result.num_rows() * cudf::size_of(_cudf_type);
+  }
+  return has_compressed_column;
+}
+
+std::unique_ptr<cudf::column> compressed_sliced_output_column_helper::make_cudf_column(
+  rmm::cuda_stream_view concatenation_stream)
+{
+  auto null_mask             = std::make_unique<rmm::device_buffer>();
+  cudf::size_type null_count = 0;
+  return std::make_unique<cudf::column>(
+    _cudf_type, _num_rows, std::move(*_output_buffer), std::move(*null_mask), null_count);
+}
+
+template <bool large_string_mode>
+size_t string_compressed_sliced_output_column_helper<large_string_mode>::num_copied_buffers(
+  size_t partition_size)
+{
+  size_t num_copied_buffers = 0;
+  for (const auto& [row_group, pruning_result] : *_pruning_results) {
+    num_copied_buffers += pruning_result.partition_indexes().size();
+  }
+  // Need to copy the character buffer and offset buffer for each partition
+  return 2 * num_copied_buffers;
+}
+
+template <bool large_string_mode>
+void string_compressed_sliced_output_column_helper<large_string_mode>::prepare_batched_memcpy(
+  std::byte** dst_ptrs, std::byte** src_ptrs, size_t* sizes, rmm::cuda_stream_view stream)
+{
+  // Compute required buffer sizes and allocate char buffer and offset buffer
+  size_t char_buffer_size   = 0;
+  size_t offset_buffer_size = 0;
+  for (const auto& [row_group, pruning_result] : *_pruning_results) {
+    const auto& column =
+      get_column<string_compressed_sliced_column<large_string_mode>>(row_group, _column_idx);
+    auto [column_char_buffer_size, column_offset_buffer_size] = column.buffer_sizes(pruning_result);
+    char_buffer_size += column_char_buffer_size;
+    offset_buffer_size += column_offset_buffer_size;
+  }
+  // Add one offset for length of last value
+  offset_buffer_size += large_string_mode ? cudf::size_of(cudf::data_type(cudf::type_id::INT64))
+                                          : cudf::size_of(cudf::data_type(cudf::type_id::INT32));
+  auto char_target_ptr   = allocate_output_buffer(_char_buffer, char_buffer_size, stream);
+  auto offset_target_ptr = allocate_output_buffer(_offset_buffer, offset_buffer_size, stream);
+  GQE_LOG_DEBUG(
+    "Created output buffers for COMPRESSED_SLICED string column; _column_idx = {}, char_target_ptr "
+    "= {}, char_buffer_size = {}, offset_target_ptr = {}, offset_buffer_size = {}, num_rows = {}",
+    _column_idx,
+    (void*)char_target_ptr,
+    char_buffer_size,
+    (void*)offset_target_ptr,
+    offset_buffer_size,
+    _num_rows);
+
+  for (const auto& [row_group, pruning_result] : *_pruning_results) {
+    auto& column =
+      get_column<string_compressed_sliced_column<large_string_mode>>(row_group, _column_idx);
+    const auto [copied_buffers, char_buffer_offset, offset_buffer_offset] =
+      column.prepare_batched_memcpy(dst_ptrs,
+                                    src_ptrs,
+                                    sizes,
+                                    _char_compression_buffers,
+                                    _offset_compression_buffers,
+                                    pruning_result,
+                                    char_target_ptr,
+                                    offset_target_ptr,
+                                    stream);
+    dst_ptrs += copied_buffers;
+    src_ptrs += copied_buffers;
+    sizes += copied_buffers;
+    char_target_ptr += char_buffer_offset;
+    offset_target_ptr += offset_buffer_offset;
+  }
+}
+
+template <bool large_string_mode>
+bool string_compressed_sliced_output_column_helper<large_string_mode>::decompress_row_group_columns(
+  rmm::cuda_stream_view decompression_stream)
+{
+  // TODO Very similar to compressed_sliced_columnn::decompress_row_groups; split and refactor?
+  bool has_compressed_column   = false;
+  std::byte* char_target_ptr   = static_cast<std::byte*>(_char_buffer->data());
+  std::byte* offset_target_ptr = static_cast<std::byte*>(_offset_buffer->data());
+  for (const auto& [row_group, pruning_result] : *_pruning_results) {
+    auto& column =
+      get_column<string_compressed_sliced_column<large_string_mode>>(row_group, _column_idx);
+    rmm::device_buffer* char_compression_buffer   = _char_compression_buffers[&column].get();
+    rmm::device_buffer* offset_compression_buffer = _offset_compression_buffers[&column].get();
+    const auto [was_compressed, char_decompressed_size] =
+      column.decompress(char_target_ptr,
+                        offset_target_ptr,
+                        char_compression_buffer,
+                        offset_compression_buffer,
+                        pruning_result,
+                        decompression_stream);
+    const size_t offset_decompressed_size =
+      pruning_result.num_rows() * cudf::size_of(offset_element_type);
+    GQE_LOG_DEBUG(
+      "Decompressed row group COMPRESSED_SLICED string column; char_target_ptr = {}, "
+      "char_compression_buffer = {}, offset_target_ptr = {}, offset_compression_buffer = {}, "
+      "was_compressed = {}, char_decompressed_size = {}, offset_decompressed_size = {}",
+      (void*)char_target_ptr,
+      (void*)char_compression_buffer,
+      (void*)offset_target_ptr,
+      (void*)offset_compression_buffer,
+      was_compressed,
+      char_decompressed_size,
+      offset_decompressed_size);
+    has_compressed_column |= was_compressed;
+    char_target_ptr += char_decompressed_size;
+    offset_target_ptr += offset_decompressed_size;
+  }
+  return has_compressed_column;
+}
+
+template <bool large_string_mode>
+std::unique_ptr<cudf::column>
+string_compressed_sliced_output_column_helper<large_string_mode>::make_cudf_column(
+  rmm::cuda_stream_view concatenation_stream)
+{
+  // Adjust offsets
+  auto cudf_pinned_resource = cudf::get_pinned_memory_resource();
+  size_t num_partitions     = 0;
+  for (auto& [row_group, pruning_result] : *_pruning_results) {
+    num_partitions += pruning_result.partition_indexes().size();
+  }
+  offsets_type* partition_offsets = static_cast<offsets_type*>(cudf_pinned_resource.allocate_async(
+    num_partitions * sizeof(offsets_type), alignof(offsets_type), concatenation_stream));
+  GQE_CUDA_TRY(cudaStreamSynchronize(concatenation_stream));
+  size_t char_offset          = 0;
+  size_t partition_offset_idx = 0;
+  for (auto& [row_group, pruning_result] : *_pruning_results) {
+    auto& column =
+      get_column<string_compressed_sliced_column<large_string_mode>>(row_group, _column_idx);
+    char_offset = column.fill_partition_offsets(
+      partition_offsets, pruning_result, char_offset, partition_offset_idx);
+    partition_offset_idx += pruning_result.partition_indexes().size();
+  }
+  cudf::size_type partition_size = _pruning_results->front().second.partition_size();
+  adjust_offsets_api(reinterpret_cast<offsets_type*>(_offset_buffer->data()),
+                     _num_rows,
+                     partition_size,
+                     partition_offsets,
+                     _char_buffer->size(),
+                     concatenation_stream);
+  cudf_pinned_resource.deallocate_async(
+    partition_offsets, num_partitions * sizeof(offsets_type), concatenation_stream);
+  GQE_LOG_DEBUG(
+    "Adjusted offsets; _column_idx = {}, num_partitions = {}, char_offset = {}, _num_rows = {}, "
+    "partition_size = {}, _char_buffer->size() = {}",
+    _column_idx,
+    num_partitions,
+    char_offset,
+    _num_rows,
+    partition_size,
+    _char_buffer->size());
+
+  // Create CUDF column
+  auto offset_column = std::make_unique<cudf::column>(
+    offset_element_type, _num_rows + 1, std::move(*_offset_buffer), rmm::device_buffer(), 0);
+  std::vector<std::unique_ptr<cudf::column>> children;
+  children.push_back(std::move(offset_column));
+  return std::make_unique<cudf::column>(cudf::data_type(cudf::type_id::STRING),
+                                        _num_rows,
+                                        std::move(*_char_buffer),
+                                        rmm::device_buffer(),
+                                        0,
+                                        std::move(children));
+}
+
+template class string_compressed_sliced_output_column_helper<false>;
+template class string_compressed_sliced_output_column_helper<true>;
 
 in_memory_read_task::in_memory_read_task(context_reference ctx_ref,
                                          int32_t task_id,
@@ -852,24 +1326,28 @@ bool in_memory_read_task::can_prune_partitions() const
 
 std::unique_ptr<pruning_results_t> in_memory_read_task::evaluate_partial_filter()
 {
-  auto pruning_results = std::make_unique<pruning_results_t>();
+  auto pruning_results           = std::make_unique<pruning_results_t>();
+  cudf::size_type partition_size = get_query_context()->parameters.zone_map_partition_size;
   if (can_prune_partitions()) {
-    std::for_each(_row_groups.begin(), _row_groups.end(), [&](const auto* rg) {
-      if (!rg->zone_map()) {
-        throw std::logic_error("Row group should have a zone map but none exists");
-      }
-      // TODO I don't like passing the query context paramters here
-      const auto partitions =
-        rg->zone_map()->evaluate(get_query_context()->parameters, *_partial_filter);
-      const auto has_unpruned_partitions =
-        std::find_if(partitions.begin(), partitions.end(), [](const auto& partition) {
-          return !partition.pruned;
-        }) != partitions.end();
-      if (has_unpruned_partitions) {
-        // TODO Change output of evaluate to pruning_result?
-        pruning_results->emplace_back(rg, pruning_result_t{partitions});
-      }
-    });
+    std::for_each(_row_groups.begin(),
+                  _row_groups.end(),
+                  [this, &pruning_results, &partition_size](const auto* rg) {
+                    if (!rg->zone_map()) {
+                      throw std::logic_error("Row group should have a zone map but none exists");
+                    }
+                    // TODO I don't like passing the query context paramters here
+                    const auto partitions =
+                      rg->zone_map()->evaluate(get_query_context()->parameters, *_partial_filter);
+                    const auto has_unpruned_partitions =
+                      std::find_if(partitions.begin(), partitions.end(), [](const auto& partition) {
+                        return !partition.pruned;
+                      }) != partitions.end();
+                    if (has_unpruned_partitions) {
+                      // TODO Change output of evaluate to pruning_result?
+                      pruning_results->emplace_back(rg,
+                                                    pruning_result_t{partitions, partition_size});
+                    }
+                  });
     GQE_LOG_DEBUG("Row groups after pruning: {}", pruning_results->size());
     return pruning_results;
   } else {
@@ -879,16 +1357,17 @@ std::unique_ptr<pruning_results_t> in_memory_read_task::evaluate_partial_filter(
       _row_groups.begin(),
       _row_groups.end(),
       std::back_inserter(*pruning_results),
-      [&](const auto* rg) {
+      [this, &partition_size](const auto* rg) {
         std::vector<cudf::size_type> null_counts(rg->num_columns(), 0);
-        std::for_each(_column_indexes.begin(), _column_indexes.end(), [&](const auto i) {
-          null_counts[i] = rg->get_column(i).null_count();
-        });
+        std::for_each(
+          _column_indexes.begin(), _column_indexes.end(), [&null_counts, &rg](const auto i) {
+            null_counts[i] = rg->get_column(i).null_count();
+          });
         const zone_map::partition partition{.pruned      = false,
                                             .start       = 0,
                                             .end         = static_cast<cudf::size_type>(rg->size()),
                                             .null_counts = null_counts};
-        return row_group_with_pruning_result_t{rg, pruning_result_t{{partition}}};
+        return row_group_with_pruning_result_t{rg, pruning_result_t{{partition}, partition_size}};
       });
     return pruning_results;
   }
@@ -1014,13 +1493,18 @@ void in_memory_read_task::emit_copied_result(std::unique_ptr<pruning_results_t> 
   GQE_LOG_DEBUG("Copying data to GPU");
 
   // Create helpers to create output columns from the columns of individual row groups
-  std::vector<output_column_helper> output_columns;
+  std::vector<std::unique_ptr<output_column_helper>> output_columns;
   const size_t num_columns = _column_indexes.size();
   // Share the pruning result across all output columns
   std::shared_ptr<pruning_results_t> shared_pruning_result(std::move(pruning_results));
   for (size_t i = 0; i < num_columns; ++i) {
-    const auto column_idx = _column_indexes[i];
-    output_column_helper output_column{shared_pruning_result, column_idx};
+    const auto column_idx       = _column_indexes[i];
+    const auto cudf_type        = _data_types[i];
+    const auto* first_row_group = shared_pruning_result->front().first;
+    const auto& first_column    = first_row_group->get_column(column_idx);
+    const auto column_type      = first_column.type();
+    auto output_column          = make_output_column_helper(
+      cudf_type, column_type, shared_pruning_result, column_idx, first_row_group);
     output_columns.push_back(std::move(output_column));
   }
 
@@ -1043,11 +1527,70 @@ void in_memory_read_task::emit_copied_result(std::unique_ptr<pruning_results_t> 
     decompression_stream = cudf::get_default_stream();
   }
 
-  // Decompress columns
+  // Determine number of buffers for batched memcpy
+  const auto partition_size = get_query_context()->parameters.zone_map_partition_size;
+  const size_t num_copied_buffers =
+    std::accumulate(output_columns.begin(),
+                    output_columns.end(),
+                    0,
+                    [partition_size](size_t num_copied_buffers, const auto& column) {
+                      return num_copied_buffers + column->num_copied_buffers(partition_size);
+                    });
+  GQE_LOG_DEBUG("Determined number of buffers for batched memcpy; num_copied_buffers = {}",
+                num_copied_buffers);
+
+  if (num_copied_buffers == 0) {
+    GQE_LOG_DEBUG("No buffers to copy, skipping batched memcpy");
+  } else {
+    utility::nvtx_scoped_range nvtx_range("Filling cudaMemcpyBatchAsync arrays");
+
+    // Allocate pointer and size arrays for batched memcpy
+    auto cudf_pinned_resource = cudf::get_pinned_memory_resource();
+    auto stream               = cudf::get_default_stream();
+    std::byte** src_ptrs      = reinterpret_cast<std::byte**>(cudf_pinned_resource.allocate_async(
+      sizeof(std::byte*) * num_copied_buffers, alignof(std::byte*), stream));
+    std::byte** dst_ptrs      = reinterpret_cast<std::byte**>(cudf_pinned_resource.allocate_async(
+      sizeof(std::byte*) * num_copied_buffers, alignof(std::byte*), stream));
+    size_t* sizes             = reinterpret_cast<size_t*>(cudf_pinned_resource.allocate_async(
+      sizeof(size_t) * num_copied_buffers, alignof(size_t), stream));
+    GQE_CUDA_TRY(cudaStreamSynchronize(stream));
+
+    GQE_LOG_DEBUG(
+      "Created pointer arrays for batched memcpy; src_ptrs = {}, dst_ptrs = {}, sizes = {}",
+      (void*)src_ptrs,
+      (void*)dst_ptrs,
+      (void*)sizes);
+
+    GQE_LOG_DEBUG("Filling pointer arrays for batched memcpy");
+    size_t offset = 0;
+    for (const auto& output_column : output_columns) {
+      output_column->prepare_batched_memcpy(
+        dst_ptrs + offset, src_ptrs + offset, sizes + offset, stream);
+      // TODO Can I get rid of the duplicate use of partition_size?
+      // Return num_copied_buffers from prepare_batched_memcpy
+      offset += output_column->num_copied_buffers(partition_size);
+    }
+
+    GQE_LOG_DEBUG("Batched memcpy");
+    do_batched_memcpy(dst_ptrs, src_ptrs, sizes, num_copied_buffers, stream);
+
+    // Release pointer arrays in pinned memory
+    cudf_pinned_resource.deallocate_async(
+      src_ptrs, sizeof(std::byte*) * num_copied_buffers, stream);
+    cudf_pinned_resource.deallocate_async(
+      dst_ptrs, sizeof(std::byte*) * num_copied_buffers, stream);
+    cudf_pinned_resource.deallocate_async(sizes, sizeof(size_t) * num_copied_buffers, stream);
+  }
+
+  GQE_LOG_DEBUG("Decompressing colunns");
   bool has_compressed_columns = false;
-  for (auto& column_creator : output_columns) {
-    bool was_compressed = column_creator.decompress_row_group_columns(decompression_stream);
-    has_compressed_columns |= was_compressed;
+  {
+    utility::nvtx_scoped_range nvtx_range("Decompressing colunns");
+    for (auto& column_creator : output_columns) {
+      bool was_compressed = column_creator->decompress_row_group_columns(decompression_stream);
+      has_compressed_columns |= was_compressed;
+    }
+    GQE_LOG_DEBUG("Decompressed columns; has_compressed_columns = {}", has_compressed_columns);
   }
 
   if (has_compressed_columns && should_use_overlap_mtx) {
@@ -1075,7 +1618,8 @@ void in_memory_read_task::emit_copied_result(std::unique_ptr<pruning_results_t> 
   // Create output cudf::columns
   auto cudf_column_view =
     output_columns | std::views::transform([concatenation_stream](auto& output_column) {
-      return output_column.make_cudf_column(concatenation_stream);
+      utility::nvtx_scoped_range nvtx_range("Creating cuDF column");
+      return output_column->make_cudf_column(concatenation_stream);
     });
   std::vector<std::unique_ptr<cudf::column>> cudf_columns(cudf_column_view.begin(),
                                                           cudf_column_view.end());
@@ -1336,14 +1880,14 @@ void in_memory_write_task::execute_shared_memory()
     auto comp_format = get_query_context()->parameters.in_memory_table_compression_format;
     auto compression_ratio_threshold = get_query_context()->parameters.compression_ratio_threshold;
 
-    std::string shared_column_name = [&] {
+    std::string shared_column_name = [this, &column_idx] {
       std::ostringstream oss;
       oss << "shared_column_" << stage_id() << "_" << task_id() << "_" << column_idx << "_"
           << _column_names[column_idx];
       return oss.str();
     }();
 
-    cudf::column_view input_column = [&]() {
+    cudf::column_view input_column = [&input_table, &column_idx]() {
       if (gqe::utility::multi_process::mpi_rank_zero()) {
         return input_table.column(column_idx);
       } else {

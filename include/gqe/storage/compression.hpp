@@ -123,7 +123,7 @@ class compression_manager {
                         const uint8_t* const* host_compressed,
                         const size_t batch_count,
                         rmm::cuda_stream_view stream,
-                        rmm::device_async_resource_ref mr);
+                        rmm::device_async_resource_ref mr) const;
 
   /**
    * @brief Function to perform compression of a batch of uncompressed buffers
@@ -297,3 +297,52 @@ inline void best_compression_config(cudf::type_id dtype,
       break;
   }
 }
+
+/**
+ * @brief Helper class to support logging of cudf::type_id.
+ */
+template <>
+struct fmt::formatter<cudf::data_type> : formatter<std::string> {
+  auto format(cudf::data_type type, format_context& ctx) const
+  {
+    return formatter<std::string>::format(cudf_type_to_string(type.id()), ctx);
+  }
+
+  std::string cudf_type_to_string(cudf::type_id type_id) const
+  {
+    switch (type_id) {
+      case cudf::type_id::EMPTY: return "EMPTY";
+      case cudf::type_id::INT8: return "INT8";
+      case cudf::type_id::INT16: return "INT16";
+      case cudf::type_id::INT32: return "INT32";
+      case cudf::type_id::INT64: return "INT64";
+      case cudf::type_id::UINT8: return "UINT8";
+      case cudf::type_id::UINT16: return "UINT16";
+      case cudf::type_id::UINT32: return "UINT32";
+      case cudf::type_id::UINT64: return "UINT64";
+      case cudf::type_id::FLOAT32: return "FLOAT32";
+      case cudf::type_id::FLOAT64: return "FLOAT64";
+      case cudf::type_id::BOOL8: return "BOOL8";
+      case cudf::type_id::TIMESTAMP_DAYS: return "TIMESTAMP_DAYS";
+      case cudf::type_id::TIMESTAMP_SECONDS: return "TIMESTAMP_SECONDS";
+      case cudf::type_id::TIMESTAMP_MILLISECONDS: return "TIMESTAMP_MILLISECONDS";
+      case cudf::type_id::TIMESTAMP_MICROSECONDS: return "TIMESTAMP_MICROSECONDS";
+      case cudf::type_id::TIMESTAMP_NANOSECONDS: return "TIMESTAMP_NANOSECONDS";
+      case cudf::type_id::DURATION_DAYS: return "DURATION_DAYS";
+      case cudf::type_id::DURATION_SECONDS: return "DURATION_SECONDS";
+      case cudf::type_id::DURATION_MILLISECONDS: return "DURATION_MILLISECONDS";
+      case cudf::type_id::DURATION_MICROSECONDS: return "DURATION_MICROSECONDS";
+      case cudf::type_id::DURATION_NANOSECONDS: return "DURATION_NANOSECONDS";
+      case cudf::type_id::DICTIONARY32: return "DICTIONARY32";
+      case cudf::type_id::STRING: return "STRING";
+      case cudf::type_id::LIST: return "LIST";
+      case cudf::type_id::STRUCT: return "STRUCT";
+      case cudf::type_id::NUM_TYPE_IDS: return "NUM_TYPE_IDS";
+      case cudf::type_id::DECIMAL32: return "DECIMAL32";
+      case cudf::type_id::DECIMAL64: return "DECIMAL64";
+      case cudf::type_id::DECIMAL128: return "DECIMAL128";
+    }
+    // Throw an exception so this will get fixed quickly when we add a new type.
+    throw std::runtime_error("cudf::type_id type_id not supported for log formatting");
+  };
+};

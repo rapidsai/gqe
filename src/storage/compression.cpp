@@ -21,42 +21,6 @@
 #include <gqe/storage/compression.hpp>
 #include <gqe/utility/error.hpp>
 
-// Helper function to convert CUDF type ID to string for logging
-std::string cudf_type_to_string(cudf::type_id type_id)
-{
-  switch (type_id) {
-    case cudf::type_id::EMPTY: return "EMPTY";
-    case cudf::type_id::INT8: return "INT8";
-    case cudf::type_id::INT16: return "INT16";
-    case cudf::type_id::INT32: return "INT32";
-    case cudf::type_id::INT64: return "INT64";
-    case cudf::type_id::UINT8: return "UINT8";
-    case cudf::type_id::UINT16: return "UINT16";
-    case cudf::type_id::UINT32: return "UINT32";
-    case cudf::type_id::UINT64: return "UINT64";
-    case cudf::type_id::FLOAT32: return "FLOAT32";
-    case cudf::type_id::FLOAT64: return "FLOAT64";
-    case cudf::type_id::BOOL8: return "BOOL8";
-    case cudf::type_id::TIMESTAMP_DAYS: return "TIMESTAMP_DAYS";
-    case cudf::type_id::TIMESTAMP_SECONDS: return "TIMESTAMP_SECONDS";
-    case cudf::type_id::TIMESTAMP_MILLISECONDS: return "TIMESTAMP_MILLISECONDS";
-    case cudf::type_id::TIMESTAMP_MICROSECONDS: return "TIMESTAMP_MICROSECONDS";
-    case cudf::type_id::TIMESTAMP_NANOSECONDS: return "TIMESTAMP_NANOSECONDS";
-    case cudf::type_id::DURATION_DAYS: return "DURATION_DAYS";
-    case cudf::type_id::DURATION_SECONDS: return "DURATION_SECONDS";
-    case cudf::type_id::DURATION_MILLISECONDS: return "DURATION_MILLISECONDS";
-    case cudf::type_id::DURATION_MICROSECONDS: return "DURATION_MICROSECONDS";
-    case cudf::type_id::DURATION_NANOSECONDS: return "DURATION_NANOSECONDS";
-    case cudf::type_id::DICTIONARY32: return "DICTIONARY32";
-    case cudf::type_id::STRING: return "STRING";
-    case cudf::type_id::LIST: return "LIST";
-    case cudf::type_id::DECIMAL32: return "DECIMAL32";
-    case cudf::type_id::DECIMAL64: return "DECIMAL64";
-    case cudf::type_id::DECIMAL128: return "DECIMAL128";
-    default: return "UNKNOWN";
-  }
-}
-
 // Helper function to convert compression format enum to string for logging
 std::string compression_format_to_string(gqe::compression_format comp_format)
 {
@@ -98,7 +62,7 @@ compression_manager::compression_manager(gqe::compression_format comp_format,
     compression_format_to_string(_comp_format),
     static_cast<int>(_data_type),
     _compression_chunk_size,
-    cudf_type_to_string(_cudf_type.id()));
+    _cudf_type);
 }
 
 std::unique_ptr<rmm::device_buffer> compression_manager::do_compress(
@@ -118,7 +82,7 @@ std::unique_ptr<rmm::device_buffer> compression_manager::do_compress(
     compression_format_to_string(_comp_format),
     static_cast<int>(_data_type),
     _compression_chunk_size,
-    cudf_type_to_string(_cudf_type.id()));
+    _cudf_type);
 
   auto compression_manager = create_manager(supplied_stream, mr);
   auto comp_config         = compression_manager->configure_compression(uncompressed->size());
@@ -175,7 +139,7 @@ std::unique_ptr<rmm::device_buffer> compression_manager::do_decompress(
     compression_format_to_string(_comp_format),
     static_cast<int>(_data_type),
     _compression_chunk_size,
-    cudf_type_to_string(_cudf_type.id()));
+    _cudf_type);
 
   auto decompression_manager = create_manager(stream, mr);
 
@@ -204,7 +168,7 @@ void compression_manager::decompress_batch(uint8_t* const device_decompressed_ba
                                            const uint8_t* const* host_compressed,
                                            const size_t batch_count,
                                            rmm::cuda_stream_view stream,
-                                           rmm::device_async_resource_ref mr)
+                                           rmm::device_async_resource_ref mr) const
 {
   // variable not needed for decomp
   constexpr const size_t* compression_sizes = nullptr;
@@ -308,7 +272,7 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_b
     device_uncompressed.size(),
     static_cast<int>(_data_type),
     _compression_chunk_size,
-    cudf_type_to_string(_cudf_type.id()));
+    _cudf_type);
 
   compression_manager->compress(decompressed_ptrs, compressed_ptrs, compression_configs);
 
@@ -379,7 +343,7 @@ std::unique_ptr<rmm::device_buffer> compression_manager::do_decompress(
     compression_format_to_string(_comp_format),
     static_cast<int>(_data_type),
     _compression_chunk_size,
-    cudf_type_to_string(_cudf_type.id()));
+    _cudf_type);
 
   rmm::device_buffer device_memory_compressed{
     static_cast<uint8_t const*>(compressed), compressed_size, supplied_stream, mr};

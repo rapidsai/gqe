@@ -47,7 +47,6 @@
 namespace gqe {
 
 namespace storage {
-
 class in_memory_readable_view;
 class in_memory_writeable_view;
 class row_group;
@@ -67,7 +66,10 @@ class row_group;
  */
 class pruning_result_t {
  public:
-  explicit pruning_result_t(const std::vector<zone_map::partition>& partitions);
+  explicit pruning_result_t(const std::vector<zone_map::partition>& partitions,
+                            cudf::size_type partition_size);
+
+  cudf::size_type partition_size() const;
 
   /// @brief Return all partitions which are not pruned.
   const std::vector<zone_map::partition>& candidate_partitions() const;
@@ -75,13 +77,18 @@ class pruning_result_t {
   /// @brief Return maximally consolidated partitions.
   const std::vector<zone_map::partition>& consolidated_partitions() const;
 
+  /// @brief Return partition ids
+  const std::vector<size_t>& partition_indexes() const;
+
   /// @brief Return the number of rows after pruning.
   cudf::size_type num_rows() const;
 
  private:
   std::vector<zone_map::partition> _partitions;
+  cudf::size_type _partition_size;
   std::vector<zone_map::partition> _candidate_partitions;
   std::vector<zone_map::partition> _consolidated_partitions;
+  std::vector<size_t> _partition_indexes;
   cudf::size_type _num_rows;
 };
 
@@ -343,11 +350,13 @@ class compressed_column : public column_base {
   std::vector<std::unique_ptr<compressed_column>> _compressed_children;
 };
 
+// compressed_sliced_output_column_helper and the string version need to create temporary buffers
+// into which the compressed data of each source column is copied. These are stored in a map.
+using compression_buffer_map =
+  std::unordered_map<const column_base*, std::unique_ptr<rmm::device_buffer>>;
+
 /**
  * @brief Compressed (and sliced)in-memory table.
- *
- * Partition size must be a multiple of 32 to allow null counts to work properly
- *
  */
 class compressed_sliced_column : public column_base {
  public:
@@ -368,7 +377,7 @@ class compressed_sliced_column : public column_base {
   compressed_sliced_column& operator=(const compressed_sliced_column&) = delete;
 
   /**
-   * @copydoc gqe::storage::type()
+   * @copydoc gqe::storage::column_base::type()
    */
   in_memory_column_type type() const override { return in_memory_column_type::COMPRESSED_SLICED; }
 
@@ -383,19 +392,52 @@ class compressed_sliced_column : public column_base {
   [[nodiscard]] virtual cudf::size_type null_count() const override;
 
   /**
-   * @brief Decompress and construct an uncompressed version of the column.
+   * @brief Fill the provided pointer and size arrays with the information of the copied buffers as
+   * required by cudaMemcpyBatchAsync.
    *
-   * @param[in] stream CUDA stream used for the decompression.
-   * @param[in] partitions The partitions to decompress.
-   * @param[in] mr Memory resource used for allocating the decompressed column.
+   * If the column data is compressed, this method allocates a temporary decompression buffers and
+   * sets up cudaMemcpyBatchAsync to copy data into the temporary buffer. Otherwise, data is copied
+   * directly into the target buffer for the final cuDF column.
    *
-   * Only decompresses the slices indicated by row_groups_with_partitions
-   * Then we create a column view for each partition
+   * @param[out] dst_ptrs The destination pointers.
+   * @param[out] src_ptrs The source pointers.
+   * @param[out] sizes The sizes of each copied buffer.
+   * @param[out] compression_buffers Map holding temporary compression buffers of this output
+   * column.
+   * @param[in] pruning_result Indicates which partitions are pruned.
+   * @param[in] target_ptr Pointer into the target buffer of the final cuDF column.
+   * @param[in] stream CUDA stream on which to allocate temporary buffers.
+   * @param[in] mr RMM resource from which to allocate temporary buffers.
    */
-  virtual std::unique_ptr<cudf::column> decompress(
+  void prepare_batched_memcpy(
+    std::byte** dst_ptrs,
+    std::byte** src_ptrs,
+    size_t* sizes,
+    compression_buffer_map& compression_buffers,
+    const pruning_result_t& pruning_result,
+    std::byte* target_ptr,
     rmm::cuda_stream_view stream,
-    const std::vector<zone_map::partition>& partitions,
-    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource()) const;
+
+  /**
+   * @brief Decompress data into the target buffer of the final cuDF column.
+   *
+   * If the column is not compressed, this function does nothing.
+   *
+   * Otherwise, it decompresses the data contained in compression_buffer to target_ptr.
+   *
+   * @param[out] target_ptr Pointer into the target buffer of the final cuDF column.
+   * @param[in] compression_buffer Buffer containing compressed data.
+   * @param[in] pruning_result Indicates which partitions are pruned.
+   * @param[in] stream CUDA stream on which to allocate temporary buffers.
+   * @param[in] mr RMM resource from which to allocate temporary buffers.
+   * @return True, if the column was compressed; false, otherwise.
+   */
+  bool decompress(std::byte* target_ptr,
+                  rmm::device_buffer* compression_buffer,
+                  const pruning_result_t& pruning_result,
+                  rmm::cuda_stream_view stream,
+                  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource()) const;
 
  protected:
   size_t _size;
@@ -461,52 +503,56 @@ class compressed_sliced_column : public column_base {
                    rmm::device_async_resource_ref mr);
 
   /**
-   * @brief Decompress one of the buffers in the column (i.e. data or null mask)
+   * @brief Fill the pointer and size arrays for a cudaMemcpyBatchAsync call.
    *
-   * @param[in] stream CUDA stream to use
-   * @param[in] mr Memory resource to use
-   * @param[in] total_uncompressed_size Total uncompressed size of the column
-   * @param[in] total_compressed_size Total compressed size of the column
-   * @param[in] ix_partition_slices Indices of the partitions to decompress
-   * @param[out] full_compressed_sizes Array of full compressed sizes of the column
-   * @param[out] full_compressed_data_buffers Array of full compressed data buffers of the column
-   * @param[in] is_compressed Whether the column is compressed
+   * This method advances the pointers dst_ptrs, src_ptrs, and sizes.
+   *
+   * If the column is not compressed, the destination pointers are based off of target_ptr.
+   * Otherwise, a new RMM buffer is created and inserted into compression_buffers and the
+   * destination pointers are based off of this buffer.
+   *
+   * @param[in, out] dst_ptrs Pointer to memory block holding destination pointers.
+   * @param[in, out] src_ptrs Pointer to memory block holding source pointers.
+   * @param[in, out] sizes Pointer to memory block holding copy sizes.
+   * @param[out] compression_buffers Map in which the temporary target buffer holding the compressed
+   * data is stored.
+   * @param[in] pruning_result Indicates which partitions are pruned.
+   * @param[in] target_ptr Pointer into the final cuDF output column buffer.
+   * @param[in] is_compressed Flag indicating whether the source buffers are compressed.
+   * @param[in] compressed_data The source buffers.
+   * @param[in] partition_sizes The size of the source buffers.
+   * @param[in] stream CUDA stream on which to allocate temporary buffers.
+   * @param[in] mr RMM resource from which to allocate temporary buffers.
+   * @return The size of copied data in bytes.
    */
-  rmm::device_buffer do_decompress(
+  size_t do_fill_memcpy_buffers(
+    std::byte**& dst_ptrs,
+    std::byte**& src_ptrs,
+    size_t*& sizes,
+    compression_buffer_map& compression_buffers,
+    const pruning_result_t& pruning_result,
+    std::byte* target_ptr,
+    bool is_compressed,
+    const std::vector<std::unique_ptr<rmm::device_buffer>>& compressed_data,
+    const std::vector<cudf::size_type>& partition_sizes,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
-    const size_t total_uncompressed_size,
-    const size_t total_compressed_size,
-    const std::vector<size_t>& ix_partition_slices,
-    std::vector<cudf::size_type>& full_compressed_sizes,
-    std::vector<std::unique_ptr<rmm::device_buffer>>& full_compressed_data_buffers,
-    const bool is_compressed);
+    rmm::device_async_resource_ref mr) const;
+};
 
+/**
+ * @brief Base class for @ref string_compressed_sliced_column_base.
+ *
+ * This class defines the method @ref is_large_string to determine at runtime, if the offset type of
+ * the string column is 32-bit or 64-bit.
+ */
+class string_compressed_sliced_column_base : public compressed_sliced_column {
+ public:
+  using compressed_sliced_column::compressed_sliced_column;
   /**
-   * @brief Fill the pointers for a batched memcpy
-   *
-   * @param[out] host_compressed_ptrs Array of pointers to the compressed data on the host
-   * @param[out] device_compressed_ptrs Array of pointers to the compressed data on the device
-   * @param[in] compressed_sizes Array of sizes of the compressed data
-   * @param[in] ix_partition_slices The indices of the partitions to decompress
-   * @param[out] reduced_compressed_sizes Array of reduced compressed sizes
-   * @param[out] compressed_data_buffers Array of compressed data buffers
-   * @param[in] dst_ptr The buffer we've allocated for the device compressed ptrs
-   * @param[in] is_compressed Whether the column is compressed
-   * @param[in] stream The CUDA stream to use
+   * @brief Determine if the offset type is 64-bit or 32-bit.
+   * @return True, if the offset type is 64-bit; false, otherwise.
    */
-  void fill_copy_ptrs(uint8_t** host_compressed_ptrs,
-                      uint8_t** device_compressed_ptrs,
-                      const std::vector<cudf::size_type>& compressed_sizes,
-                      const std::vector<size_t>& ix_partition_slices,
-                      std::vector<size_t>& reduced_compressed_sizes,
-                      std::vector<std::unique_ptr<rmm::device_buffer>>& compressed_data_buffers,
-                      uint8_t* dst_ptr,
-                      const bool is_compressed,
-                      rmm::cuda_stream_view stream);
-
-  std::vector<size_t> get_compressed_slice_indices(
-    const std::vector<zone_map::partition>& partitions);
+  virtual bool is_large_string() const = 0;
 };
 
 /**
@@ -524,7 +570,7 @@ class compressed_sliced_column : public column_base {
  * @tparam large_string_mode Whether the string column is large (i.e. int64_t offsets)
  */
 template <bool large_string_mode>
-class string_compressed_sliced_column : public compressed_sliced_column {
+class string_compressed_sliced_column : public string_compressed_sliced_column_base {
  public:
   string_compressed_sliced_column(cudf::column&& cudf_column,
                                   compression_format comp_format,
@@ -535,24 +581,109 @@ class string_compressed_sliced_column : public compressed_sliced_column {
                                   double compression_ratio_threshold,
                                   std::string column_name = "");
 
-  std::vector<std::unique_ptr<rmm::device_buffer>> _compressed_offset_partitions;
-  std::vector<cudf::size_type> _compressed_offset_sizes;
-  std::vector<cudf::size_type> _partition_char_array_sizes;
-  std::vector<cudf::size_type> _partition_row_counts;
-  compression_manager _nvcomp_offset_manager;
+  /// @copydoc string_compressed_sliced_column_base::is_large_string
+  virtual bool is_large_string() const override;
+
+  /// Represent the size of the character offsets.
+  using offsets_type = std::conditional_t<large_string_mode, int64_t, int32_t>;
 
   void compress(cudf::column&& cudf_column,
                 rmm::cuda_stream_view stream,
                 rmm::device_async_resource_ref mr);
 
-  virtual std::unique_ptr<cudf::column> decompress(
+  /**
+   * Determine the size of the character and offset buffers required by this column.
+   * @param pruning_result Indicates which partitions are pruned.
+   * @return A pair containing the size of the character buffer and the offset buffer.
+   */
+  std::pair<size_t, size_t> buffer_sizes(const pruning_result_t& pruning_result) const;
+
+  /**
+   * @brief Fill the provided pointer and size arrays with the information of the copied buffers as
+   * required by cudaMemcpyBatchAsync.
+   *
+   * If the character data is compressed, this method allocates a temporary decompression buffers
+   * and sets up cudaMemcpyBatchAsync to copy data into the temporary buffer. Otherwise, data is
+   * copied directly into the target buffer for the final cuDF column.
+   *
+   * The offset buffer is handled in the same way.
+   *
+   * @param[out] dst_ptrs The destination pointers.
+   * @param[out] src_ptrs The source pointers.
+   * @param[out] sizes The sizes of each copied buffer.
+   * @param[out] char_compression_buffers Map holding temporary compression buffers for the char
+   * column.
+   * @param[out] offset_compression_buffers Map holding temporary compression buffers for the offset
+   * column.
+   * @param[in] pruning_result Indicates which partitions are pruned.
+   * @param[in] char_target_ptr Pointer into the character buffer of the final cuDF column.
+   * @param[in] offset_target_ptr Pointer into the offset buffer of the final cuDF column.
+   * @param[in] stream CUDA stream on which to allocate temporary buffers.
+   * @param[in] mr RMM resource from which to allocate temporary buffers.
+   */
+  std::tuple<size_t, size_t, size_t> prepare_batched_memcpy(
+    std::byte** dst_ptrs,
+    std::byte** src_ptrs,
+    size_t* sizes,
+    compression_buffer_map& char_compression_buffers,
+    compression_buffer_map& offset_compression_buffers,
+    const pruning_result_t& pruning_result,
+    std::byte* char_target_ptr,
+    std::byte* offset_target_ptr,
     rmm::cuda_stream_view stream,
-    const std::vector<zone_map::partition>& partitions,
-    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource()) override;
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource()) const;
+
+  /**
+   * @brief Decompress data into the target buffer of the final cuDF column.
+   *
+   * If the column is not compressed, this function does nothing. Otherwise, it decompresses the
+   * data contained in compression_buffer to target_ptr. The offset buffer is handled in the same
+   * way.
+   *
+   * @param[out] char_target_ptr Pointer into the character buffer of the final cuDF column.
+   * @param[out] offset_target_ptr Pointer into the offset buffer of the final cuDF column.
+   * @param[in] char_compression_buffer Buffer containing compressed character data.
+   * @param[in] offset_compression_buffer Buffer containing compressed offset data.
+   * @param[in] pruning_result Indicates which partitions are pruned.
+   * @param[in] stream CUDA stream on which to allocate temporary buffers.
+   * @param[in] mr RMM resource from which to allocate temporary buffers.
+   * @return A std::pair indicating whether the column was decompressed or not, and the size of the
+   * decompressed char buffer.
+   */
+  std::pair<bool, size_t> decompress(
+    std::byte* char_target_ptr,
+    std::byte* offset_target_ptr,
+    rmm::device_buffer* char_compression_buffer,
+    rmm::device_buffer* offset_compression_buffer,
+    const pruning_result_t& pruning_result,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource()) const;
+
+  /**
+   * @brief Determine the offsets of each partition which should be added to the string offsets.
+   * @param[out] partition_offsets Partition offset array.
+   * @param[in] pruning_result Indicates which partitions are pruned.
+   * @param[in] start_offset The offset into the character buffer with which to start filling
+   * partitions_offsets for this column.
+   * @param[in] partition_offset_idx The index into partition_offsets where to start filling.
+   * pruning_result.
+   * @return The current offset after processing the pruning_result.
+   */
+  offsets_type fill_partition_offsets(offsets_type* partition_offsets,
+                                      const pruning_result_t& pruning_result,
+                                      offsets_type start_offset,
+                                      size_t partition_offset_idx) const;
 
  private:
+  std::vector<std::unique_ptr<rmm::device_buffer>> _compressed_offset_partitions;
+  std::vector<cudf::size_type> _compressed_offset_sizes;
+  std::vector<cudf::size_type> _partition_char_array_sizes;
+  std::vector<cudf::size_type> _partition_row_counts;
+  compression_manager _nvcomp_offset_manager;
+  // This needs to come after the manager for proper destruction order
+  std::vector<nvcomp::CompressionConfig> _compressed_offset_configs;
+
   bool _offsets_are_compressed;
-  using offsets_type = std::conditional_t<large_string_mode, int64_t, int32_t>;
 
   static constexpr nvcompType_t offset_nvcomp_data_type =
     large_string_mode ? NVCOMP_TYPE_LONGLONG : NVCOMP_TYPE_INT;
@@ -620,7 +751,7 @@ class shared_compressed_column : public column_base {
   shared_compressed_column& operator=(const shared_compressed_column&) = delete;
 
   /**
-   * @copydoc gqe::storage::type()
+   * @copydoc gqe::storage::column_base::type()
    */
   in_memory_column_type type() const override { return in_memory_column_type::SHARED_COMPRESSED; }
 
@@ -835,22 +966,52 @@ class in_memory_table : public table {
 };
 
 /**
- * @brief Helper class to construct a CUDF column from the columns of the row groups of an in-memory
- * table.
+ * @brief Construct a cudf::column output column for the in_memory_read_task from the columns
+ * contained in multiple row groups.
  *
- * Note: For now, this class uses cudf::concatenate to construct the CUDF column. In a subsequent
- * MR, this will be changed to supported batched memcpy/decompression
+ * This is a base class which defines the interface that is used in @ref
+ * in_memory_read_task::emit_copied_result(). Subclasses implement this interface for specific
+ * in-memory table column types (e.g., CONTIGUOUS or COMPRESSED_SLICED) or cuDF types (e.g.,
+ * fixed-width or string).
  */
-// TODO Better name?
 class output_column_helper {
  public:
   /**
    * @brief Create a helper to construct a CUDF column from the columns of multiple row groups.
+   * @param cudf_type The cuDF type of the column.
    * @param pruning_results Partition pruning results
    * @param column_idx The index of the output column in the base table schema
    */
-  output_column_helper(std::shared_ptr<pruning_results_t> pruning_results,
+  output_column_helper(cudf::data_type cudf_type,
+                       std::shared_ptr<pruning_results_t> pruning_results,
                        cudf::size_type column_idx);
+
+  /// Virtual destructor
+  virtual ~output_column_helper() = default;
+
+  /**
+   * @brief Determine the number of buffers copied by cudaMemcpyBatchAsync.
+   * @param partition_size The number of rows in a partition used for pruning.
+   * @return The number of copied buffers.
+   */
+  [[nodiscard]] virtual size_t num_copied_buffers([[maybe_unused]] size_t partition_size) = 0;
+
+  /**
+   * @brief Fill the provided pointer and size arrays with the information of the copied buffers as
+   * required by cudaMemcpyBatchAsync.
+   *
+   * This method sets up the destination pointer so that they point into either (a) the target
+   * buffer of the final cuDF column or (b) temporary decompression buffers.
+   *
+   * @param[out] dst_ptrs The destination pointers.
+   * @param[out] src_ptrs The source pointers.
+   * @param[out] sizes The sizes of each copied buffer.
+   * @param[in] stream CUDA stream on which to allocate temporary buffers.
+   */
+  virtual void prepare_batched_memcpy(std::byte** dst_ptrs,
+                                      std::byte** src_ptrs,
+                                      size_t* sizes,
+                                      rmm::cuda_stream_view stream) = 0;
 
   /**
    * @brief Decompress compressed columns, if necessary.
@@ -860,7 +1021,8 @@ class output_column_helper {
    * @param decompression_stream The CUDA stream on which to execute operations.
    * @return True, if the column of any row group was compressed.
    */
-  [[nodiscard]] bool decompress_row_group_columns(rmm::cuda_stream_view decompression_stream);
+  [[nodiscard]] virtual bool decompress_row_group_columns(
+    rmm::cuda_stream_view decompression_stream) = 0;
 
   /**
    * @brief Construct the output CUDF column.
@@ -870,16 +1032,143 @@ class output_column_helper {
    * @param concatenation_stream The CUDA stream on which to execute kernels.
    * @return A CUDF column representing the output column of the read task.
    */
-  [[nodiscard]] std::unique_ptr<cudf::column> make_cudf_column(
-    rmm::cuda_stream_view concatenation_stream);
+  [[nodiscard]] virtual std::unique_ptr<cudf::column> make_cudf_column(
+    rmm::cuda_stream_view concatenation_stream) = 0;
 
- private:
+ protected:
+  const cudf::data_type _cudf_type;
   std::shared_ptr<pruning_results_t> _pruning_results;
   const cudf::size_type _column_idx;
+  const size_t _num_rows;  //< Number of rows in the output column
+};
 
+/**
+ * @brief Construct a cudf::column output column for the in_memory_read_task from the columns
+ * contained in multiple row groups using @ref cudf::concatenate.
+ *
+ * Note: This class serves as a legacy implementation for column types for which there does not yet
+ * exist a dedicated @ref output_column_helper.
+ */
+class concatenating_output_column_helper : public output_column_helper {
+ public:
+  using output_column_helper::output_column_helper;
+  using output_column_helper::operator=;
+
+  /// @copydoc gqe::storage::output_column_helper::num_copied_buffers
+  [[nodiscard]] size_t num_copied_buffers(size_t partition_size) override;
+
+  /// @copydoc gqe::storage::output_column_helper::prepare_batched_memcpy
+  void prepare_batched_memcpy(std::byte** dst_ptrs,
+                              std::byte** src_ptrs,
+                              size_t* sizes,
+                              rmm::cuda_stream_view stream) override;
+
+  /// @copydoc gqe::storage::output_column_helper::decompress_row_group_columns
+  [[nodiscard]] bool decompress_row_group_columns(
+    rmm::cuda_stream_view decompression_stream) override;
+
+  /// @copydoc gqe::storage::output_column_helper::make_cudf_column
+  [[nodiscard]] std::unique_ptr<cudf::column> make_cudf_column(
+    rmm::cuda_stream_view concatenation_stream) override;
+
+ private:
   /// Store decompressed columns between decompression and creation of the output CUDF column
   std::unordered_map<const column_base*, std::unique_ptr<cudf::column>> _decompressed_columns;
 };
+
+// TODO Do I really need the template? Not supporting SHARED_CONTIGUOUS for now.
+template <typename T>
+class contiguous_output_column_helper : public output_column_helper {
+ public:
+  using output_column_helper::output_column_helper;
+  using output_column_helper::operator=;
+
+  /// @copydoc gqe::storage::output_column_helper::num_copied_buffers
+  [[nodiscard]] size_t num_copied_buffers(size_t partition_size) override;
+
+  /// @copydoc gqe::storage::output_column_helper::prepare_batched_memcpy
+  void prepare_batched_memcpy(std::byte** dst_ptrs,
+                              std::byte** src_ptrs,
+                              size_t* sizes,
+                              rmm::cuda_stream_view stream) override;
+
+  /// @copydoc gqe::storage::output_column_helper::decompress_row_group_columns
+  [[nodiscard]] bool decompress_row_group_columns(
+    rmm::cuda_stream_view decompression_stream) override;
+
+  /// @copydoc gqe::storage::output_column_helper::make_cudf_column
+  [[nodiscard]] std::unique_ptr<cudf::column> make_cudf_column(
+    rmm::cuda_stream_view concatenation_stream) override;
+
+ private:
+  std::unique_ptr<rmm::device_buffer> _output_buffer = nullptr;
+};
+
+class compressed_sliced_output_column_helper : public output_column_helper {
+ public:
+  using output_column_helper::output_column_helper;
+  using output_column_helper::operator=;
+
+  /// @copydoc gqe::storage::output_column_helper::num_copied_buffers
+  [[nodiscard]] size_t num_copied_buffers(size_t partition_size) override;
+
+  /// @copydoc gqe::storage::output_column_helper::prepare_batched_memcpy
+  void prepare_batched_memcpy(std::byte** dst_ptrs,
+                              std::byte** src_ptrs,
+                              size_t* sizes,
+                              rmm::cuda_stream_view stream) override;
+
+  /// @copydoc gqe::storage::output_column_helper::decompress_row_group_columns
+  [[nodiscard]] bool decompress_row_group_columns(
+    rmm::cuda_stream_view decompression_stream) override;
+
+  /// @copydoc gqe::storage::output_column_helper::make_cudf_column
+  [[nodiscard]] std::unique_ptr<cudf::column> make_cudf_column(
+    rmm::cuda_stream_view concatenation_stream) override;
+
+ private:
+  std::unique_ptr<rmm::device_buffer> _output_buffer = nullptr;
+  compression_buffer_map _compression_buffers;
+};
+
+template <bool large_string_mode>
+class string_compressed_sliced_output_column_helper : public output_column_helper {
+ public:
+  using output_column_helper::output_column_helper;
+  using output_column_helper::operator=;
+
+  /// @copydoc gqe::storage::output_column_helper::num_copied_buffers
+  [[nodiscard]] size_t num_copied_buffers(size_t partition_size) override;
+
+  /// @copydoc gqe::storage::output_column_helper::prepare_batched_memcpy
+  void prepare_batched_memcpy(std::byte** dst_ptrs,
+                              std::byte** src_ptrs,
+                              size_t* sizes,
+                              rmm::cuda_stream_view stream) override;
+
+  /// @copydoc gqe::storage::output_column_helper::decompress_row_group_columns
+  [[nodiscard]] bool decompress_row_group_columns(
+    rmm::cuda_stream_view decompression_stream) override;
+
+  /// @copydoc gqe::storage::output_column_helper::make_cudf_column
+  [[nodiscard]] std::unique_ptr<cudf::column> make_cudf_column(
+    rmm::cuda_stream_view concatenation_stream) override;
+
+ private:
+  static constexpr cudf::data_type offset_element_type = large_string_mode
+                                                           ? cudf::data_type(cudf::type_id::INT64)
+                                                           : cudf::data_type(cudf::type_id::INT32);
+
+  using offsets_type = std::conditional_t<large_string_mode, int64_t, int32_t>;
+
+  std::unique_ptr<rmm::device_buffer> _char_buffer   = nullptr;
+  std::unique_ptr<rmm::device_buffer> _offset_buffer = nullptr;
+  compression_buffer_map _char_compression_buffers;
+  compression_buffer_map _offset_compression_buffers;
+};
+
+extern template class string_compressed_sliced_output_column_helper<false>;
+extern template class string_compressed_sliced_output_column_helper<true>;
 
 /**
  * @brief A read task for loading data from memory.

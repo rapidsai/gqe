@@ -22,6 +22,7 @@
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
 
 #include <iostream>
@@ -408,7 +409,10 @@ using CudaPinnedBufferPointer      = CudaBufferPointer<true, true, void>;
 using ConstCudaPinnedBufferPointer = CudaBufferPointer<true, true, void const>;
 
 template <typename T>
-void fill_memory(T* data, T value, size_t count);
+void fill_memory(T* data,
+                 T value,
+                 size_t count,
+                 rmm::cuda_stream_view stream = cudf::get_default_stream());
 
 // Owns an array of elements of type T on GPU.
 template <typename T>
@@ -420,14 +424,19 @@ class CudaGpuArray {
   using const_pointer     = CudaPointer<T const, ACCESS_FROM_HOST, ACCESS_FROM_DEVICE>;
   using element_type      = T;
   explicit CudaGpuArray() = default;
-  explicit CudaGpuArray(size_t count) : buffer(count, cudf::get_default_stream()) {}
-  explicit CudaGpuArray(std::vector<T> const& source_elements)
-    : CudaGpuArray(source_elements.size())
+  explicit CudaGpuArray(size_t count, rmm::cuda_stream_view stream = cudf::get_default_stream())
+    : buffer(count, stream)
   {
-    cudaMemcpy(buffer.data(),
-               source_elements.data(),
-               source_elements.size() * sizeof(T),
-               cudaMemcpyHostToDevice);
+  }
+  explicit CudaGpuArray(std::vector<T> const& source_elements,
+                        rmm::cuda_stream_view stream = cudf::get_default_stream())
+    : CudaGpuArray(source_elements.size(), stream)
+  {
+    cudaMemcpyAsync(buffer.data(),
+                    source_elements.data(),
+                    source_elements.size() * sizeof(T),
+                    cudaMemcpyHostToDevice,
+                    stream.value());
   }
   // Returns a pointer to the first element of the memory.
   constexpr pointer get() noexcept { return pointer(buffer.element_ptr(0)); }
@@ -443,25 +452,28 @@ class CudaGpuArray {
   //  Returns a reference to an element in the memory.
   constexpr T const& operator[](size_t i) const { return get()[i]; }
   template <int value>
-  void fill_byte()
+  void fill_byte(rmm::cuda_stream_view stream = cudf::get_default_stream())
   {
     static_assert(value == 0 || value == -1);
-    cudaMemset(buffer.data(), value, buffer.size() * sizeof(T));
+    cudaMemsetAsync(buffer.data(), value, buffer.size() * sizeof(T), stream.value());
   }
   template <typename U>
-  void fill(U value)
+  void fill(U value, rmm::cuda_stream_view stream = cudf::get_default_stream())
   {
     static_assert(std::is_same_v<T, U>);
     if (value == 0) {
-      fill_byte<0>();
+      fill_byte<0>(stream);
     } else if (value == -1) {
-      fill_byte<-1>();
+      fill_byte<-1>(stream);
     } else {
-      fill_memory(buffer.data(), value, buffer.size());
+      fill_memory(buffer.data(), value, buffer.size(), stream);
     }
   }
 
-  void resize(size_t new_count) { buffer.resize(new_count, cudf::get_default_stream()); }
+  void resize(size_t new_count, rmm::cuda_stream_view stream = cudf::get_default_stream())
+  {
+    buffer.resize(new_count, stream);
+  }
   size_t numel() const { return buffer.size(); }
   rmm::device_uvector<T>& get_buffer() { return buffer; }
 
@@ -475,8 +487,10 @@ class CudaGpuBuffer {
  public:
   constexpr static bool ACCESS_FROM_HOST   = false;
   constexpr static bool ACCESS_FROM_DEVICE = true;
-  explicit CudaGpuBuffer(size_t count, cudf::type_id id)
-    : elements(count * size_of_id(id), cudf::get_default_stream()), id(id)
+  explicit CudaGpuBuffer(size_t count,
+                         cudf::type_id id,
+                         rmm::cuda_stream_view stream = cudf::get_default_stream())
+    : elements(count * size_of_id(id), stream), id(id)
   {
   }
   auto get()
@@ -489,9 +503,9 @@ class CudaGpuBuffer {
   }
   auto element_size() const { return size_of_id(id); }
   size_t numel() const noexcept { return elements.size() / size_of_id(id); }
-  void resize(size_t new_count)
+  void resize(size_t new_count, rmm::cuda_stream_view stream = cudf::get_default_stream())
   {
-    elements.resize(new_count * size_of_id(id), cudf::get_default_stream());
+    elements.resize(new_count * size_of_id(id), stream);
   }
   cudf::type_id get_id() const { return id; }
   template <typename T>
@@ -515,7 +529,11 @@ class CudaPinnedBuffer {
  public:
   constexpr static bool ACCESS_FROM_HOST   = true;
   constexpr static bool ACCESS_FROM_DEVICE = true;
-  explicit CudaPinnedBuffer(size_t count, cudf::type_id id) : count(count), id(id)
+  // Note: stream parameter is ignored (pinned memory allocation is synchronous)
+  explicit CudaPinnedBuffer(size_t count,
+                            cudf::type_id id,
+                            rmm::cuda_stream_view /*stream*/ = cudf::get_default_stream())
+    : count(count), id(id)
   {
     buffer = (void*)GlobalMemoryPool::get().allocate(count * size_of_id(id));
   }

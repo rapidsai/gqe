@@ -19,6 +19,8 @@
 
 #include <cudf/column/column.hpp>
 #include <cudf/detail/aggregation/aggregation.hpp>
+#include <cudf/utilities/default_stream.hpp>
+#include <rmm/cuda_stream_view.hpp>
 
 namespace libperfect {
 
@@ -29,6 +31,7 @@ cudf::column scatter_aggregate(cudf::column_view const& values,
                                const std::optional<cudf::column_view> output_map,
                                const cudf::aggregation::Kind aggregation_kind,
                                int64_t max_index,
-                               const cudf::type_id output_type_id);
+                               const cudf::type_id output_type_id,
+                               rmm::cuda_stream_view stream = cudf::get_default_stream());
 
 }  // namespace libperfect

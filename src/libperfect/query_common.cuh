@@ -17,12 +17,10 @@
 
 #pragma once
 
+#include "query_common.hpp"
+
 #include <cassert>
 #include <iostream>
-
-#include <cudf/types.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
-#include <rmm/device_uvector.hpp>
 
 template <typename T,
           std::enable_if_t<std::is_same_v<T, int64_t> || std::is_same_v<T, uint64_t>, bool> = true>
@@ -173,11 +171,13 @@ constexpr T div_round_up(const T numerator, const T denominator)
 }
 
 template <typename T>
-void fill_memory(T* data, T value, size_t count)
+void fill_memory(T* data, T value, size_t count, rmm::cuda_stream_view stream)
 {
   auto constexpr threads_per_block = 32;
   fill_memory_kernel<<<div_round_up(count, static_cast<size_t>(threads_per_block)),
-                       threads_per_block>>>(data, value, count);
+                       threads_per_block,
+                       0,
+                       stream.value()>>>(data, value, count);
 }
 
 template <typename T>

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "query_common.cuh"
 #include "query_common.hpp"
 
 namespace libperfect {
@@ -40,12 +41,14 @@ __global__ void index_select_kernel(input_type input,
 
 template <typename input_type, typename indices_type>
 CudaGpuArray<std::remove_const_t<input_type>> index_select(
-  CudaGpuArray<input_type> const& input, CudaGpuArray<indices_type> const& indices)
+  CudaGpuArray<input_type> const& input,
+  CudaGpuArray<indices_type> const& indices,
+  rmm::cuda_stream_view stream = cudf::get_default_stream())
 {
   auto const threads_per_block = 1024;
   auto const block_count       = div_round_up(indices.numel(), size_t(threads_per_block));
-  auto output                  = CudaGpuArray<std::remove_const_t<input_type>>(indices.numel());
-  index_select_kernel<<<block_count, threads_per_block>>>(
+  auto output = CudaGpuArray<std::remove_const_t<input_type>>(indices.numel(), stream);
+  index_select_kernel<<<block_count, threads_per_block, 0, stream.value()>>>(
     input.get(), indices.get(), output.get(), input.numel());
   return output;
 }

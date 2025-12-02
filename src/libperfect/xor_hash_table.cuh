@@ -267,7 +267,8 @@ std::optional<IdentityHasher<T0, T1>> make_identity_hasher(
 }
 
 static std::optional<InstructionHasher<Shift1Instruction>> make_shift1_hasher(
-  const std::vector<CudaPinnedBuffer>& and_ors)
+  const std::vector<CudaPinnedBuffer>& and_ors,
+  rmm::cuda_stream_view stream = cudf::get_default_stream())
 {
   // Can we just concatenate columns?
   uint64_t total_significant_bits = 0;
@@ -290,11 +291,12 @@ static std::optional<InstructionHasher<Shift1Instruction>> make_shift1_hasher(
     return std::nullopt;  // Too many bits to use.
   }
   return {InstructionHasher<Shift1Instruction>(
-    CudaGpuArray(instructions), and_ors.size(), total_significant_bits)};
+    CudaGpuArray(instructions, stream), and_ors.size(), total_significant_bits)};
 }
 
 static InstructionHasher<Shift3Instruction> make_shift3_hasher(
-  const std::vector<CudaPinnedBuffer>& xors)
+  const std::vector<CudaPinnedBuffer>& xors,
+  rmm::cuda_stream_view stream = cudf::get_default_stream())
 {
   uint64_t total_significant_bits = 0;
   std::vector<Shift3Instruction> instructions;
@@ -351,7 +353,7 @@ static InstructionHasher<Shift3Instruction> make_shift3_hasher(
     } while (xor_value != 0);
   }
   return InstructionHasher<Shift3Instruction>(
-    CudaGpuArray<Shift3Instruction>(instructions), xors.size(), total_significant_bits);
+    CudaGpuArray<Shift3Instruction>(instructions, stream), xors.size(), total_significant_bits);
 }
 
 template <typename hash_key_type, class hasher_class>
@@ -763,9 +765,11 @@ static int64_t nextprime_pow2(int64_t value)
 template <typename hash_key_type, class hasher_class>
 class HashTable {
  public:
-  HashTable(int64_t keys_numel, hasher_class&& new_hasher)
+  HashTable(int64_t keys_numel,
+            hasher_class&& new_hasher,
+            rmm::cuda_stream_view stream = cudf::get_default_stream())
     : perfect_hashing(new_hasher.is_perfect() && new_hasher.max() < max_hashtable_size),
-      hash_table([&keys_numel, &new_hasher]() {
+      hash_table([&keys_numel, &new_hasher, &stream]() {
         // If the hash is perfect then we can just base the size off of that.
         auto hash_table_size = new_hasher.max() + 1;
         if (!(new_hasher.is_perfect() && new_hasher.max() < max_hashtable_size)) {
@@ -778,8 +782,8 @@ class HashTable {
           bits_needed += 2;
           hash_table_size = nextprime_pow2(bits_needed);
         }
-        auto ret = CudaGpuArray<hash_key_type>(hash_table_size);
-        ret.template fill_byte<-1>();
+        auto ret = CudaGpuArray<hash_key_type>(hash_table_size, stream);
+        ret.template fill_byte<-1>(stream);
         return ret;
       }()),
       hasher(std::move(new_hasher))
@@ -803,21 +807,22 @@ class HashTable {
               std::conditional_t<insert_output == InsertOutput::True, InsertResult, void>>
   output_type bulk_insert(const std::vector<ConstCudaGpuBufferPointer>& left_keys,
                           const size_t left_keys_numel,
-                          const std::optional<ConstCudaGpuBufferPointer>& left_mask)
+                          const std::optional<ConstCudaGpuBufferPointer>& left_mask,
+                          rmm::cuda_stream_view stream = cudf::get_default_stream())
   {
     if (!left_mask.has_value()) {
       // Cast the nullptr because of a bug in nvcc.
       return bulk_insert<HasMask::False, check_equality, insert_output>(
-        left_keys, left_keys_numel, static_cast<const int32_t*>(nullptr));
+        left_keys, left_keys_numel, static_cast<const int32_t*>(nullptr), stream);
     } else if (left_mask->get_id() == cudf::type_id::BOOL8) {
       return bulk_insert<HasMask::True, check_equality, insert_output>(
-        left_keys, left_keys_numel, static_cast<uint8_t const*>(*left_mask));
+        left_keys, left_keys_numel, static_cast<uint8_t const*>(*left_mask), stream);
     } else if (left_mask->get_id() == cudf::type_id::INT32) {
       return bulk_insert<HasMask::True, check_equality, insert_output>(
-        left_keys, left_keys_numel, static_cast<int32_t const*>(*left_mask));
+        left_keys, left_keys_numel, static_cast<int32_t const*>(*left_mask), stream);
     } else if (left_mask->get_id() == cudf::type_id::INT64) {
       return bulk_insert<HasMask::True, check_equality, insert_output>(
-        left_keys, left_keys_numel, static_cast<int64_t const*>(*left_mask));
+        left_keys, left_keys_numel, static_cast<int64_t const*>(*left_mask), stream);
     } else {
       std::stringstream what;
       what << "Error: Yet unsupported mask type: " << size_of_id(left_mask->get_id()) << std::endl;
@@ -836,7 +841,8 @@ class HashTable {
               const size_t left_keys_numel,
               const bool& left_unique,
               const bool& right_unique,
-              const bool& return_all) const
+              const bool& return_all,
+              rmm::cuda_stream_view stream = cudf::get_default_stream()) const
   {
     if (left_unique) {
       return bulk_lookup<xor_hash_table::MultiSet::False>(right_keys,
@@ -846,7 +852,8 @@ class HashTable {
                                                           left_keys_numel,
                                                           left_unique,
                                                           right_unique,
-                                                          return_all);
+                                                          return_all,
+                                                          stream);
     } else {
       return bulk_lookup<xor_hash_table::MultiSet::True>(right_keys,
                                                          right_keys_numel,
@@ -855,7 +862,8 @@ class HashTable {
                                                          left_keys_numel,
                                                          left_unique,
                                                          right_unique,
-                                                         return_all);
+                                                         return_all,
+                                                         stream);
     }
   }
 
@@ -868,21 +876,23 @@ class HashTable {
               std::conditional_t<insert_output == InsertOutput::True, InsertResult, void>>
   output_type bulk_insert(const std::vector<ConstCudaGpuBufferPointer>& left_keys,
                           const size_t left_keys_numel,
-                          const left_mask_type& left_mask)
+                          const left_mask_type& left_mask,
+                          rmm::cuda_stream_view stream)
   {
     // assert that all elements of left_keys have the same number of elements?
     auto keys_tuple = CudaPinnedArray<ConstCudaGpuBufferPointer>(left_keys);
-    gpu_throw(cudaDeviceSynchronize());
+    stream.synchronize();
     if constexpr (insert_output == InsertOutput::True) {
       output_type ret = bulk_insert<has_mask, check_equality, insert_output>(
-        keys_tuple, left_keys_numel, left_mask);
+        keys_tuple, left_keys_numel, left_mask, stream);
       // Don't let left_keys get destroyed before the kernel finishes.
-      gpu_throw(cudaDeviceSynchronize());
+      stream.synchronize();
       return ret;
     } else {
-      bulk_insert<has_mask, check_equality, insert_output>(keys_tuple, left_keys_numel, left_mask);
+      bulk_insert<has_mask, check_equality, insert_output>(
+        keys_tuple, left_keys_numel, left_mask, stream);
       // Don't let left_keys get destroyed before the kernel finishes.
-      gpu_throw(cudaDeviceSynchronize());
+      stream.synchronize();
     }
   }
 
@@ -895,7 +905,8 @@ class HashTable {
               std::conditional_t<insert_output == InsertOutput::True, InsertResult, void>>
   output_type bulk_insert(const left_keys_type& left_keys,
                           int64_t left_keys_count,
-                          const left_mask_type& left_mask)
+                          const left_mask_type& left_mask,
+                          rmm::cuda_stream_view stream)
   {
     const auto left_block_count =
       div_round_up(left_keys_count, static_cast<decltype(left_keys_count)>(THREADS_PER_BLOCK));
@@ -904,47 +915,48 @@ class HashTable {
       // TODO: If the hash table is much larger than the number of keys, avoid calling condense.
       if (perfect_hashing) {
         hash_insert_kernel<has_mask, check_equality, PerfectHashing::True>
-          <<<left_block_count, THREADS_PER_BLOCK>>>(
+          <<<left_block_count, THREADS_PER_BLOCK, 0, stream.value()>>>(
             view(), left_keys.get().data(), left_keys_count, left_mask);
         auto narrowed_representatives =
-          condense::condense<condense::WriteToInput::True>(hash_table);
-        auto mapped_keys = CudaGpuArray<hash_key_type>(left_keys_count);
-        hashed_index_select_kernel<<<left_block_count, THREADS_PER_BLOCK>>>(
+          condense::condense<condense::WriteToInput::True>(hash_table, stream);
+        auto mapped_keys = CudaGpuArray<hash_key_type>(left_keys_count, stream);
+        hashed_index_select_kernel<<<left_block_count, THREADS_PER_BLOCK, 0, stream.value()>>>(
           view(), left_keys.get().data(), left_keys_count, mapped_keys.get().data());
         return InsertResult(std::move(narrowed_representatives), std::move(mapped_keys));
       } else {
-        auto num_unique_indices = CudaGpuArray<hash_key_type>(1);
-        num_unique_indices.template fill_byte<0>();
-        auto unique_indices  = CudaGpuArray<hash_key_type>(left_keys_count);
-        auto indices         = CudaGpuArray<hash_key_type>(left_keys_count);
-        auto reverse_indices = CudaGpuArray<hash_key_type>(left_keys_count);
+        auto num_unique_indices = CudaGpuArray<hash_key_type>(1, stream);
+        num_unique_indices.template fill_byte<0>(stream);
+        auto unique_indices  = CudaGpuArray<hash_key_type>(left_keys_count, stream);
+        auto indices         = CudaGpuArray<hash_key_type>(left_keys_count, stream);
+        auto reverse_indices = CudaGpuArray<hash_key_type>(left_keys_count, stream);
         hash_insert_kernel_with_write<has_mask, check_equality, PerfectHashing::False>
-          <<<left_block_count, THREADS_PER_BLOCK>>>(view(),
-                                                    left_keys.get().data(),
-                                                    left_keys_count,
-                                                    left_mask,
-                                                    num_unique_indices.get().data(),
-                                                    unique_indices.get().data(),
-                                                    indices.get().data(),
-                                                    reverse_indices.get().data());
+          <<<left_block_count, THREADS_PER_BLOCK, 0, stream.value()>>>(
+            view(),
+            left_keys.get().data(),
+            left_keys_count,
+            left_mask,
+            num_unique_indices.get().data(),
+            unique_indices.get().data(),
+            indices.get().data(),
+            reverse_indices.get().data());
         CudaPinnedArray<hash_key_type> pinned_num_unique_indices(1);
         pinned_num_unique_indices.get().copy_from(
-          num_unique_indices.get(), num_unique_indices.get() + 1, cudf::get_default_stream());
-        gpu_throw(cudaDeviceSynchronize());
+          num_unique_indices.get(), num_unique_indices.get() + 1, stream.value());
+        stream.synchronize();
         auto output_size = pinned_num_unique_indices.get()[0];
-        unique_indices.resize(output_size);
+        unique_indices.resize(output_size, stream);
         auto narrowed_representatives = std::move(unique_indices);
         return InsertResult(std::move(narrowed_representatives),
-                            std::move(index_select(reverse_indices, indices)));
+                            std::move(index_select(reverse_indices, indices, stream)));
       }
     } else {
       if (perfect_hashing) {
         hash_insert_kernel<has_mask, check_equality, PerfectHashing::True>
-          <<<left_block_count, THREADS_PER_BLOCK>>>(
+          <<<left_block_count, THREADS_PER_BLOCK, 0, stream.value()>>>(
             view(), left_keys.get().data(), left_keys_count, left_mask);
       } else {
         hash_insert_kernel<has_mask, check_equality, PerfectHashing::False>
-          <<<left_block_count, THREADS_PER_BLOCK>>>(
+          <<<left_block_count, THREADS_PER_BLOCK, 0, stream.value()>>>(
             view(), left_keys.get().data(), left_keys_count, left_mask);
       }
     }
@@ -961,7 +973,8 @@ class HashTable {
               const size_t left_keys_numel,
               const bool& left_unique,
               const bool& right_unique,
-              const bool& return_all) const
+              const bool& return_all,
+              rmm::cuda_stream_view stream) const
   {
     // The number of keys to lookup is on the right.
     // auto lookup_key_count = right_keys[0].numel();
@@ -975,7 +988,8 @@ class HashTable {
                                                            left_keys_numel,
                                                            left_unique,
                                                            right_unique,
-                                                           return_all);
+                                                           return_all,
+                                                           stream);
     return ret;
   }
   template <MultiSet left_multiset, typename lookup_key_type>
@@ -990,7 +1004,8 @@ class HashTable {
               const size_t left_keys_numel,
               const bool& left_unique,
               const bool& right_unique,
-              const bool& return_all) const
+              const bool& return_all,
+              rmm::cuda_stream_view stream) const
   {
     if (!right_mask.has_value()) {
       // Cast the nullptr because of a bug in nvcc.
@@ -1002,7 +1017,8 @@ class HashTable {
         left_keys_numel,
         left_unique,
         right_unique,
-        return_all);
+        return_all,
+        stream);
     } else if (right_mask->get_id() == cudf::type_id::BOOL8) {
       return bulk_lookup<HasMask::True, left_multiset, lookup_key_type>(
         right_keys,
@@ -1012,7 +1028,8 @@ class HashTable {
         left_keys_numel,
         left_unique,
         right_unique,
-        return_all);
+        return_all,
+        stream);
     } else if (right_mask->get_id() == cudf::type_id::INT32) {
       return bulk_lookup<HasMask::True, left_multiset, lookup_key_type>(
         right_keys,
@@ -1022,7 +1039,8 @@ class HashTable {
         left_keys_numel,
         left_unique,
         right_unique,
-        return_all);
+        return_all,
+        stream);
     } else if (right_mask->get_id() == cudf::type_id::INT64) {
       return bulk_lookup<HasMask::True, left_multiset, lookup_key_type>(
         right_keys,
@@ -1032,7 +1050,8 @@ class HashTable {
         left_keys_numel,
         left_unique,
         right_unique,
-        return_all);
+        return_all,
+        stream);
     } else {
       std::stringstream what;
       what << "Error: Yet unsupported mask type: " << size_of_id(right_mask->get_id()) << std::endl;
@@ -1055,7 +1074,8 @@ class HashTable {
               const size_t left_keys_numel,
               const bool& left_unique,
               const bool& right_unique,
-              const bool& return_all) const
+              const bool& return_all,
+              rmm::cuda_stream_view stream) const
   {
     if (perfect_hashing) {
       return bulk_lookup<right_has_mask, left_multiset, PerfectHashing::True, lookup_key_type>(
@@ -1066,7 +1086,8 @@ class HashTable {
         left_keys_numel,
         left_unique,
         right_unique,
-        return_all);
+        return_all,
+        stream);
     } else {
       return bulk_lookup<right_has_mask, left_multiset, PerfectHashing::False, lookup_key_type>(
         right_keys,
@@ -1076,7 +1097,8 @@ class HashTable {
         left_keys_numel,
         left_unique,
         right_unique,
-        return_all);
+        return_all,
+        stream);
     }
   }
   template <HasMask right_has_mask,
@@ -1095,7 +1117,8 @@ class HashTable {
               const size_t left_keys_numel,
               const bool& left_unique,
               const bool& right_unique,
-              const bool& return_all) const
+              const bool& return_all,
+              rmm::cuda_stream_view stream) const
   {
     // assert that all elements of right_keys have the same number of elements?
     auto right_keys_count = right_keys_numel;
@@ -1107,8 +1130,8 @@ class HashTable {
                            : right_unique                  ? left_keys_count
                                                            : right_keys_count * left_keys_count;
 
-    auto match_left = CudaGpuArray<hash_key_type>(output_size);
-    if (return_all) { match_left.template fill_byte<-1>(); }
+    auto match_left = CudaGpuArray<hash_key_type>(output_size, stream);
+    if (return_all) { match_left.template fill_byte<-1>(stream); }
     /*
     // For each element on the left, it might be unmatched on the right.
     // So the possible number of unmatched on the left is equal to the
@@ -1124,8 +1147,8 @@ class HashTable {
     // Why declare it up here, we can do it down below? TODO
     std::optional<CudaGpuArray<int64_t>> match_count;
     if (!return_all) {
-      match_count = CudaGpuArray<int64_t>(1);
-      match_count->fill_byte<0>();
+      match_count = CudaGpuArray<int64_t>(1, stream);
+      match_count->fill_byte<0>(stream);
     }
     // TODO: support unmatched
     // auto unmatched_left_count = torch::empty({}, cuda_tensor_options);
@@ -1136,17 +1159,18 @@ class HashTable {
     std::optional<CudaGpuArray<lookup_key_type>> match_right;
     auto left_keys_gputensor  = CudaPinnedArray<ConstCudaGpuBufferPointer>(left_keys);
     auto right_keys_gputensor = CudaPinnedArray<ConstCudaGpuBufferPointer>(right_keys);
-    gpu_throw(cudaDeviceSynchronize());
+    stream.synchronize();
     if (return_all) {
       hash_lookup_kernel<right_has_mask, left_multiset, ReturnAll::True, perfect_hashing>
-        <<<right_block_count, THREADS_PER_BLOCK>>>(view(),
-                                                   right_keys_gputensor.get().data(),
-                                                   right_keys_count,
-                                                   right_mask,
-                                                   left_keys_gputensor.get().data(),
-                                                   match_left.get().data(),
-                                                   static_cast<lookup_key_type*>(nullptr),
-                                                   static_cast<int64_t*>(nullptr));
+        <<<right_block_count, THREADS_PER_BLOCK, 0, stream.value()>>>(
+          view(),
+          right_keys_gputensor.get().data(),
+          right_keys_count,
+          right_mask,
+          left_keys_gputensor.get().data(),
+          match_left.get().data(),
+          static_cast<lookup_key_type*>(nullptr),
+          static_cast<int64_t*>(nullptr));
     } else {
       // We only need the right side if we are not returning all.  If
       // we are returning all then the right side would anyway just be
@@ -1155,23 +1179,24 @@ class HashTable {
       // auto right_tensor_options = torch::TensorOptions()
       //                            .dtype(torch::CppTypeToScalarType<lookup_key_type>())
       //                            .device(torch::kCUDA);
-      match_right = CudaGpuArray<lookup_key_type>(output_size);
+      match_right = CudaGpuArray<lookup_key_type>(output_size, stream);
       hash_lookup_kernel<right_has_mask, left_multiset, ReturnAll::False, perfect_hashing>
-        <<<right_block_count, THREADS_PER_BLOCK>>>(view(),
-                                                   right_keys_gputensor.get().data(),
-                                                   right_keys_count,
-                                                   right_mask,
-                                                   left_keys_gputensor.get().data(),
-                                                   match_left.get().data(),
-                                                   match_right->get().data(),
-                                                   match_count->get().data());
+        <<<right_block_count, THREADS_PER_BLOCK, 0, stream.value()>>>(
+          view(),
+          right_keys_gputensor.get().data(),
+          right_keys_count,
+          right_mask,
+          left_keys_gputensor.get().data(),
+          match_left.get().data(),
+          match_right->get().data(),
+          match_count->get().data());
       CudaPinnedArray<int64_t> pinned_match_count(1);
       pinned_match_count.get().copy_from(
-        match_count->get(), match_count->get() + 1, cudf::get_default_stream());
-      gpu_throw(cudaDeviceSynchronize());
+        match_count->get(), match_count->get() + 1, stream.value());
+      stream.synchronize();
       auto local_match_count = pinned_match_count.get()[0];
-      match_left.resize(local_match_count);
-      match_right->resize(local_match_count);
+      match_left.resize(local_match_count, stream);
+      match_right->resize(local_match_count, stream);
     }
     return {std::move(match_left), std::move(match_right), std::nullopt, std::nullopt};
   }
@@ -1201,12 +1226,13 @@ class DynamicHashTable {
               std::conditional_t<insert_output == InsertOutput::True, InsertResult, void>>
   output_type bulk_insert(const std::vector<ConstCudaGpuBufferPointer>& left_keys,
                           const size_t left_keys_numel,
-                          const std::optional<ConstCudaGpuBufferPointer>& left_mask)
+                          const std::optional<ConstCudaGpuBufferPointer>& left_mask,
+                          rmm::cuda_stream_view stream = cudf::get_default_stream())
   {
     return std::visit(
       [&](auto& hash_table) {
         return hash_table.template bulk_insert<check_equality, insert_output>(
-          left_keys, left_keys_numel, left_mask);
+          left_keys, left_keys_numel, left_mask, stream);
       },
       hash_table);
   }
@@ -1222,7 +1248,8 @@ class DynamicHashTable {
               const size_t left_keys_numel,
               const bool& left_unique,
               const bool& right_unique,
-              const bool& return_all) const
+              const bool& return_all,
+              rmm::cuda_stream_view stream = cudf::get_default_stream()) const
   {
     return std::visit(
       [&](auto& hash_table) {
@@ -1233,7 +1260,8 @@ class DynamicHashTable {
                                           left_keys_numel,
                                           left_unique,
                                           right_unique,
-                                          return_all);
+                                          return_all,
+                                          stream);
         // Don't convert to buffer for compatibility with GQE.
         return ret;
       },
@@ -1247,37 +1275,39 @@ class DynamicHashTable {
 // TODO: Can we delete this function and use the constructor directly
 // with CTAD?
 template <typename hash_key_type>
-DynamicHashTable make_hash_table(int64_t keys_numel, std::vector<CudaPinnedBuffer>&& and_ors)
+DynamicHashTable make_hash_table(int64_t keys_numel,
+                                 std::vector<CudaPinnedBuffer>&& and_ors,
+                                 rmm::cuda_stream_view stream = cudf::get_default_stream())
 {
   auto maybe_identity_hasher8 = make_identity_hasher<int8_t>(and_ors);
   if (maybe_identity_hasher8.has_value()) {
-    return HashTable<hash_key_type, IdentityHasher<int8_t>>(keys_numel,
-                                                            std::move(*maybe_identity_hasher8));
+    return HashTable<hash_key_type, IdentityHasher<int8_t>>(
+      keys_numel, std::move(*maybe_identity_hasher8), stream);
   }
   auto maybe_identity_hasher8_8 = make_identity_hasher<int8_t, int8_t>(and_ors);
   if (maybe_identity_hasher8_8.has_value()) {
     return HashTable<hash_key_type, IdentityHasher<int8_t, int8_t>>(
-      keys_numel, std::move(*maybe_identity_hasher8_8));
+      keys_numel, std::move(*maybe_identity_hasher8_8), stream);
   }
   auto maybe_identity_hasher16 = make_identity_hasher<int16_t>(and_ors);
   if (maybe_identity_hasher16.has_value()) {
-    return HashTable<hash_key_type, IdentityHasher<int16_t>>(keys_numel,
-                                                             std::move(*maybe_identity_hasher16));
+    return HashTable<hash_key_type, IdentityHasher<int16_t>>(
+      keys_numel, std::move(*maybe_identity_hasher16), stream);
   }
   auto maybe_identity_hasher32 = make_identity_hasher<int32_t>(and_ors);
   if (maybe_identity_hasher32.has_value()) {
-    return HashTable<hash_key_type, IdentityHasher<int32_t>>(keys_numel,
-                                                             std::move(*maybe_identity_hasher32));
+    return HashTable<hash_key_type, IdentityHasher<int32_t>>(
+      keys_numel, std::move(*maybe_identity_hasher32), stream);
   }
   auto maybe_identity_hasher64 = make_identity_hasher<int64_t>(and_ors);
   if (maybe_identity_hasher64.has_value()) {
-    return HashTable<hash_key_type, IdentityHasher<int64_t>>(keys_numel,
-                                                             std::move(*maybe_identity_hasher64));
+    return HashTable<hash_key_type, IdentityHasher<int64_t>>(
+      keys_numel, std::move(*maybe_identity_hasher64), stream);
   }
-  auto maybe_shift1_hasher = make_shift1_hasher(and_ors);
+  auto maybe_shift1_hasher = make_shift1_hasher(and_ors, stream);
   if (maybe_shift1_hasher.has_value()) {
     return HashTable<hash_key_type, InstructionHasher<Shift1Instruction>>(
-      keys_numel, std::move(*maybe_shift1_hasher));
+      keys_numel, std::move(*maybe_shift1_hasher), stream);
   }
   std::vector<CudaPinnedBuffer> xors;
   for (auto& and_or : and_ors) {
@@ -1285,8 +1315,8 @@ DynamicHashTable make_hash_table(int64_t keys_numel, std::vector<CudaPinnedBuffe
     and_or.resize(1);
     xors.push_back(std::move(and_or));
   }
-  return HashTable<hash_key_type, InstructionHasher<Shift3Instruction>>(keys_numel,
-                                                                        make_shift3_hasher(xors));
+  return HashTable<hash_key_type, InstructionHasher<Shift3Instruction>>(
+    keys_numel, make_shift3_hasher(xors, stream), stream);
 }
 
 // Make a hash_table that will suit inserting the insert_keys and a
@@ -1295,7 +1325,8 @@ static DynamicHashTable make_hash_table(
   const std::vector<ConstCudaGpuBufferPointer>& insert_keys,
   const size_t insert_keys_numel,
   const std::optional<std::pair<std::vector<ConstCudaGpuBufferPointer>, size_t>> lookup_keys =
-    std::nullopt)
+    std::nullopt,
+  rmm::cuda_stream_view stream = cudf::get_default_stream())
 {
   PUSH_RANGE("do reduce", 4);
   PUSH_RANGE("make the vector", 5);
@@ -1304,7 +1335,7 @@ static DynamicHashTable make_hash_table(
   for (const auto& current_insert_keys : insert_keys) {
     PUSH_RANGE("run a reduce", 5);
     insert_and_or_tensors.push_back(
-      reduce_and_or_cuda<true>(current_insert_keys, insert_keys_numel));
+      reduce_and_or_cuda<true>(current_insert_keys, insert_keys_numel, stream));
     POP_RANGE();
   }
   std::optional<std::vector<CudaPinnedBuffer>> lookup_and_or_tensors;
@@ -1313,11 +1344,11 @@ static DynamicHashTable make_hash_table(
     for (const auto& current_lookup_keys : lookup_keys->first) {
       PUSH_RANGE("push", 5);
       lookup_and_or_tensors->push_back(
-        reduce_and_or_cuda<true>(current_lookup_keys, lookup_keys->second));
+        reduce_and_or_cuda<true>(current_lookup_keys, lookup_keys->second, stream));
       POP_RANGE();
     }
   }
-  gpu_throw(cudaDeviceSynchronize());
+  stream.synchronize();
   POP_RANGE();
   PUSH_RANGE("combine reduce", 4);
   if (lookup_and_or_tensors.has_value()) {
@@ -1344,12 +1375,12 @@ static DynamicHashTable make_hash_table(
   // with GQE.
   if (key_count_fits_in_int32) {
     auto ret =
-      make_hash_table<cudf::size_type>(insert_keys_numel, std::move(insert_and_or_tensors));
+      make_hash_table<cudf::size_type>(insert_keys_numel, std::move(insert_and_or_tensors), stream);
     POP_RANGE();
     return ret;
   } else {
     auto ret =
-      make_hash_table<cudf::size_type>(insert_keys_numel, std::move(insert_and_or_tensors));
+      make_hash_table<cudf::size_type>(insert_keys_numel, std::move(insert_and_or_tensors), stream);
     POP_RANGE();
     return ret;
   }

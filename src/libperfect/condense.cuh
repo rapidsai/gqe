@@ -70,34 +70,36 @@ __launch_bounds__(THREADS_PER_BLOCK, 1) __global__ void condense_kernel(
 }
 
 template <WriteToInput write_to_input, typename input_count_type, typename input_type>
-CudaGpuArray<cudf::size_type> condense(input_type& input)
+CudaGpuArray<cudf::size_type> condense(input_type& input,
+                                       rmm::cuda_stream_view stream = cudf::get_default_stream())
 {
   // auto cuda_tensor_options = torch::TensorOptions().device(torch::kCUDA);
   auto input_count = input.numel();
   auto condensed =
-    CudaGpuArray<typename std::pointer_traits<input_type>::element_type>(input_count);
-  auto condensed_count = CudaGpuArray<input_count_type>(1);
-  condensed_count.template fill_byte<0>();
+    CudaGpuArray<typename std::pointer_traits<input_type>::element_type>(input_count, stream);
+  auto condensed_count = CudaGpuArray<input_count_type>(1, stream);
+  condensed_count.template fill_byte<0>(stream);
   auto block_count = div_round_up(input_count, uint64_t(THREADS_PER_BLOCK));
-  condense_kernel<write_to_input><<<block_count, THREADS_PER_BLOCK>>>(
+  condense_kernel<write_to_input><<<block_count, THREADS_PER_BLOCK, 0, stream.value()>>>(
     input.get(), input_count, condensed.get(), condensed_count.get());
   CudaPinnedArray<input_count_type> pinned_condensed_count(1);
   pinned_condensed_count.get().copy_from(
-    condensed_count.get(), condensed_count.get() + 1, cudf::get_default_stream());
-  gpu_throw(cudaDeviceSynchronize());
-  condensed.resize(pinned_condensed_count.get()[0]);
+    condensed_count.get(), condensed_count.get() + 1, stream.value());
+  stream.synchronize();
+  condensed.resize(pinned_condensed_count.get()[0], stream);
   return condensed;
 }
 
 template <WriteToInput write_to_input, typename input_type>
-CudaGpuArray<cudf::size_type> condense(input_type& input)
+CudaGpuArray<cudf::size_type> condense(input_type& input,
+                                       rmm::cuda_stream_view stream = cudf::get_default_stream())
 {
   auto input_count                = input.numel();
   auto input_count_fits_in_uint32 = input_count < (1ULL << 32);
   if (input_count_fits_in_uint32) {
-    return condense<write_to_input, uint32_t>(input);
+    return condense<write_to_input, uint32_t>(input, stream);
   } else {
-    return condense<write_to_input, uint64_t>(input);
+    return condense<write_to_input, uint64_t>(input, stream);
   }
 }
 

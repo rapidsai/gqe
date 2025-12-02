@@ -39,19 +39,20 @@ masked_join(const std::vector<ConstCudaGpuBufferPointer>& left_keys,
             const std::optional<ConstCudaGpuBufferPointer>& right_mask,
             const bool& left_unique,
             const bool& right_unique,
-            const bool& return_all)
+            const bool& return_all,
+            rmm::cuda_stream_view stream)
 {
   // Make a hash table backed by a tensor.  The xors are needed for hashing.
   PUSH_RANGE("perfect join", 0);
   PUSH_RANGE("build hash", 1);
   auto hash_table = xor_hash_table::make_hash_table(
-    left_keys, left_keys_numel, std::make_pair(right_keys, right_keys_numel));
+    left_keys, left_keys_numel, std::make_pair(right_keys, right_keys_numel), stream);
   POP_RANGE();
   // Do all the inserts.
   PUSH_RANGE("insert", 1);
   hash_table.template bulk_insert<xor_hash_table::CheckEquality::False,
                                   xor_hash_table::InsertOutput::False>(
-    left_keys, left_keys_numel, left_mask);
+    left_keys, left_keys_numel, left_mask, stream);
   POP_RANGE();
 
   PUSH_RANGE("lookup", 1);
@@ -62,7 +63,8 @@ masked_join(const std::vector<ConstCudaGpuBufferPointer>& left_keys,
                                     left_keys_numel,
                                     left_unique,
                                     right_unique,
-                                    return_all);
+                                    return_all,
+                                    stream);
   POP_RANGE();
   POP_RANGE();
   return ret;
@@ -83,12 +85,12 @@ std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
 perfect_join(const cudf::table_view& left_keys,
              const cudf::table_view& right_keys,
              const cudf::column_view& left_mask,
-             const cudf::column_view& right_mask)
+             const cudf::column_view& right_mask,
+             rmm::cuda_stream_view stream)
 {
   if (right_keys.num_rows() == 0 || left_keys.num_rows() == 0) {
-    return std::make_pair(
-      std::make_unique<rmm::device_uvector<cudf::size_type>>(0, cudf::get_default_stream()),
-      std::make_unique<rmm::device_uvector<cudf::size_type>>(0, cudf::get_default_stream()));
+    return std::make_pair(std::make_unique<rmm::device_uvector<cudf::size_type>>(0, stream),
+                          std::make_unique<rmm::device_uvector<cudf::size_type>>(0, stream));
   }
 
   for (auto column_id = 0; column_id < left_keys.num_columns(); column_id++) {
@@ -129,7 +131,8 @@ perfect_join(const cudf::table_view& left_keys,
                          right_mask_ptr,
                          true,
                          false,
-                         false);
+                         false,
+                         stream);
   auto left_indices = std::make_unique<rmm::device_uvector<cudf::size_type>>(
     std::move(std::get<0>(ret).get_buffer()));
   auto right_indices = std::make_unique<rmm::device_uvector<cudf::size_type>>(

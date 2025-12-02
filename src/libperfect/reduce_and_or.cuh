@@ -53,7 +53,10 @@ struct AndOrPairCombiner {
 };
 
 template <typename T>
-void reduce_and_or_helper(AndOrPair<T>* output, T const* inputs, int64_t inputs_size)
+void reduce_and_or_helper(AndOrPair<T>* output,
+                          T const* inputs,
+                          int64_t inputs_size,
+                          rmm::cuda_stream_view stream = cudf::get_default_stream())
 {
   AndOrPairCombiner combiner_op;
   auto init = AndOrPair(T(-1), T(0));
@@ -62,18 +65,30 @@ void reduce_and_or_helper(AndOrPair<T>* output, T const* inputs, int64_t inputs_
   void* d_temp_storage      = NULL;
   size_t temp_storage_bytes = 0;
   PUSH_RANGE("prepare for reduce", 1);
-  cub::DeviceReduce::Reduce(
-    d_temp_storage, temp_storage_bytes, inputs, output, inputs_size, combiner_op, init);
+  cub::DeviceReduce::Reduce(d_temp_storage,
+                            temp_storage_bytes,
+                            inputs,
+                            output,
+                            inputs_size,
+                            combiner_op,
+                            init,
+                            stream.value());
   POP_RANGE();
   // Allocate temporary storage
   PUSH_RANGE("make temp storage for reduce", 6);
-  auto temp_storage = CudaGpuArray<uint8_t>(temp_storage_bytes);
+  auto temp_storage = CudaGpuArray<uint8_t>(temp_storage_bytes, stream);
   POP_RANGE();
   d_temp_storage = temp_storage.get().data();
   // Run reduction
   PUSH_RANGE("do the actual reduce", 1);
-  cub::DeviceReduce::Reduce(
-    d_temp_storage, temp_storage_bytes, inputs, output, inputs_size, combiner_op, init);
+  cub::DeviceReduce::Reduce(d_temp_storage,
+                            temp_storage_bytes,
+                            inputs,
+                            output,
+                            inputs_size,
+                            combiner_op,
+                            init,
+                            stream.value());
   POP_RANGE();
 };
 
@@ -81,35 +96,40 @@ void reduce_and_or_helper(AndOrPair<T>* output, T const* inputs, int64_t inputs_
 // the inputs.  The second element of and_or gets the binary or
 // reduction of all the inputs.
 template <typename cuda_buffer_type>
-cuda_buffer_type reduce_and_or_cuda_helper(ConstCudaGpuBufferPointer const& input,
-                                           size_t input_numel)
+cuda_buffer_type reduce_and_or_cuda_helper(
+  ConstCudaGpuBufferPointer const& input,
+  size_t input_numel,
+  rmm::cuda_stream_view stream = cudf::get_default_stream())
 {
   auto input_width = input.element_size();
-  // auto tensor_options = torch::TensorOptions().dtype(input.dtype());
   PUSH_RANGE("make a buffer for reduce", 6);
-  cuda_buffer_type and_or(2, input.get_id());
+  cuda_buffer_type and_or(2, input.get_id(), stream);
   POP_RANGE();
   PUSH_RANGE("call a helper", 6);
   switch (input_width) {
     case 1:
       reduce_and_or_helper(static_cast<AndOrPair<uint8_t>*>(and_or.get()),
                            static_cast<uint8_t const*>(input),
-                           input_numel);
+                           input_numel,
+                           stream);
       break;
     case 2:
       reduce_and_or_helper(static_cast<AndOrPair<uint16_t>*>(and_or.get()),
                            static_cast<uint16_t const*>(input),
-                           input_numel);
+                           input_numel,
+                           stream);
       break;
     case 4:
       reduce_and_or_helper(static_cast<AndOrPair<uint32_t>*>(and_or.get()),
                            static_cast<uint32_t const*>(input),
-                           input_numel);
+                           input_numel,
+                           stream);
       break;
     case 8:
       reduce_and_or_helper(static_cast<AndOrPair<uint64_t>*>(and_or.get()),
                            static_cast<uint64_t const*>(input),
-                           input_numel);
+                           input_numel,
+                           stream);
       break;
     default:
       std::stringstream what;
@@ -124,13 +144,12 @@ cuda_buffer_type reduce_and_or_cuda_helper(ConstCudaGpuBufferPointer const& inpu
 
 template <bool pinned>
 std::conditional_t<pinned, CudaPinnedBuffer, CudaGpuBuffer> reduce_and_or_cuda(
-  ConstCudaGpuBufferPointer const& input, size_t input_numel)
+  ConstCudaGpuBufferPointer const& input,
+  size_t input_numel,
+  rmm::cuda_stream_view stream = cudf::get_default_stream())
 {
-  if constexpr (pinned) {
-    return reduce_and_or_cuda_helper<CudaPinnedBuffer>(input, input_numel);
-  } else {
-    return reduce_and_or_cuda_helper<CudaGpuBuffer>(input, input_numel);
-  }
+  using buffer_type = std::conditional_t<pinned, CudaPinnedBuffer, CudaGpuBuffer>;
+  return reduce_and_or_cuda_helper<buffer_type>(input, input_numel, stream);
 }
 
 }  // namespace libperfect

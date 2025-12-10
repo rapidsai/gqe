@@ -19,15 +19,14 @@
 #include <gqe/storage/in_memory.hpp>
 #include <gqe/storage/parquet.hpp>
 #include <gqe/storage/writeable_view.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/helpers.hpp>
 
 #include <cudf/types.hpp>
 
 #include <memory>
-#include <optional>
 #include <stdexcept>
-#include <tuple>
 #include <variant>
 #include <vector>
 
@@ -41,6 +40,11 @@ column_traits::column_traits(std::string const& name_,
   for (auto prop : props) {
     if (prop == column_property::unique) is_unique = true;
   }
+}
+
+catalog::catalog(task_manager_context* ctx) : _task_manager_context(ctx)
+{
+  if (!ctx) { throw std::invalid_argument("Catalog requires a non-null task_manager_context"); }
 }
 
 void catalog::register_table(std::string const& table_name,
@@ -86,33 +90,37 @@ void catalog::register_table(std::string const& table_name,
       },
       [&](storage_kind::system_memory memory) -> std::unique_ptr<storage::table> {
         return std::make_unique<storage::in_memory_table>(
-          memory_kind::system{}, column_names, column_types);
+          memory_kind::system{}, column_names, column_types, _task_manager_context);
       },
       [&](storage_kind::numa_memory memory) -> std::unique_ptr<storage::table> {
         return std::make_unique<storage::in_memory_table>(
-          memory_kind::numa{memory.numa_node_set, memory.page_kind}, column_names, column_types);
+          memory_kind::numa{memory.numa_node_set, memory.page_kind},
+          column_names,
+          column_types,
+          _task_manager_context);
       },
       [&](storage_kind::numa_pinned_memory memory) -> std::unique_ptr<storage::table> {
         return std::make_unique<storage::in_memory_table>(
           memory_kind::numa_pinned{memory.numa_node_set, memory.page_kind},
           column_names,
-          column_types);
+          column_types,
+          _task_manager_context);
       },
       [&](storage_kind::pinned_memory memory) -> std::unique_ptr<storage::table> {
         return std::make_unique<storage::in_memory_table>(
-          memory_kind::pinned{}, column_names, column_types);
+          memory_kind::pinned{}, column_names, column_types, _task_manager_context);
       },
       [&](storage_kind::device_memory memory) -> std::unique_ptr<storage::table> {
         return std::make_unique<storage::in_memory_table>(
-          memory_kind::device{memory.device_id}, column_names, column_types);
+          memory_kind::device{memory.device_id}, column_names, column_types, _task_manager_context);
       },
       [&](storage_kind::managed_memory) -> std::unique_ptr<storage::table> {
         return std::make_unique<storage::in_memory_table>(
-          memory_kind::managed{}, column_names, column_types);
+          memory_kind::managed{}, column_names, column_types, _task_manager_context);
       },
-      [&](storage_kind::boost_shared_memory memory) -> std::unique_ptr<storage::table> {
+      [&](storage_kind::boost_shared_memory) -> std::unique_ptr<storage::table> {
         return std::make_unique<storage::in_memory_table>(
-          memory_kind::boost_shared{memory.mr}, column_names, column_types);
+          memory_kind::boost_shared{}, column_names, column_types, _task_manager_context);
       }},
     storage);
 

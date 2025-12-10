@@ -28,6 +28,7 @@
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/relation.hpp>
 #include <gqe/optimizer/logical_optimization.hpp>
+#include <gqe/task_manager_context.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/table/table.hpp>
@@ -109,7 +110,8 @@ class JoinChildrenSwapTest : public ::testing::Test {
     return _construct_plan(true, colref_only, nested);
   }
 
-  gqe::catalog catalog;
+  gqe::task_manager_context task_manager_ctx;
+  gqe::catalog catalog{&task_manager_ctx};
   std::unique_ptr<gqe::optimizer::logical_optimizer> optimizer;
 
  private:

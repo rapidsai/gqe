@@ -17,14 +17,14 @@
 
 #pragma once
 
-#include <gqe/memory_resource/boost_shared_memory_resource.hpp>
+#include <gqe/utility/helpers.hpp>
+
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <variant>
 #include <vector>
@@ -121,6 +121,11 @@ class cpu_set {
    * This method is helpful for debugging.
    */
   [[nodiscard]] std::string pretty_print() const;
+
+  /**
+   * @brief Compare two CPU sets for equality.
+   */
+  bool operator==(const cpu_set& other) const noexcept;
 
  private:
   cpu_set_t* _cpu_set;
@@ -224,42 +229,66 @@ namespace memory_kind {
 /**
  * @brief System memory allocated with the default system allocator.
  */
-struct system {};
+struct system {
+  bool operator==(system const& other) const;
+};
 
 /**
  * @brief System memory allocated on a specific NUMA node.
+ *
+ * The memory resource for numa is managed centrally by task_manager_context.
+ * Use task_manager_context::get_memory_resource(memory_kind::numa{...}) to access it.
  */
 struct numa {
-  cpu_set numa_node_set; /**< NUMA node identifier hint. */
+  cpu_set numa_node_set;                                           /**< NUMA node set hint. */
   gqe::page_kind::type page_kind = gqe::page_kind::system_default; /**< Page kind hint */
+
+  bool operator==(numa const& other) const;
 };
 
 /**
  * @brief Pinned system memory allocated with `cudaMallocHost`.
  */
-struct pinned {};
+struct pinned {
+  bool operator==(pinned const& other) const;
+};
 
+/**
+ * @brief Pinned host memory allocated on a specific NUMA node with a specific page kind.
+ *
+ * The memory resource for numa_pinned is managed centrally by task_manager_context.
+ * Use task_manager_context::get_memory_resource(memory_kind::numa_pinned{...}) to access it.
+ */
 struct numa_pinned {
-  cpu_set numa_node_set; /**< NUMA node identifier hint. */
+  cpu_set numa_node_set;                                           /**< NUMA node set hint. */
   gqe::page_kind::type page_kind = gqe::page_kind::system_default; /**< Page kind hint */
+
+  bool operator==(numa_pinned const& other) const;
 };
 /**
  * @brief CUDA device memory.
  */
 struct device {
   rmm::cuda_device_id device_id; /**< CUDA device identifier hint. */
+
+  bool operator==(device const& other) const;
 };
 
 /**
  * @brief CUDA managed memory.
  */
-struct managed {};
+struct managed {
+  bool operator==(managed const& other) const;
+};
 
 /**
  * @brief Boost shared memory.
+ *
+ * The memory resource for boost_shared is managed centrally by task_manager_context.
+ * Use task_manager_context::get_memory_resource(memory_kind::boost_shared{}) to access it.
  */
 struct boost_shared {
-  std::shared_ptr<gqe::memory_resource::boost_shared_memory_resource> mr; /**< Memory resource. */
+  bool operator==(boost_shared const&) const;
 };
 
 /**
@@ -277,6 +306,13 @@ using type = std::variant<memory_kind::system,
  * @brief Return whether the GPU can directly access the memory kind
  */
 bool is_gpu_accessible(memory_kind::type type);
+
+/**
+ * @brief Hash function for memory_kind::type.
+ */
+struct type_hash {
+  std::size_t operator()(memory_kind::type const& type) const;
+};
 
 }  // namespace memory_kind
 

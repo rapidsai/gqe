@@ -109,7 +109,7 @@ TEST(MultiProcessExecutionTest, SingleGPUExecution)
   cudf::io::write_parquet(table_1_options);
 
   // Register the input tables
-  gqe::catalog catalog;
+  gqe::catalog catalog{task_manager_ctx.get()};
   catalog.register_table("table_0",
                          {{"table_0_col_0", cudf::data_type(cudf::type_id::STRING)},
                           {"table_0_col_1", cudf::data_type(cudf::type_id::INT64)}},
@@ -192,7 +192,8 @@ TEST(MultiProcessExecutionTest, TableMigration)
 {
   auto comm = std::make_unique<gqe::nvshmem_communicator>(MPI_COMM_WORLD);
   comm->init();
-  auto pool_size = gqe::utility::default_device_memory_pool_size();
+  auto opms      = gqe::optimization_parameters{true};
+  auto pool_size = opms.initial_task_manager_memory;
 
   if (comm->num_ranks_per_device() > 1) {
     GQE_LOG_WARN("Node process count {} >= number of GPUs {}. Using MPG mode for NVSHMEM",
@@ -214,9 +215,10 @@ TEST(MultiProcessExecutionTest, TableMigration)
                                                                   std::move(migration_client),
                                                                   std::move(migration_service),
                                                                   std::move(server),
+                                                                  opms,
                                                                   std::move(upstream_mr));
 
-  gqe::query_context query_ctx(gqe::optimization_parameters(true));
+  gqe::query_context query_ctx(opms);
   gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 
   int first_rank = 0;

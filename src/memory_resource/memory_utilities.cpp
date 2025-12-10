@@ -15,22 +15,31 @@
  * limitations under the License.
  */
 
+#include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/memory_resource/memory_utilities.hpp>
+
+#include <rmm/aligned.hpp>
 
 namespace gqe {
 
 namespace memory_resource {
 
+std::size_t percent_of_memory(std::size_t memory_bytes, int percent)
+{
+  return rmm::align_down((memory_bytes * percent) / 100, rmm::CUDA_ALLOCATION_ALIGNMENT);
+}
+
 std::unique_ptr<rmm::mr::device_memory_resource> create_static_memory_pool()
 {
-  using upstream_mr_type       = rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>;
-  using mr_type                = rmm::mr::pool_memory_resource<upstream_mr_type>;
-  static auto upstream_cuda_mr = rmm::mr::cuda_memory_resource();
-  static auto pool_size        = gqe::utility::default_device_memory_pool_size();
+  using upstream_mr_type        = rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>;
+  using mr_type                 = rmm::mr::pool_memory_resource<upstream_mr_type>;
+  static auto upstream_cuda_mr  = rmm::mr::cuda_memory_resource();
+  static auto initial_pool_size = optimization_parameters{}.initial_query_memory;
+  static auto max_pool_size     = optimization_parameters{}.max_query_memory;
   static auto upstream_mr =
-    std::make_shared<upstream_mr_type>(upstream_cuda_mr, pool_size, pool_size);
+    std::make_shared<upstream_mr_type>(upstream_cuda_mr, initial_pool_size, max_pool_size);
   return std::make_unique<rmm::mr::owning_wrapper<mr_type, upstream_mr_type>>(
-    upstream_mr, pool_size, pool_size);
+    upstream_mr, initial_pool_size, max_pool_size);
 }
 
 }  // namespace memory_resource

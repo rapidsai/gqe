@@ -62,8 +62,9 @@ class SingleKeyColumnJoinTest
       std::tuple<gqe::join_type_type, cache_strategy, join_test_data, bool, bool>> {
  protected:
   SingleKeyColumnJoinTest()
-    : task_manager_ctx(gqe::memory_resource::create_static_memory_pool()),
-      query_ctx(gqe::optimization_parameters(true)),
+    : params(true),
+      task_manager_ctx(params, gqe::memory_resource::create_static_memory_pool()),
+      query_ctx(params),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
@@ -298,6 +299,7 @@ class SingleKeyColumnJoinTest
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table_sorted->view());
   }
 
+  gqe::optimization_parameters params;
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
@@ -371,11 +373,13 @@ INSTANTIATE_TEST_SUITE_P(
 class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {
  protected:
   SingleKeyColumnNullsEqualJoinTest()
-    : task_manager_ctx(gqe::memory_resource::create_static_memory_pool()),
-      query_ctx(gqe::optimization_parameters(true)),
+    : params(true),
+      task_manager_ctx(params, gqe::memory_resource::create_static_memory_pool()),
+      query_ctx(params),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
+
   void construct_join_task(gqe::join_type_type join_type,
                            std::vector<cudf::size_type> projection_indices,
                            bool nulls_equal)
@@ -425,6 +429,7 @@ class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {
                                                  std::move(projection_indices));
   }
 
+  gqe::optimization_parameters params;
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
@@ -675,11 +680,13 @@ TEST(HashMapCache, UniqueKeyJoinWithFilter)
 class NonEqualityJoinConditionTest : public ::testing::Test {
  protected:
   NonEqualityJoinConditionTest()
-    : task_manager_ctx(gqe::memory_resource::create_static_memory_pool()),
-      query_ctx(gqe::optimization_parameters(true)),
+    : params(true),
+      task_manager_ctx(params, gqe::memory_resource::create_static_memory_pool()),
+      query_ctx(params),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
+
   void construct_join_task(gqe::join_type_type join_type,
                            std::vector<cudf::size_type> projection_indices,
                            std::unique_ptr<gqe::expression> join_condition,
@@ -750,6 +757,7 @@ class NonEqualityJoinConditionTest : public ::testing::Test {
     }
   }
 
+  gqe::optimization_parameters params;
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
@@ -1136,11 +1144,13 @@ TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsFullJoin)
 class MaterializeJoinFromPositionListsTest : public ::testing::Test {
  protected:
   MaterializeJoinFromPositionListsTest()
-    : task_manager_ctx(gqe::memory_resource::create_static_memory_pool()),
-      query_ctx(gqe::optimization_parameters(true)),
+    : params(true),
+      task_manager_ctx(params, gqe::memory_resource::create_static_memory_pool()),
+      query_ctx(params),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
+
   void construct_materialize_task(gqe::join_type_type join_type)
   {
     constexpr int32_t stage_id = 0;
@@ -1189,6 +1199,7 @@ class MaterializeJoinFromPositionListsTest : public ::testing::Test {
                                                                        projection_indices);
   }
 
+  gqe::optimization_parameters params;
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
@@ -1236,8 +1247,9 @@ TEST_F(MaterializeJoinFromPositionListsTest, LeftAnti)
 class SingleKeyColumnJoinWithFilterTest : public ::testing::Test {
  protected:
   SingleKeyColumnJoinWithFilterTest()
-    : task_manager_ctx{},
-      query_ctx(gqe::optimization_parameters(true)),
+    : params(true),
+      task_manager_ctx(params),
+      query_ctx(params),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
@@ -1381,6 +1393,7 @@ class SingleKeyColumnJoinWithFilterTest : public ::testing::Test {
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
   }
 
+  gqe::optimization_parameters params;
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;

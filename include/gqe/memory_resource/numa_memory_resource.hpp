@@ -84,6 +84,24 @@ class numa_memory_resource : public rmm::mr::device_memory_resource {
   bool _pinned; /**< Whether the memory is registered with CUDA for pinned access. */
 };
 
+/**
+ * @brief Returns the available and total memory in bytes for a NUMA node.
+ *
+ * @param[in] numa_node The NUMA node ID.
+ * @return The available and total memory in bytes for the NUMA node as a std::pair.
+ * @throws std::runtime_error if the NUMA node information cannot be read.
+ */
+std::pair<std::size_t, std::size_t> available_numa_node_memory(int numa_node);
+
+/**
+ * @brief Returns the aggregate available and total memory in bytes for all NUMA nodes in a cpu_set.
+ *
+ * @param[in] numa_node_set The set of NUMA nodes.
+ * @return The aggregate available and total memory in bytes as a std::pair.
+ * @throws std::runtime_error if any NUMA node information cannot be read.
+ */
+std::pair<std::size_t, std::size_t> available_numa_node_memory(const cpu_set& numa_node_set);
+
 }  // namespace memory_resource
 
 }  // namespace gqe

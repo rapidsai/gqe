@@ -52,8 +52,9 @@ using string_column_wrapper = cudf::test::strings_column_wrapper;
 class ShuffleJoinTest : public ::testing::Test {
  protected:
   ShuffleJoinTest()
-    : task_manager_ctx{},
-      query_ctx(gqe::optimization_parameters(true)),
+    : params(true),
+      task_manager_ctx(params),
+      query_ctx(params),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
@@ -246,6 +247,7 @@ class ShuffleJoinTest : public ::testing::Test {
     }
   }
 
+  gqe::optimization_parameters params;
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;

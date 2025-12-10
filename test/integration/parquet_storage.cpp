@@ -49,12 +49,14 @@ auto const temp_env = static_cast<cudf::test::TempDirTestEnvironment*>(
 class ParquetWrite : public ::testing::Test {
  protected:
   ParquetWrite()
-    : task_manager_ctx{},
-      query_ctx(gqe::optimization_parameters(true)),
+    : params(true),
+      task_manager_ctx(params),
+      query_ctx(params),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
 
+  gqe::optimization_parameters params;
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
@@ -86,7 +88,7 @@ TEST_F(ParquetWrite, CopyTable)
   cudf::io::write_parquet(in_table_options);
 
   // Register the input and output tables
-  gqe::catalog catalog;
+  gqe::catalog catalog{&task_manager_ctx};
   catalog.register_table("in_table",
                          {{"in_table_col_0", cudf::data_type(cudf::type_id::INT64)},
                           {"in_table_col_1", cudf::data_type(cudf::type_id::INT64)}},
@@ -181,7 +183,7 @@ TEST_F(ParquetWrite, CopyTableParallelRead)
   cudf::io::write_parquet(in_table_part_1_options);
 
   // Register the input and output tables
-  gqe::catalog catalog;
+  gqe::catalog catalog{&task_manager_ctx};
   catalog.register_table(
     "in_table",
     {{"in_table_col_0", cudf::data_type(cudf::type_id::INT64)},
@@ -280,7 +282,7 @@ TEST_F(ParquetWrite, CopyTableParallel)
   cudf::io::write_parquet(in_table_part_1_options);
 
   // Register the input and output tables
-  gqe::catalog catalog;
+  gqe::catalog catalog{&task_manager_ctx};
   catalog.register_table(
     "in_table",
     {{"in_table_col_0", cudf::data_type(cudf::type_id::INT64)},

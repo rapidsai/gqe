@@ -27,6 +27,7 @@
 #include <gqe/storage/table.hpp>
 #include <gqe/storage/writeable_view.hpp>
 #include <gqe/storage/zone_map.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
 
 #include <boost/container/vector.hpp>
@@ -897,17 +898,13 @@ class in_memory_table : public table {
    * @param[in] memory_kind The memory kind to allocate.
    * @param[in] column_names The name per column contained in the table.
    * @param[in] column_types The data type of each column.
+   * @param[in] ctx Non-owning pointer to task manager context for accessing centralized
+   *                memory resources. Required for boost_shared, numa, and numa_pinned memory kinds.
    */
   in_memory_table(memory_kind::type memory_kind,
                   std::vector<std::string> const& column_names,
-                  std::vector<cudf::data_type> const& column_types);
-
-  // We currently need to share boost_shared_memory_resource across tables
-  // because of the issue: see https://gitlab-master.nvidia.com/haog/gqe-python/-/issues/10
-  in_memory_table(memory_kind::type memory_kind,
-                  std::vector<std::string> const& column_names,
                   std::vector<cudf::data_type> const& column_types,
-                  std::shared_ptr<rmm::mr::device_memory_resource> shared_memory_resource);
+                  task_manager_context* ctx);
 
   /**
    * @copydoc gqe::storage::table::is_readable()
@@ -949,10 +946,9 @@ class in_memory_table : public table {
   row_group_appender get_row_group_appender();
 
  private:
-  memory_kind::type _memory_kind; /**< Memory kind of this table. */
-  std::unique_ptr<rmm::mr::device_memory_resource>
-    _memory_resource; /**< Memory resource for allocating memory of the specified kind. */
-  std::shared_ptr<rmm::mr::device_memory_resource> _shared_memory_resource;
+  task_manager_context* _task_manager_context; /**< Non-owning pointer to the task manager context.
+                                                    Used to access memory resources. */
+  memory_kind::type _memory_kind;              /**< Memory kind of this table. */
   std::unordered_map<std::string, cudf::size_type> _column_name_to_index;
   std::vector<cudf::data_type> _column_types;
   std::deque<row_group>

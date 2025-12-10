@@ -36,6 +36,16 @@ namespace memory_resource {
  */
 std::unique_ptr<rmm::mr::device_memory_resource> create_static_memory_pool();
 
+/**
+ * @brief Returns the approximate specified percent of the given memory, aligned (down) to the
+ * nearest CUDA allocation size.
+ *
+ * @param memory_bytes The total memory in bytes.
+ * @param percent The percent of memory to return.
+ * @return The calculated memory size in bytes, aligned down to CUDA allocation boundaries.
+ */
+std::size_t percent_of_memory(std::size_t memory_bytes, int percent);
+
 }  // namespace memory_resource
 
 }  // namespace gqe

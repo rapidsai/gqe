@@ -31,6 +31,7 @@
 #include <gqe/logical/utility.hpp>
 #include <gqe/logical/window.hpp>
 #include <gqe/optimizer/logical_optimization.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/logger.hpp>
 
@@ -52,7 +53,7 @@ class RewriteRuleTest : public testing::TestWithParam<relation_t> {
   RewriteRuleTest()
   {
     // Register the test table in the catalog
-    _catalog                    = std::make_unique<gqe::catalog>();
+    _catalog                    = std::make_unique<gqe::catalog>(&_task_manager_ctx);
     _test_table_name            = "test_table";
     std::string column_name     = "a";
     cudf::data_type column_type = cudf::data_type(cudf::type_id::INT32);
@@ -244,6 +245,7 @@ class RewriteRuleTest : public testing::TestWithParam<relation_t> {
     return join_2;
   }
 
+  gqe::task_manager_context _task_manager_ctx;
   std::string _test_table_name;
   std::unique_ptr<gqe::catalog> _catalog;
 };

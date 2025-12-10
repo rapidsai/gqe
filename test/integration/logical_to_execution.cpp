@@ -55,12 +55,14 @@ auto const temp_env = static_cast<cudf::test::TempDirTestEnvironment*>(
 class LogicalToExecution : public ::testing::Test {
  protected:
   LogicalToExecution()
-    : task_manager_ctx{},
-      query_ctx(gqe::optimization_parameters(true)),
+    : params(true),
+      task_manager_ctx(params),
+      query_ctx(params),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
 
+  gqe::optimization_parameters params;
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
@@ -106,7 +108,7 @@ TEST_F(LogicalToExecution, HardcodePlanAndData)
   cudf::io::write_parquet(table_1_options);
 
   // Register the input tables
-  gqe::catalog catalog;
+  gqe::catalog catalog{&task_manager_ctx};
   catalog.register_table("table_0",
                          {{"table_0_col_0", cudf::data_type(cudf::type_id::STRING)},
                           {"table_0_col_1", cudf::data_type(cudf::type_id::INT64)}},
@@ -199,7 +201,7 @@ TEST_F(LogicalToExecution, ApplyConcatApply)
   generate_parquet_file("partition_1.parquet", std::vector<double>({4.0, 5.0}));
 
   // Register the input tables
-  gqe::catalog catalog;
+  gqe::catalog catalog{&task_manager_ctx};
   catalog.register_table(
     "input",
     {{"values", cudf::data_type(cudf::type_id::FLOAT64)}},
@@ -286,7 +288,7 @@ TEST_F(LogicalToExecution, Window)
   generate_parquet_file("partition_0.parquet");
 
   // Register the input tables
-  gqe::catalog catalog;
+  gqe::catalog catalog{&task_manager_ctx};
   catalog.register_table(
     "input",
     {{"keys0", cudf::data_type(cudf::type_id::INT32)},
@@ -388,7 +390,7 @@ TEST_F(LogicalToExecution, WindowWithOrderBy)
   generate_parquet_file("partition_0.parquet");
 
   // Register the input tables
-  gqe::catalog catalog;
+  gqe::catalog catalog{&task_manager_ctx};
   catalog.register_table(
     "input",
     {{"keys0", cudf::data_type(cudf::type_id::INT32)},
@@ -505,7 +507,7 @@ TEST_F(LogicalToExecution, UniqueKeyJoin)
   cudf::io::write_parquet(table_1_options);
 
   // Register the input tables
-  gqe::catalog catalog;
+  gqe::catalog catalog{&task_manager_ctx};
   catalog.register_table(
     "table_0",
     {gqe::column_traits{"table_0_col_0", cudf::data_type(cudf::type_id::INT64), {}},

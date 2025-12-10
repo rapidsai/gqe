@@ -298,10 +298,10 @@ int main(int argc, char* argv[])
 
   gqe::optimization_parameters read_opms{};
   read_opms.max_num_partitions = parse_num_row_groups();
-  gqe::task_manager_context task_manager_ctx{};
+  gqe::task_manager_context task_manager_ctx{read_opms};
   gqe::query_context query_ctx(read_opms);
   gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
-  gqe::catalog catalog;
+  gqe::catalog catalog{&task_manager_ctx};
 
   // register all tables
   auto const& table_definitions = (tpc_type == "ds")

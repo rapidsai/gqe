@@ -117,7 +117,8 @@ int main(int argc, char* argv[])
   rmm::mr::set_current_device_resource(&pool_mr);
 
   // Register the input tables
-  gqe::catalog tpcds_catalog;
+  gqe::task_manager_context task_manager_ctx;
+  gqe::catalog tpcds_catalog{&task_manager_ctx};
   tpcds_catalog.register_table(
     "date_dim",
     {{"d_date_sk", cudf::data_type(cudf::type_id::INT64), {col_prop::unique}},
@@ -264,7 +265,6 @@ int main(int argc, char* argv[])
   gqe::physical_plan_builder plan_builder(&tpcds_catalog);
   auto physical_plan = plan_builder.build(logical_plan.get());
 
-  gqe::task_manager_context task_manager_ctx{};
   gqe::query_context query_ctx(gqe::optimization_parameters{});
   gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
 

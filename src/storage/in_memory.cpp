@@ -48,7 +48,9 @@
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/mr/device/managed_memory_resource.hpp>
+#include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
+#include <rmm/mr/device/pool_memory_resource.hpp>
 
 #include <nvcomp.hpp>
 #include <nvcomp/ans.hpp>
@@ -66,12 +68,10 @@
 #include <limits>
 #include <memory>
 #include <mutex>  // std::unique_lock
-#include <numeric>
 #include <ranges>
 #include <shared_mutex>  // std::shared_lock
 #include <stdexcept>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace gqe {
@@ -627,46 +627,24 @@ gqe::zone_map* row_group::zone_map() const { return _zone_map.get(); }
 
 in_memory_table::in_memory_table(memory_kind::type memory_kind,
                                  std::vector<std::string> const& column_names,
-                                 std::vector<cudf::data_type> const& column_types)
+                                 std::vector<cudf::data_type> const& column_types,
+                                 task_manager_context* ctx)
   : table(),
+    _task_manager_context(ctx),
     _memory_kind(memory_kind),
     _column_types(std::move(column_types)),
     _row_groups(),
     _row_group_latch()
 {
+  if (!_task_manager_context) {
+    throw std::invalid_argument("New in-memory table requires a non-null task_manager_context.");
+  }
+
   // Populate column name-to-index map
   _column_name_to_index.reserve(column_names.size());
   for (decltype(column_names.size()) idx = 0; idx < column_names.size(); ++idx) {
     _column_name_to_index[column_names[idx]] = idx;
   }
-
-  // Create memory resource based on memory kind. The allocators must be thread-safe.
-  std::visit(utility::overloaded{
-               [this](memory_kind::system) {
-                 _memory_resource = std::make_unique<memory_resource::system_memory_resource>();
-               },
-               [this](const memory_kind::numa& numa) {
-                 _memory_resource = std::make_unique<memory_resource::numa_memory_resource>(
-                   numa.numa_node_set, numa.page_kind);
-               },
-               [this](const memory_kind::pinned&) {
-                 _memory_resource = std::make_unique<memory_resource::pinned_memory_resource>();
-               },
-               [this](const memory_kind::device&) {
-                 // FIXME: specify device instead of allocating on default CUDA device
-                 _memory_resource = std::make_unique<rmm::mr::cuda_memory_resource>();
-               },
-               [this](const memory_kind::managed&) {
-                 _memory_resource = std::make_unique<rmm::mr::managed_memory_resource>();
-               },
-               [this](const memory_kind::numa_pinned& numa_pinned) {
-                 _memory_resource = std::make_unique<memory_resource::numa_memory_resource>(
-                   numa_pinned.numa_node_set, numa_pinned.page_kind, true);
-               },
-               [this](const memory_kind::boost_shared& boost_shared) {
-                 _shared_memory_resource = boost_shared.mr;
-               }},
-             memory_kind);
 }
 
 bool in_memory_table::is_readable() const { return true; }
@@ -1521,7 +1499,7 @@ void in_memory_read_task::emit_copied_result(std::unique_ptr<pruning_results_t> 
     GQE_LOG_DEBUG("Using overlap mutex for in_memory_read_task");
     GQE_CUDA_TRY(cudaEventCreateWithFlags(&ce_evt, cudaEventDisableTiming));
     ce_lock =
-      std::unique_lock{get_context_reference()._task_manager_context->copy_engine_stream.mtx};
+      std::unique_lock{*get_context_reference()._task_manager_context->copy_engine_stream.mtx};
     decompression_stream = get_context_reference()._task_manager_context->copy_engine_stream.stream;
   } else {
     decompression_stream = cudf::get_default_stream();
@@ -2121,11 +2099,9 @@ std::vector<std::unique_ptr<write_task_base>> in_memory_writeable_view::get_writ
     // Create appender, which will acquire a write latch to the row groups vector
     auto appender = _non_owning_table->get_row_group_appender();
 
-    // We currently need to share boost_shared_memory_resource across tables
-    // because of the issue: see https://gitlab-master.nvidia.com/haog/gqe-python/-/issues/10
-    auto memory_resource = ctx_ref._query_context->parameters.use_in_memory_table_multigpu
-                             ? _non_owning_table->_shared_memory_resource.get()
-                             : _non_owning_table->_memory_resource.get();
+    // Get the memory resource from task_manager_context
+    auto* memory_resource = _non_owning_table->_task_manager_context->get_table_memory_resource_ptr(
+      _non_owning_table->_memory_kind);
 
     /// Create a new write task
     auto write_task = std::make_unique<in_memory_write_task>(ctx_ref,

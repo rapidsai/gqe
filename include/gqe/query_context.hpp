@@ -38,6 +38,9 @@ namespace gqe {
  *
  * Implementation note: Add a comment for each struct member documenting its purpose.
  * Each member must have a default setting.
+ *
+ * FIXME: Single source of truth for optimization parameters. There is another instance in
+ * `task_manager_context`.
  */
 struct query_context {
   query_context(query_context&& other) = default;

@@ -18,6 +18,8 @@
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/utility/logger.hpp>
 
+#include <rmm/mr/device/per_device_resource.hpp>
+
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -177,12 +179,25 @@ int parse_nvcomp_chunk_size(std::string const& env_variable, int const default_v
 
 namespace gqe {
 
+namespace detail {
+
+std::size_t default_device_memory_pool_size() { return rmm::percent_of_free_device_memory(90); }
+
+}  // namespace detail
+
 optimization_parameters::optimization_parameters(bool only_defaults)
 {
   if (!only_defaults) {
     max_num_workers = parse_env_variable("MAX_NUM_WORKERS", max_num_workers);
 
     max_num_partitions = parse_env_variable("MAX_NUM_PARTITIONS", max_num_partitions);
+
+    initial_query_memory = parse_env_variable("GQE_INITIAL_QUERY_MEMORY", initial_query_memory);
+    max_query_memory     = parse_env_variable("GQE_MAX_QUERY_MEMORY", max_query_memory);
+    initial_task_manager_memory =
+      parse_env_variable("GQE_INITIAL_TASK_MANAGER_MEMORY", initial_task_manager_memory);
+    max_task_manager_memory =
+      parse_env_variable("GQE_MAX_TASK_MANAGER_MEMORY", max_task_manager_memory);
 
     join_use_hash_map_cache =
       parse_env_variable("GQE_JOIN_USE_HASH_MAP_CACHE", join_use_hash_map_cache);

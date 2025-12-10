@@ -19,6 +19,7 @@
 
 #include <gqe/catalog.hpp>
 #include <gqe/logical/from_substrait.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/utility/tpcds.hpp>
 #include <gqe/utility/tpch.hpp>
 
@@ -53,7 +54,8 @@ int main(int argc, char** argv)
 
   std::cout << "Converting Substrait plan into logical plan" << std::endl;
 
-  gqe::catalog catalog;
+  gqe::task_manager_context task_manager_ctx;
+  gqe::catalog catalog{&task_manager_ctx};
 
   // Register all tables
   auto& table_definitions = (tpc_type == "ds") ? gqe::utility::tpcds::table_definitions()

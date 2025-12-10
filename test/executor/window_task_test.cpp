@@ -42,8 +42,9 @@ using bool_column_wrapper  = cudf::test::fixed_width_column_wrapper<bool>;
 class WindowOrderByPartitionBy : public ::testing::Test {
  protected:
   WindowOrderByPartitionBy()
-    : task_manager_ctx{},
-      query_ctx(gqe::optimization_parameters(true)),
+    : params(true),
+      task_manager_ctx(params),
+      query_ctx(params),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
@@ -108,6 +109,7 @@ class WindowOrderByPartitionBy : public ::testing::Test {
                                                      window_upper_bound);
   }
 
+  gqe::optimization_parameters params;
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
@@ -117,8 +119,9 @@ class WindowOrderByPartitionBy : public ::testing::Test {
 class WindowOrderBy : public ::testing::Test {
  protected:
   WindowOrderBy()
-    : task_manager_ctx{},
-      query_ctx(gqe::optimization_parameters(true)),
+    : params(true),
+      task_manager_ctx(params),
+      query_ctx(params),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
@@ -178,6 +181,7 @@ class WindowOrderBy : public ::testing::Test {
                                                      window_upper_bound);
   }
 
+  gqe::optimization_parameters params;
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
@@ -187,8 +191,9 @@ class WindowOrderBy : public ::testing::Test {
 class WindowOrderByPartitionByRank : public ::testing::Test {
  protected:
   WindowOrderByPartitionByRank()
-    : task_manager_ctx{},
-      query_ctx(gqe::optimization_parameters(true)),
+    : params(true),
+      task_manager_ctx(params),
+      query_ctx(params),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
@@ -248,6 +253,7 @@ class WindowOrderByPartitionByRank : public ::testing::Test {
                                                      window_upper_bound);
   }
 
+  gqe::optimization_parameters params;
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
@@ -257,8 +263,9 @@ class WindowOrderByPartitionByRank : public ::testing::Test {
 class WindowOrderByRank : public ::testing::Test {
  protected:
   WindowOrderByRank()
-    : task_manager_ctx{},
-      query_ctx(gqe::optimization_parameters(true)),
+    : params(true),
+      task_manager_ctx(params),
+      query_ctx(params),
       ctx_ref{&task_manager_ctx, &query_ctx}
   {
   }
@@ -313,6 +320,7 @@ class WindowOrderByRank : public ::testing::Test {
                                                      window_upper_bound);
   }
 
+  gqe::optimization_parameters params;
   gqe::task_manager_context task_manager_ctx;
   gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;

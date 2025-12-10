@@ -19,12 +19,23 @@
 
 #include <cudf/types.hpp>
 #include <gqe/types.hpp>
+
 #include <nvcomp.hpp>
 
 #include <cstdint>
+#include <limits>
 #include <string>
 
 namespace gqe {
+
+namespace detail {
+/**
+ * @brief Returns the default device memory pool size.
+ *
+ * @return 90% of free device memory.
+ */
+std::size_t default_device_memory_pool_size();
+}  // namespace detail
 
 /**
  * @brief Parameters indicating which optimizations are enabled and their settings.
@@ -48,6 +59,20 @@ struct optimization_parameters {
   int32_t max_num_partitions =
     8;  ///< The maximum number of read tasks that can be generated for a single table.
   std::string log_level = "info";  ///< Enable log messages for this level or higher.
+  std::size_t initial_query_memory =
+    10UL * 1024 * 1024 *
+    1024;  ///< Initial memory pool size for queries (in bytes). This memory is used only for a
+           ///< query, and is not shared between queries. Defaults to 10GB.
+  std::size_t max_query_memory =
+    detail::default_device_memory_pool_size();  ///< Maximum memory pool size for queries (in
+                                                ///< bytes). Defaults to 90% of free device memory.
+  std::size_t initial_task_manager_memory =
+    10UL * 1024 * 1024 *
+    1024;  ///< Initial memory pool size for task manager memory resources (in bytes). This memory
+           ///< is used across queries, e.g., for in-memory tables. Defaults to 10GB.
+  std::size_t max_task_manager_memory =
+    std::numeric_limits<std::size_t>::max();  ///< Maximum memory pool size for
+                                              ///< task manager memory resources (in bytes).
   bool join_use_hash_map_cache =
     false;  ///< Allow multiple join tasks to reuse the same hash map. Enabling this option may
             ///< increase device-memory usage in some circumstances.

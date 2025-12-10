@@ -69,9 +69,8 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
     opms.in_memory_table_compression_format = params.comp_format;
     opms.use_overlap_mtx                    = params.use_overlap_mtx;
 
+    task_manager_ctx = std::make_unique<gqe::task_manager_context>(opms);
     query_ctx        = std::make_unique<gqe::query_context>(opms);
-    task_manager_ctx = std::make_unique<gqe::task_manager_context>(
-      gqe::memory_resource::create_static_memory_pool());
   }
 
   void SetUp() override
@@ -131,7 +130,10 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
 
     // Setup GQE table
     table = std::make_unique<gqe::storage::in_memory_table>(
-      gqe::memory_kind::device{rmm::cuda_device_id(0)}, col_names, col_types);
+      gqe::memory_kind::device{rmm::cuda_device_id(0)},
+      col_names,
+      col_types,
+      task_manager_ctx.get());
 
     // Add row groups to table
     table->get_row_group_appender()(std::move(row_group));
@@ -270,8 +272,8 @@ static constexpr cudf::size_type DEFAULT_PARTITION_SIZE = 5;
 class InMemoryReadTaskTest : public ::testing::Test {
  protected:
   InMemoryReadTaskTest()
-    : _task_manager_ctx(std::make_unique<gqe::task_manager_context>(
-        gqe::memory_resource::create_static_memory_pool())),
+    : _task_manager_ctx(
+        std::make_unique<gqe::task_manager_context>(gqe::optimization_parameters{true})),
       _query_ctx(std::make_unique<gqe::query_context>(gqe::optimization_parameters{true})),
       _ctx_ref(gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}),
       _task_id(0),

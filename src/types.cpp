@@ -26,6 +26,7 @@
 #include <cstring>  // memcpy
 #include <sstream>
 
+#include <boost/container_hash/hash.hpp>
 #include <sched.h>   // CPU_SET
 #include <unistd.h>  // sysconf
 
@@ -154,6 +155,11 @@ std::string cpu_set::pretty_print() const
   return ss.str();
 }
 
+bool cpu_set::operator==(cpu_set const& other) const noexcept
+{
+  return CPU_EQUAL_S(CPU_ALLOC_SIZE(max_count), _cpu_set, other._cpu_set);
+}
+
 page_kind::page_kind() {}
 
 page_kind::page_kind(type type) : _type(type) {}
@@ -198,6 +204,54 @@ bool memory_kind::is_gpu_accessible(memory_kind::type type)
         return device_properties::instance().get<device_properties::property::unifiedAddressing>();
       }},
     type);
+}
+
+bool memory_kind::system::operator==(system const&) const = default;
+
+bool memory_kind::numa::operator==(numa const& other) const
+{
+  return numa_node_set == other.numa_node_set && page_kind == other.page_kind;
+}
+
+bool memory_kind::pinned::operator==(pinned const& other) const = default;
+
+bool memory_kind::numa_pinned::operator==(numa_pinned const& other) const
+{
+  return numa_node_set == other.numa_node_set && page_kind == other.page_kind;
+}
+
+bool memory_kind::device::operator==(device const& other) const
+{
+  return device_id == other.device_id;
+}
+
+bool memory_kind::managed::operator==(managed const& other) const = default;
+
+bool memory_kind::boost_shared::operator==(boost_shared const& other) const = default;
+
+std::size_t memory_kind::type_hash::operator()(memory_kind::type const& type) const
+{
+  std::size_t h = boost::hash_value(type.index());
+  std::visit(
+    utility::overloaded{[](system const&) {},
+                        [&h](numa const& n) {
+                          boost::hash_combine(h, static_cast<int>(n.page_kind));
+                          for (int i = 0; i < cpu_set::max_count; ++i) {
+                            if (n.numa_node_set.contains(i)) { boost::hash_combine(h, i); }
+                          }
+                        },
+                        [](pinned const&) {},
+                        [&h](numa_pinned const& n) {
+                          boost::hash_combine(h, static_cast<int>(n.page_kind));
+                          for (int i = 0; i < cpu_set::max_count; ++i) {
+                            if (n.numa_node_set.contains(i)) { boost::hash_combine(h, i); }
+                          }
+                        },
+                        [&h](device const& d) { boost::hash_combine(h, d.device_id.value()); },
+                        [](managed const&) {},
+                        [](boost_shared const&) {}},
+    type);
+  return h;
 }
 
 }  // namespace gqe

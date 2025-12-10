@@ -32,6 +32,12 @@
 
 namespace gqe {
 
+// Forward declaration
+//
+// The forward declaration avoids pulling in `mpi.h`. Some tests wouldn't build without linking
+// against MPI_CXX.
+class task_manager_context;
+
 /**
  * @brief Struct for consolidating column traits.
  */
@@ -64,6 +70,16 @@ struct column_traits {
  */
 class catalog {
  public:
+  /**
+   * @brief Construct a catalog with a task manager context.
+   *
+   * @param[in] ctx Non-owning pointer to the task manager context. The context must outlive the
+   catalog.
+
+   * @pre `ctx` must not be null.
+   */
+  explicit catalog(task_manager_context* ctx);
+
   /**
    * @brief Register a new table into the catalog.
    *
@@ -175,6 +191,10 @@ class catalog {
   std::vector<std::string> table_names() const;
 
  private:
+  task_manager_context*
+    _task_manager_context;  ///< Non-owning pointer to the task manager context. The context field
+                            ///< must be on top to ensure that it outlives the other catalog fields.
+
   struct table_info_type {
     std::vector<std::string> _column_names;  ///< column names in the user-defined order
     std::unordered_map<std::string, cudf::data_type>

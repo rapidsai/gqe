@@ -37,6 +37,7 @@
 #include <gqe/optimizer/relation_properties.hpp>
 #include <gqe/optimizer/relation_traits.hpp>
 #include <gqe/optimizer/rules/uniqueness_propagation.hpp>
+#include <gqe/task_manager_context.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/table/table.hpp>
@@ -395,7 +396,8 @@ class UniquenessPropagationTest : public ::testing::Test {
     return fetch_rel;
   }
 
-  gqe::catalog catalog;
+  gqe::task_manager_context task_manager_ctx;
+  gqe::catalog catalog{&task_manager_ctx};
   std::unique_ptr<gqe::optimizer::logical_optimizer> optimizer;
   std::shared_ptr<gqe::logical::relation> test_plan;
   std::unique_ptr<gqe::logical::relation> ref_plan;

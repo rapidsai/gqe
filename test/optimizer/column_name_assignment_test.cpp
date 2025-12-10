@@ -28,6 +28,7 @@
 #include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/optimization_configuration.hpp>
 #include <gqe/storage/compression.hpp>
+#include <gqe/task_manager_context.hpp>
 #include <gqe/utility/tpch.hpp>
 
 #include <gtest/gtest.h>
@@ -55,7 +56,8 @@ class ColumnNameAssignmentTest : public ::testing::Test {
     }
   }
   std::string test_resource_dir = std::string(TEST_RESOURCE_DIR);
-  gqe::catalog catalog;
+  gqe::task_manager_context task_manager_ctx;
+  gqe::catalog catalog{&task_manager_ctx};
 };
 
 TEST_F(ColumnNameAssignmentTest, SimpleFilterWithSubstrait)

@@ -18,11 +18,18 @@
 #include <cudf/types.hpp>
 #include <cudf/utilities/traits.hpp>
 #include <gqe/executor/task.hpp>
+#include <gqe/memory_resource/boost_shared_memory_resource.hpp>
+#include <gqe/memory_resource/memory_utilities.hpp>
+#include <gqe/memory_resource/numa_memory_resource.hpp>
 #include <gqe/memory_resource/pgas_memory_resource.hpp>
+#include <gqe/memory_resource/pinned_memory_resource.hpp>
+#include <gqe/memory_resource/system_memory_resource.hpp>
 #include <gqe/rpc/task_migration.hpp>
 #include <gqe/task_manager_context.hpp>
+#include <gqe/types.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
+#include <gqe/utility/logger.hpp>
 #include <grpc/grpc.h>
 #include <grpcpp/security/server_credentials.h>
 #include <grpcpp/server.h>
@@ -34,15 +41,125 @@
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/logging_resource_adaptor.hpp>
+#include <rmm/mr/device/managed_memory_resource.hpp>
 #include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
 namespace gqe {
-task_manager_context::task_manager_context(std::unique_ptr<rmm::mr::device_memory_resource> mr)
+task_manager_context::task_manager_context(optimization_parameters params,
+                                           std::unique_ptr<rmm::mr::device_memory_resource> mr)
+  : _optimization_parameters(std::move(params)), _mr(std::move(mr))
 {
-  _mr = std::move(mr);
-
+  _table_memory_resource_latch = std::make_unique<std::mutex>();
   rmm::mr::set_current_device_resource(_mr.get());
+}
+
+rmm::device_async_resource_ref task_manager_context::get_table_memory_resource(
+  memory_kind::type const& kind)
+{
+  std::lock_guard<std::mutex> guard(*_table_memory_resource_latch);
+
+  auto it = _table_memory_resources.find(kind);
+  if (it != _table_memory_resources.end()) { return *it->second; }
+
+  return *create_table_memory_resource_unsafe(kind);
+}
+
+rmm::mr::device_memory_resource* task_manager_context::get_table_memory_resource_ptr(
+  memory_kind::type const& kind)
+{
+  std::lock_guard<std::mutex> guard(*_table_memory_resource_latch);
+
+  auto it = _table_memory_resources.find(kind);
+  if (it != _table_memory_resources.end()) { return it->second.get(); }
+
+  return create_table_memory_resource_unsafe(kind);
+}
+
+rmm::mr::device_memory_resource* task_manager_context::create_table_memory_resource_unsafe(
+  memory_kind::type const& kind)
+{
+  // 85% is default, because 90% typically fails on Grace with 480 GB. However, 85% is enough for
+  // TPC-H SF1k.
+  const auto max_pool_percentage = 85;
+  const auto initial_pool_bytes  = _optimization_parameters.initial_task_manager_memory;
+  const auto max_pool_bytes =
+    _optimization_parameters.max_task_manager_memory == std::numeric_limits<std::size_t>::max()
+      ? std::nullopt
+      : std::make_optional(_optimization_parameters.max_task_manager_memory);
+
+  // Create the memory resource lazily
+  auto resource = std::visit(
+    utility::overloaded{
+      [](const memory_kind::system&) -> std::unique_ptr<rmm::mr::device_memory_resource> {
+        GQE_LOG_DEBUG("Creating system memory resource");
+        return std::make_unique<memory_resource::system_memory_resource>();
+      },
+      [initial_pool_bytes, max_pool_bytes](
+        const memory_kind::numa& numa) -> std::unique_ptr<rmm::mr::device_memory_resource> {
+        std::size_t max_pool_bytes_set = 0;
+        if (!max_pool_bytes) {
+          auto numa_memory_capacity =
+            memory_resource::available_numa_node_memory(numa.numa_node_set).second;
+          max_pool_bytes_set =
+            memory_resource::percent_of_memory(numa_memory_capacity, max_pool_percentage);
+        } else {
+          max_pool_bytes_set = max_pool_bytes.value();
+        }
+
+        using upstream_mr = memory_resource::numa_memory_resource;
+        using pool_mr     = rmm::mr::pool_memory_resource<upstream_mr>;
+        using wrapper_mr  = rmm::mr::owning_wrapper<pool_mr, upstream_mr>;
+
+        auto upstream = std::make_unique<upstream_mr>(numa.numa_node_set, numa.page_kind, false);
+        GQE_LOG_DEBUG("Creating numa pool with size {} bytes", initial_pool_bytes);
+        return std::make_unique<wrapper_mr>(
+          std::move(upstream), initial_pool_bytes, std::make_optional(max_pool_bytes_set));
+      },
+      [](const memory_kind::pinned&) -> std::unique_ptr<rmm::mr::device_memory_resource> {
+        GQE_LOG_DEBUG("Creating pinned memory resource");
+        return std::make_unique<memory_resource::pinned_memory_resource>();
+      },
+      [initial_pool_bytes, max_pool_bytes](const memory_kind::numa_pinned& numa_pinned)
+        -> std::unique_ptr<rmm::mr::device_memory_resource> {
+        std::size_t max_pool_bytes_set = 0;
+        if (!max_pool_bytes) {
+          auto numa_memory_capacity =
+            memory_resource::available_numa_node_memory(numa_pinned.numa_node_set).second;
+          max_pool_bytes_set =
+            memory_resource::percent_of_memory(numa_memory_capacity, max_pool_percentage);
+        } else {
+          max_pool_bytes_set = max_pool_bytes.value();
+        }
+
+        using upstream_mr = memory_resource::numa_memory_resource;
+        using pool_mr     = rmm::mr::pool_memory_resource<upstream_mr>;
+        using wrapper_mr  = rmm::mr::owning_wrapper<pool_mr, upstream_mr>;
+
+        auto upstream =
+          std::make_unique<upstream_mr>(numa_pinned.numa_node_set, numa_pinned.page_kind, true);
+        GQE_LOG_DEBUG("Creating numa_pinned pool with size {} bytes", initial_pool_bytes);
+        return std::make_unique<wrapper_mr>(
+          std::move(upstream), initial_pool_bytes, std::make_optional(max_pool_bytes_set));
+      },
+      [](const memory_kind::device&) -> std::unique_ptr<rmm::mr::device_memory_resource> {
+        // FIXME: specify device instead of allocating on default CUDA device
+        GQE_LOG_DEBUG("Creating device memory resource");
+        return std::make_unique<rmm::mr::cuda_memory_resource>();
+      },
+      [](const memory_kind::managed&) -> std::unique_ptr<rmm::mr::device_memory_resource> {
+        GQE_LOG_DEBUG("Creating managed memory resource");
+        return std::make_unique<rmm::mr::managed_memory_resource>();
+      },
+      [](const memory_kind::boost_shared&) -> std::unique_ptr<rmm::mr::device_memory_resource> {
+        GQE_LOG_DEBUG("Creating boost_shared memory resource");
+        return std::make_unique<memory_resource::boost_shared_memory_resource>();
+      }},
+    kind);
+
+  auto ptr                      = resource.get();
+  _table_memory_resources[kind] = std::move(resource);
+  return ptr;
 }
 
 task_manager_context::~task_manager_context()
@@ -61,8 +178,9 @@ multi_process_task_manager_context::multi_process_task_manager_context(
   std::unique_ptr<gqe::task_migration_client> migration_client,
   std::unique_ptr<gqe::task_migration_service> migration_service,
   gqe::rpc_server&& server,
+  optimization_parameters params,
   std::unique_ptr<gqe::pgas_memory_resource> upstream_mr)
-  : task_manager_context(),
+  : task_manager_context(std::move(params)),
     comm(std::move(comm)),
     scheduler(std::move(scheduler)),
     migration_client(std::move(migration_client)),
@@ -78,13 +196,14 @@ multi_process_task_manager_context::multi_process_task_manager_context(
 }
 
 std::unique_ptr<multi_process_task_manager_context>
-multi_process_task_manager_context::default_init(MPI_Comm mpi_comm, gqe::SCHEDULER_TYPE type)
+multi_process_task_manager_context::default_init(MPI_Comm mpi_comm,
+                                                 gqe::SCHEDULER_TYPE type,
+                                                 optimization_parameters params)
 {
   auto comm = std::make_unique<nvshmem_communicator>(mpi_comm);
   comm->init();
 
-  auto pool_size = gqe::utility::default_device_memory_pool_size();
-
+  auto pool_size = params.initial_task_manager_memory;
   if (comm->num_ranks_per_device() > 1) {
     GQE_LOG_WARN("Node process count {} >= number of GPUs {}. Using MPG mode for NVSHMEM",
                  comm->world_size(),
@@ -117,6 +236,7 @@ multi_process_task_manager_context::default_init(MPI_Comm mpi_comm, gqe::SCHEDUL
                                                               std::move(migration_client),
                                                               std::move(migration_service),
                                                               std::move(server),
+                                                              std::move(params),
                                                               std::move(pgas_mr));
 }
 

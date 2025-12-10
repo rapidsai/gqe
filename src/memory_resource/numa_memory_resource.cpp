@@ -22,11 +22,12 @@
 #include <rmm/mr/device/device_memory_resource.hpp>
 
 #include <new>  // std::bad_alloc
-#include <sstream>
+#include <stdexcept>
 #include <string>
 
 #include <cuda_runtime_api.h>
 #include <linux/mman.h>
+#include <numa.h>
 #include <numaif.h>
 #include <sys/mman.h>
 
@@ -138,6 +139,31 @@ void numa_memory_resource::do_deallocate(void* ptr, std::size_t bytes, rmm::cuda
     GQE_LOG_ERROR("munmap failed with: {}", std::strerror(errno));
     throw std::bad_alloc();
   }
+}
+
+std::pair<std::size_t, std::size_t> available_numa_node_memory(int numa_node)
+{
+  long long free_bytes  = 0;
+  long long total_bytes = numa_node_size64(numa_node, &free_bytes);
+  if (total_bytes == -1) {
+    throw std::runtime_error("Failed to get memory size for NUMA node " +
+                             std::to_string(numa_node));
+  }
+  return {static_cast<std::size_t>(free_bytes), static_cast<std::size_t>(total_bytes)};
+}
+
+std::pair<std::size_t, std::size_t> available_numa_node_memory(const cpu_set& numa_node_set)
+{
+  std::size_t total_free  = 0;
+  std::size_t total_bytes = 0;
+  for (int i = 0; i < cpu_set::max_count; ++i) {
+    if (numa_node_set.contains(i)) {
+      auto [free, total] = available_numa_node_memory(i);
+      total_free += free;
+      total_bytes += total;
+    }
+  }
+  return {total_free, total_bytes};
 }
 
 }  // namespace memory_resource

@@ -18,7 +18,7 @@ name = "producer"
 version = "0.1.0"
 description = "SQL to Substrait producer for GQE"
 authors = ["NVIDIA"]
-edition = "2025"
+edition = "2021"
 
 license = "Apache-2.0"
 readme = "README.md"

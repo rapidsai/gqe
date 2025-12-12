@@ -45,4 +45,3 @@ message TaskMetadata {
     TaskStatus status = 2;
     Result result = 3;
 }
-

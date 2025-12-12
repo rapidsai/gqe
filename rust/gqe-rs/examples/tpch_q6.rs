@@ -63,7 +63,7 @@ fn main() {
 
     let parameters =
         OptimizationParameters::new().expect("Failed to construct optimization parameters");
-    
+
     let mut task_manager_ctx = TaskManagerContext::new().expect("Failed to construct a db context.");;
     let mut query_ctx = QueryContext::new(&parameters).expect("Failed to construct a query context.");
 

@@ -19,37 +19,37 @@ syntax = "proto3";
 
 package proto;
 
-// protobuf mapping for `type_id` enum 
+// protobuf mapping for `type_id` enum
 // ref: https://docs.rapids.ai/api/libcudf/stable/group__utility__types
 enum DataType {
-   EMPTY = 0;                   
-   INT8 = 1;                    
-   INT16 = 2;                   
-   INT32 = 3;                   
-   INT64 = 4;                   
-   UINT8 = 5;                   
-   UINT16 = 6;                  
-   UINT32 = 7;                  
-   UINT64 = 8;                  
-   FLOAT32 = 9;                 
-   FLOAT64 = 10;                 
-   BOOL8 = 11;                   
-   TIMESTAMP_DAYS = 12;          
-   TIMESTAMP_SECONDS = 13;       
-   TIMESTAMP_MILLISECONDS = 14;  
-   TIMESTAMP_MICROSECONDS = 15;  
-   TIMESTAMP_NANOSECONDS = 16;   
-   DURATION_DAYS = 17;           
-   DURATION_SECONDS = 18;        
-   DURATION_MILLISECONDS = 19;   
-   DURATION_MICROSECONDS = 20;   
-   DURATION_NANOSECONDS = 21;    
-   DICTIONARY32 = 22;            
-   STRING = 23;                  
-   LIST = 24;                    
-   DECIMAL32 = 25;               
-   DECIMAL64 = 26;               
-   DECIMAL128 = 27;              
+   EMPTY = 0;
+   INT8 = 1;
+   INT16 = 2;
+   INT32 = 3;
+   INT64 = 4;
+   UINT8 = 5;
+   UINT16 = 6;
+   UINT32 = 7;
+   UINT64 = 8;
+   FLOAT32 = 9;
+   FLOAT64 = 10;
+   BOOL8 = 11;
+   TIMESTAMP_DAYS = 12;
+   TIMESTAMP_SECONDS = 13;
+   TIMESTAMP_MILLISECONDS = 14;
+   TIMESTAMP_MICROSECONDS = 15;
+   TIMESTAMP_NANOSECONDS = 16;
+   DURATION_DAYS = 17;
+   DURATION_SECONDS = 18;
+   DURATION_MILLISECONDS = 19;
+   DURATION_MICROSECONDS = 20;
+   DURATION_NANOSECONDS = 21;
+   DICTIONARY32 = 22;
+   STRING = 23;
+   LIST = 24;
+   DECIMAL32 = 25;
+   DECIMAL64 = 26;
+   DECIMAL128 = 27;
    STRUCT = 28;
 }
 

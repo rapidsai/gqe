@@ -415,7 +415,7 @@ mod ffi {
         pub type TaskManagerContext;
 
         pub fn new_task_manager_context() -> Result<UniquePtr<TaskManagerContext>>;
-        
+
         #[cxx_name = "query_context"]
         pub type QueryContext;
 

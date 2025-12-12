@@ -183,4 +183,3 @@ Design requirements:
     op should split into the build and probe pipelines. E.g., an aggregate op
     should split into the hash table build, and a hash table scan that consumes
     the hash table and produces a new tuple stream.
-

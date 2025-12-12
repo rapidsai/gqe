@@ -128,3 +128,40 @@ If a table is split into multiple Parquet files, the lexicographical sort order 
 Good: `lineitem01.parquet`, ... , `lineitem09.parquet`, `lineitem10.parquet`
 
 Bad: `lineitem1.parquet`, ... , `lineitem9.parquet`, `lineitem10.parquet`
+
+## Pre-commit Hooks
+
+This project uses [pre-commit](https://pre-commit.com/) to enforce code style. The hooks include:
+- **clang-format** for C++/CUDA formatting
+- **cmake-format** for CMake formatting
+
+### Setup
+
+Install the pre-commit hooks (one-time setup):
+
+```bash
+pre-commit install
+```
+
+Note: `pre-commit` is included in the conda environment.
+
+To avoid warnings from the copyright check hook, set the target branch:
+
+```bash
+git config rapidsai.baseBranch main
+```
+
+### Usage
+
+The hooks will run automatically on `git commit`. To run manually on all files:
+
+```bash
+pre-commit run --all-files
+```
+
+To run a specific hook:
+
+```bash
+pre-commit run clang-format --all-files
+pre-commit run cmake-format --all-files
+```

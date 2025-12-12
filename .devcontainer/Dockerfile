@@ -3,7 +3,7 @@ ARG IMAGE
 FROM $IMAGE
 
 ARG DEV_UID
-ARG DEV_GID 
+ARG DEV_GID
 
 # Ensure a group named 'hardware' exists with GID=$DEV_GID; if a group with $DEV_GID exists but is not named 'hardware', rename it
 RUN existing_group=$(getent group $DEV_GID | head -n1 | cut -d: -f1) && \

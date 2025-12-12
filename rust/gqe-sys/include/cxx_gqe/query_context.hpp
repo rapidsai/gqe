@@ -32,8 +32,8 @@ class query_context {
  public:
   explicit query_context(gqe::query_context&& context) : _context(std::move(context)) {}
 
-  query_context()                     = delete;
-  query_context(query_context const&) = delete;
+  query_context()                                = delete;
+  query_context(query_context const&)            = delete;
   query_context& operator=(query_context const&) = delete;
 
   /*

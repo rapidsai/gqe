@@ -424,6 +424,3 @@ inline CUptiResult RangeProfilerTarget::GetCounterAvailabilityImage(CUcontext ct
     CUPTI_API_CALL(cuptiProfilerGetCounterAvailability(&getCounterAvailabilityParams));
     return CUPTI_SUCCESS;
 }
-
-
-

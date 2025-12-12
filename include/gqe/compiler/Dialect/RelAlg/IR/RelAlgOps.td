@@ -139,7 +139,7 @@ def RelAlg_YieldOp : RelAlg_Op<"yield", [Pure, ReturnLike, Terminator]> {
   let summary = "Expression yield and termination operation";
   let description = [{
     The `relalg.yield` operation yields a value from an expression and
-  
+
 
     The `yield` operation is modeled after the `scf.yield` operation. The
     keyword is chosen over `return` because an expression is, unlike a function,

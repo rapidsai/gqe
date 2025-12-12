@@ -54,8 +54,8 @@ class substrait_parser {
  public:
   explicit substrait_parser(gqe::substrait_parser&& parser) : _parser(std::move(parser)) {}
 
-  substrait_parser()                        = delete;
-  substrait_parser(substrait_parser const&) = delete;
+  substrait_parser()                                   = delete;
+  substrait_parser(substrait_parser const&)            = delete;
   substrait_parser& operator=(substrait_parser const&) = delete;
 
   std::unique_ptr<std::vector<shared_logical_relation>> from_file(const rust::Str substrait_file);

@@ -268,7 +268,7 @@ pub(super) async fn insert_from_table(
             src_table_name.as_str(),
             dst_table_name.as_str(),
         )?;
-        
+
         let mut task_manager_ctx = TaskManagerContext::new().map_err(|e| {
             pg_wire_usererror(
                 PgErrorSeverity::Error,

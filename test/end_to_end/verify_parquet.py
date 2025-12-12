@@ -30,7 +30,7 @@ def normalize_type(df1: pd.DataFrame, df2: pd.DataFrame, col: str):
         if (not all_single_char):
             raise Exception("Can only convert single-char (ASCII) strings to numeric type")
         df2[col] = df2[col].apply(lambda x: ord(x) if isinstance(x, str) and len(x) == 1 else None)
-    
+
     df2[col] = df2[col].astype(new_type)
 
 def verify(test_file: str, ref_file: str):

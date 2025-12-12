@@ -43,8 +43,8 @@ class physical_plan_builder {
   {
   }
 
-  physical_plan_builder()                             = delete;
-  physical_plan_builder(physical_plan_builder const&) = delete;
+  physical_plan_builder()                                        = delete;
+  physical_plan_builder(physical_plan_builder const&)            = delete;
   physical_plan_builder& operator=(physical_plan_builder const&) = delete;
 
   std::shared_ptr<physical_relation> build(logical_relation const& logical_relation);

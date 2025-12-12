@@ -4,16 +4,16 @@ Building or using the software requires additional components licenced
 under other terms. These additional components include dependencies such
 as CUPTI, nvCOMP, and NVSHMEM.
 
-License terms for these additional NVIDIA owned and licensed components 
+License terms for these additional NVIDIA owned and licensed components
 can be found here:
    https://docs.nvidia.com/cupti/copyright-and-licenses/index.html
    https://github.com/NVIDIA/nvcomp/blob/main/LICENSE
    https://github.com/NVIDIA/nvshmem/blob/devel/License.txt
 
-Any open source dependencies downloaded during the build process are owned 
+Any open source dependencies downloaded during the build process are owned
 by their respective owners and licensed under their respective terms.
 
-This project will download and install additional third-party open source software projects. 
+This project will download and install additional third-party open source software projects.
 Review the license terms of these open source projects before use.
 
                                  Apache License

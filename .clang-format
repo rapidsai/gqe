@@ -158,4 +158,4 @@ UseTab: Never
 Language: TableGen
 BasedOnStyle: LLVM
 IndentWidth: 2
-ReflowComments: Always
+ReflowComments: true

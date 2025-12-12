@@ -28,6 +28,7 @@
 #include <gqe/memory_resource/memory_utilities.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
+#include <gqe/utility/kernel_fusion_helpers.hpp>
 
 #include <cudf/column/column.hpp>
 #include <cudf/sorting.hpp>
@@ -514,17 +515,11 @@ TEST(HashMapCache, HashJoin)
   for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
     threads.emplace_back(
       [thread_idx, left_view, right_view, &cache, &left_num_matches, &right_num_matches]() {
-        cudf::table_view empty_table;
         cudf::column_view empty_mask;
-        auto const hash_join = cache.hash_map(left_view,
-                                              empty_table,
-                                              /*build_column_offset=*/0,
-                                              /*build_filer=*/nullptr,
-                                              gqe::optimization_parameters(true),
-                                              gqe::join_algorithm::HASH_JOIN,
-                                              cudf::null_equality::UNEQUAL);
+        auto const& impl =
+          cache.get_or_create<gqe::hash_join_impl>(left_view, cudf::null_equality::UNEQUAL);
         auto [right_indices, left_indices] =
-          hash_join->probe(right_view, empty_mask, gqe::join_type_type::inner);
+          impl.probe(right_view, empty_mask, gqe::join_type_type::inner);
 
         left_num_matches[thread_idx]  = left_indices->size();
         right_num_matches[thread_idx] = right_indices->size();
@@ -571,17 +566,11 @@ TEST(HashMapCache, UniqueKeyJoin)
   for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
     threads.emplace_back(
       [thread_idx, left_view, right_view, &cache, &left_num_matches, &right_num_matches]() {
-        cudf::table_view empty_table;
         cudf::column_view empty_mask;
-        auto const hash_join = cache.hash_map(left_view,
-                                              empty_table,
-                                              /*build_column_offset=*/0,
-                                              /*build_filer=*/nullptr,
-                                              gqe::optimization_parameters(true),
-                                              gqe::join_algorithm::UNIQUE_KEY_JOIN,
-                                              cudf::null_equality::UNEQUAL);
+        auto const& impl = cache.get_or_create<gqe::unique_key_join_impl>(
+          left_view, cudf::column_view(), cudf::null_equality::UNEQUAL);
         auto [right_indices, left_indices] =
-          hash_join->probe(right_view, empty_mask, gqe::join_type_type::inner);
+          impl.probe(right_view, empty_mask, gqe::join_type_type::inner);
 
         left_num_matches[thread_idx]  = left_indices->size();
         right_num_matches[thread_idx] = right_indices->size();
@@ -635,6 +624,7 @@ TEST(HashMapCache, UniqueKeyJoinWithFilter)
   auto build_filter = std::make_unique<gqe::not_equal_expression>(
     std::make_shared<gqe::column_reference_expression>(0),
     std::make_shared<gqe::literal_expression<int64_t>>(3));
+
   for (std::size_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
     threads.emplace_back([thread_idx,
                           left_view,
@@ -644,18 +634,20 @@ TEST(HashMapCache, UniqueKeyJoinWithFilter)
                           &right_num_matches,
                           build_filter = build_filter.get(),
                           &probe_mask_data]() {
-      cudf::table_view empty_table;
-      auto const hash_join = cache.hash_map(left_view,
-                                            empty_table,
-                                            /*build_column_offset=*/0,
-                                            build_filter->clone(),
-                                            gqe::optimization_parameters(true),
-                                            gqe::join_algorithm::UNIQUE_KEY_JOIN,
-                                            cudf::null_equality::UNEQUAL);
+      // Build filter mask inside hash map cache to avoid rebuilding by each thread
+      auto const& impl = cache.get_or_create_fn<gqe::unique_key_join_impl>([&]() {
+        auto [mask_view, mask_column] =
+          gqe::utility::get_mask_from_filter(gqe::optimization_parameters(true),
+                                             left_view,
+                                             build_filter->clone(),
+                                             /*column_reference_offset=*/0);
+        return std::make_unique<gqe::unique_key_join_impl>(
+          left_view, mask_view, cudf::null_equality::UNEQUAL);
+      });
       cudf::test::fixed_width_column_wrapper<bool> probe_mask(probe_mask_data[thread_idx].begin(),
                                                               probe_mask_data[thread_idx].end());
       auto [right_indices, left_indices] =
-        hash_join->probe(right_view, probe_mask, gqe::join_type_type::inner);
+        impl.probe(right_view, probe_mask, gqe::join_type_type::inner);
 
       left_num_matches[thread_idx]  = left_indices->size();
       right_num_matches[thread_idx] = right_indices->size();

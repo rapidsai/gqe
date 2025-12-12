@@ -29,200 +29,285 @@
 
 #include <cstdint>
 #include <memory>
+#include <shared_mutex>
 #include <vector>
 
 namespace gqe {
 
+/**
+ * @brief Base class for join hash table implementations that can be cached.
+ *
+ * All cached join implementations support probing with equality-only join conditions.
+ * Some implementations extend this to also support mixed conditions (see mixed_join_interface).
+ */
 class join_interface {
  public:
   virtual ~join_interface() = default;
 
+  /**
+   * @brief Probe the cached hash table with equality-only join conditions.
+   *
+   * @param[in] probe_keys Key columns of the probe table.
+   * @param[in] probe_mask Optional boolean mask to filter probe rows.
+   * @param[in] join_type Type of join to perform.
+   * @return A pair of device vectors containing (probe_indices, build_indices).
+   */
   virtual std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
                     std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe,
+  probe(cudf::table_view const& probe_keys,
         cudf::column_view const& probe_mask,
         join_type_type join_type) const = 0;
+};
 
+/**
+ * @brief Extended join implementation that supports mixed (equality + non-equality) conditions.
+ *
+ * This class extends join_interface to add support for non-equality predicates in addition to
+ * equality-based key matching. Implementations that support mixed conditions should inherit
+ * from this class.
+ */
+class mixed_join_interface : public join_interface {
+ public:
+  /**
+   * @brief Probe the hash table with mixed join conditions (equality + non-equality predicates).
+   *
+   * @param[in] probe_keys Key columns of the probe table for equality matching.
+   * @param[in] probe_mask Optional boolean mask to filter probe rows.
+   * @param[in] left_conditional Full left table for evaluating non-equality conditions.
+   * @param[in] right_conditional Full right table for evaluating non-equality conditions.
+   * @param[in] binary_predicate AST expression for non-equality join conditions.
+   * @param[in] join_type Type of join to perform.
+   * @return A pair of device vectors containing (probe_indices, build_indices).
+   */
   virtual std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
                     std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe,
-        cudf::column_view const& probe_mask,
-        cudf::table_view const& left_conditional,
-        cudf::table_view const& right_conditional,
-        cudf::ast::expression const* binary_predicate,
-        join_type_type join_type) const = 0;
+  probe_mixed(cudf::table_view const& probe_keys,
+              cudf::column_view const& probe_mask,
+              cudf::table_view const& left_conditional,
+              cudf::table_view const& right_conditional,
+              cudf::ast::expression const* binary_predicate,
+              join_type_type join_type) const = 0;
 };
 
-class hash_join_interface : public join_interface {
+/**
+ * @brief Hash join implementation using cudf::hash_join.
+ *
+ * Supports inner, left, and full equality joins.
+ */
+class hash_join_impl : public join_interface {
  public:
-  ~hash_join_interface() override = default;
-  hash_join_interface(cudf::table_view const& build,
-                      cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
-                      rmm::cuda_stream_view stream      = cudf::get_default_stream());
+  ~hash_join_impl() override = default;
+  hash_join_impl(cudf::table_view const& build,
+                 cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
+                 rmm::cuda_stream_view stream      = cudf::get_default_stream());
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe,
+  probe(cudf::table_view const& probe_keys,
         cudf::column_view const& probe_mask,
         join_type_type join_type) const override;
-
-  std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
-            std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe,
-        cudf::column_view const& probe_mask,
-        cudf::table_view const& left_conditional,
-        cudf::table_view const& right_conditional,
-        cudf::ast::expression const* binary_predicate,
-        join_type_type join_type) const override
-  {
-    throw std::logic_error("Unsupported join type: mixed hash join");
-  }
 
  private:
-  mutable std::unique_ptr<cudf::hash_join> _hash_join_interface;
+  mutable std::unique_ptr<cudf::hash_join> _hash_join;
 };
 
-class unique_key_join_interface : public join_interface {
+/**
+ * @brief Unique key join implementation for tables with unique build keys.
+ *
+ * Optimized for inner joins when the build table has unique keys.
+ */
+class unique_key_join_impl : public join_interface {
  public:
-  ~unique_key_join_interface() override = default;
-  unique_key_join_interface(cudf::table_view const& build,
-                            cudf::column_view const& build_mask = cudf::column_view(),
-                            cudf::null_equality compare_nulls   = cudf::null_equality::EQUAL,
-                            rmm::cuda_stream_view stream        = cudf::get_default_stream());
+  ~unique_key_join_impl() override = default;
+  unique_key_join_impl(cudf::table_view const& build,
+                       cudf::column_view const& build_mask = cudf::column_view(),
+                       cudf::null_equality compare_nulls   = cudf::null_equality::EQUAL,
+                       rmm::cuda_stream_view stream        = cudf::get_default_stream());
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe,
+  probe(cudf::table_view const& probe_keys,
         cudf::column_view const& probe_mask,
         join_type_type join_type) const override;
-
-  std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
-            std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe,
-        cudf::column_view const& probe_mask,
-        cudf::table_view const& left_conditional,
-        cudf::table_view const& right_conditional,
-        cudf::ast::expression const* binary_predicate,
-        join_type_type join_type) const override
-  {
-    throw std::logic_error("Unsupported join type: mixed unique key join");
-  }
 
  private:
-  mutable std::unique_ptr<gqe::unique_key_join> _unique_key_join_interface;
+  mutable std::unique_ptr<gqe::unique_key_join> _unique_key_join;
 };
 
-class mark_join_interface : public join_interface {
+/**
+ * @brief Mark join implementation for semi/anti joins.
+ *
+ * Supports both equality-only and mixed join conditions for left_semi and left_anti joins.
+ * Inherits from mixed_join_interface to provide the probe_mixed capability.
+ */
+class mark_join_impl : public mixed_join_interface {
  public:
-  ~mark_join_interface() override = default;
-  mark_join_interface(cudf::table_view const& build,
-                      cudf::column_view const& build_mask,
-                      bool is_cached,
-                      cudf::null_equality compare_nulls,
-                      rmm::cuda_stream_view stream = cudf::get_default_stream());
+  ~mark_join_impl() override = default;
+  mark_join_impl(cudf::table_view const& build,
+                 cudf::column_view const& build_mask,
+                 bool is_cached,
+                 cudf::null_equality compare_nulls,
+                 rmm::cuda_stream_view stream = cudf::get_default_stream());
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe,
+  probe(cudf::table_view const& probe_keys,
         cudf::column_view const& probe_mask,
         join_type_type join_type) const override;
 
   std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
             std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-  probe(cudf::table_view const& probe,
-        cudf::column_view const& probe_mask,
-        cudf::table_view const& left_conditional,
-        cudf::table_view const& right_conditional,
-        cudf::ast::expression const* binary_predicate,
-        join_type_type join_type) const override;
+  probe_mixed(cudf::table_view const& probe_keys,
+              cudf::column_view const& probe_mask,
+              cudf::table_view const& left_conditional,
+              cudf::table_view const& right_conditional,
+              cudf::ast::expression const* binary_predicate,
+              join_type_type join_type) const override;
 
+  /**
+   * @brief Compute position list from cached hash map for semi/anti joins.
+   *
+   * @param[in] join_type Type of join (must be left_semi or left_anti).
+   * @return Device vector containing matching row indices.
+   */
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> compute_positions_list_from_cached_map(
     join_type_type join_type) const;
 
  private:
-  mutable std::unique_ptr<gqe::mark_join> _mark_join_interface;
+  mutable std::unique_ptr<gqe::mark_join> _mark_join;
 };
 
 /**
- * @brief Specifies the type of hash join algorithm to use for building the map.
- */
-enum class join_algorithm {
-  HASH_JOIN,        ///< Regular hash join (uses `cudf::hash_join`)
-  UNIQUE_KEY_JOIN,  ///< Unique key inner join (uses `gqe::unique_key_inner_join`)
-  MARK_JOIN,        //< Mark join implementation type for left_{semi,anti} joins (uses
-                    // gqe::left_{semi,anti}_join)
-};
-
-/**
- * @brief Owner of the hash map used in hash joins.
+ * @brief Thread-safe cache for join hash tables.
  *
- * When the build table is the same in multiple join tasks, an object of this class is helpful for
- * owning the hash map, so that it does not need to be rebuilt for each task.
+ * Caches the hash table built from the build side of a join so multiple probe tasks
+ * can reuse it without rebuilding. The cache is thread-safe and supports lazy
+ * initialization via constructor arguments or a builder function.
+ *
+ * Usage:
+ * @code
+ * auto cache = std::make_shared<join_hash_map_cache>(join_hash_map_cache::build_location::left);
+ *
+ * Direct construction with constructor arguments:
+ * auto& impl = cache->get_or_create<hash_join_impl>(build_keys, compare_nulls);
+ * impl.probe(probe_keys, mask, join_type);
+ *
+ * Deferred construction with builder (e.g., filter mask evaluated inside lock):
+ * auto& impl = cache->get_or_create_fn<mark_join_impl>([&]() {
+ *     auto [mask, col] = get_mask_from_filter(params, table, std::move(expr), offset);
+ *     return std::make_unique<mark_join_impl>(keys, mask, true, compare_nulls);
+ * });
+ * @endcode
  */
 class join_hash_map_cache {
  public:
   /**
-   * @brief Whether the left or the right table should be used as the build table.
+   * @brief Specifies which side of the join should be used as the build table.
    */
   enum class build_location { left, right };
 
   /**
-   * @brief Construct an object to hold the hash map used in joins.
+   * @brief Construct a cache for join hash tables.
    *
-   * @param[in] build_side Indicate which side the hash map is built from.
+   * @param[in] build_side Which side the hash table is built from.
    */
-  join_hash_map_cache(build_location build_side) : _build_side(build_side) {}
+  explicit join_hash_map_cache(build_location build_side) : _build_side(build_side) {}
 
   /**
-   * @brief Return which side the hash map is built from.
+   * @brief Return which side the hash table is built from.
    */
   build_location build_side() const noexcept { return _build_side; }
 
   /**
-   * @brief Build the hash map from key columns of the build table.
+   * @brief Get the cached implementation, or create it with the given constructor arguments.
    *
-   * This function could be called multiple times with the same build table keys. The hash map
-   * will be cached after the first call, and the subsequent calls would be served with the cached
-   * hash map.
+   * This method is thread-safe. The first caller creates the implementation by forwarding
+   * the arguments to T's constructor; subsequent callers receive the cached instance.
    *
-   * @param[in] build_keys Key columns of the build table. Note that if this function is called
-   * multiple times, this argument needs to refer to the same build table. Otherwise, the behavior
-   * is undefined.
-   * @param[in] build_table The build table. This is needed to evaluate the build filter expression.
-   * @param[in] build_column_reference_offset The column reference offset for the build table.
-   * @param[in] build_filter An optional boolean expression to filter the build table before
-   * building the hash map.
-   * @param[in] parameters Optimization parameters for evaluating the filter expression.
-   * @param[in] join_algorithm The join algorithm to use.
-   * @param[in] compare_nulls Whether NULL join keys should be compared as equal. Note that if
-   * this function is called multiple times, this argument should be the same. Otherwise, the
-   * behavior is undefined.
-   *
-   * @return A hash join object that can be subsequently probed.
+   * @tparam T The expected implementation type (e.g., hash_join_impl, mark_join_impl).
+   *           Must be derived from join_interface.
+   * @tparam Args Constructor argument types for T.
+   * @param[in] args Arguments to forward to T's constructor (only used if cache is empty).
+   * @return Reference to the cached implementation of type T.
+   * @throws std::logic_error if the cached implementation doesn't match the requested type.
    */
-  join_interface const* hash_map(cudf::table_view const& build_keys,
-                                 cudf::table_view const& build_table,
-                                 cudf::size_type build_column_reference_offset,
-                                 std::unique_ptr<gqe::expression> build_filter,
-                                 gqe::optimization_parameters const& parameters,
-                                 join_algorithm join_algorithm,
-                                 cudf::null_equality compare_nulls) const;
+  template <typename T, typename... Args>
+  T const& get_or_create(Args&&... args) const
+  {
+    static_assert(std::is_base_of_v<join_interface, T>, "T must be derived from join_interface");
+    {
+      std::shared_lock lock(_mutex);
+      if (_impl) {
+        auto* result = dynamic_cast<T const*>(_impl.get());
+        if (!result) { throw std::logic_error("Cached join implementation has unexpected type"); }
+        return *result;
+      }
+    }
+    std::unique_lock lock(_mutex);
+    if (!_impl) {
+      _impl = std::make_unique<T>(std::forward<Args>(args)...);
+      cudf::get_default_stream().synchronize();
+    }
+    auto* result = dynamic_cast<T const*>(_impl.get());
+    if (!result) { throw std::logic_error("Cached join implementation has unexpected type"); }
+    return *result;
+  }
 
   /**
-   * @brief Gets the existing hash map.
-   * @return Returns the hash map, or a nullptr if the map has not been initialized.
+   * @brief Get the cached implementation, or create it using a builder function.
+   *
+   * This method is thread-safe. The builder is only invoked if the cache is empty,
+   * and is called while holding the lock. This is useful when creating the implementation
+   * requires expensive setup (e.g., evaluating filter masks) that should only happen once.
+   *
+   * @tparam T The expected implementation type (e.g., hash_join_impl, mark_join_impl).
+   *           Must be derived from join_interface.
+   * @tparam Builder A callable that returns std::unique_ptr<T>.
+   * @param[in] builder Function to create the implementation (only called if cache is empty).
+   * @return Reference to the cached implementation of type T.
+   * @throws std::logic_error if the cached implementation doesn't match the requested type.
    */
-  join_interface const* hash_map() const;
+  template <typename T, typename Builder>
+  T const& get_or_create_fn(Builder&& builder) const
+  {
+    static_assert(std::is_base_of_v<join_interface, T>, "T must be derived from join_interface");
+    {
+      std::shared_lock lock(_mutex);
+      if (_impl) {
+        auto* result = dynamic_cast<T const*>(_impl.get());
+        if (!result) { throw std::logic_error("Cached join implementation has unexpected type"); }
+        return *result;
+      }
+    }
+    std::unique_lock lock(_mutex);
+    if (!_impl) {
+      _impl = builder();
+      cudf::get_default_stream().synchronize();
+    }
+    auto* result = dynamic_cast<T const*>(_impl.get());
+    if (!result) { throw std::logic_error("Cached join implementation has unexpected type"); }
+    return *result;
+  }
+
+  /**
+   * @brief Get the cached implementation without creating it.
+   *
+   * @tparam T The expected implementation type.
+   * @return Pointer to the cached implementation of type T, or nullptr if not cached
+   *         or if the cached type doesn't match.
+   */
+  template <typename T>
+  T const* get() const
+  {
+    static_assert(std::is_base_of_v<join_interface, T>, "T must be derived from join_interface");
+    std::shared_lock lock(_mutex);
+    return dynamic_cast<T const*>(_impl.get());
+  }
 
  private:
   build_location _build_side;
-  mutable std::unique_ptr<join_interface> _hash_map;
-  mutable std::shared_mutex
-    _hash_map_latch;  //> The latch guards the hash map object. It needs to be acquired to allocate
-                      // and free the hash map. It does not need to be acquired for (thread-safe
-                      // parallel) read-write or read-only access to hash map entries. Note: The
-                      // current implementation allocates and builds the map in a single step,
-                      // inside the critical section.
+  mutable std::unique_ptr<join_interface> _impl;
+  mutable std::shared_mutex _mutex;
 };
 
 class join_task : public task {

@@ -317,7 +317,6 @@ unique_key_join::unique_key_join(cudf::table_view const& build,
                                  rmm::cuda_stream_view stream,
                                  rmm::device_async_resource_ref mr)
   : _build{build},
-    _build_mask{build_mask},
     _nulls_equal{compare_nulls},
     _build_set{static_cast<size_t>(gqe::utility::get_num_active_keys(build.num_rows(), build_mask)),
                load_factor,

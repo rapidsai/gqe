@@ -216,7 +216,6 @@ class unique_key_join {
                      cuco_storage_type>;
 
   cudf::table_view _build;
-  cudf::column_view _build_mask;
   cudf::null_equality _nulls_equal;
   hash_table_type _build_set;
 };

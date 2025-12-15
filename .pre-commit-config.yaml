@@ -21,10 +21,16 @@ repos:
       - id: clang-format
         types_or: [c, c++, cuda]
 
-  - repo: https://github.com/cheshirekow/cmake-format-precommit
-    rev: v0.6.13
+  - repo: local
     hooks:
       - id: cmake-format
+        name: cmake-format
+        entry: cmake-format -i
+        language: python
+        types: [cmake]
+        additional_dependencies:
+          - cmakelang==0.6.13
+        require_serial: true
 
   - repo: https://github.com/rapidsai/pre-commit-hooks
     rev: v0.4.0

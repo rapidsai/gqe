@@ -14,8 +14,8 @@ Then, to compile, run
 conda activate gqe
 mkdir build
 cd build
-cmake ..
-make -j8
+cmake -G Ninja ..
+ninja
 ```
 
 GQE has the following CMake flags to control what to build.
@@ -52,8 +52,8 @@ Build this as part of GQE by specifying `GQE_ENABLE_SUBSTRAIT_PRODUCER`
 conda activate gqe
 mkdir build
 cd build
-cmake .. -DGQE_ENABLE_SUBSTRAIT_PRODUCER=ON
-make -j8
+cmake -G Ninja .. -DGQE_ENABLE_SUBSTRAIT_PRODUCER=ON
+ninja
 ```
 
 This will install the producer in the active conda environment

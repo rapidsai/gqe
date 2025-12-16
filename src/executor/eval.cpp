@@ -285,7 +285,7 @@ expression_evaluator::evaluate(bool use_like_shift_and) const
               cudf::string_scalar const escape_char{like_expr->escape_character()};
 
               if (use_like_shift_and) {
-                // if GQE_FILTER_USE_LIKE_SHIFT_AND or filter_use_like_shift_and is true,
+                // if filter_use_like_shift_and is true,
                 // we use the like_shift_and kernel for better performance
                 append_result(gqe::like(
                   table.column(col_ref->column_idx()), like_expr->pattern(), escape_char));

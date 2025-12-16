@@ -92,4 +92,35 @@ std::unique_ptr<cudf::column> like_utf8_bytewise(
   cudf::string_scalar const& escape_character = cudf::string_scalar(""),
   rmm::cuda_stream_view stream                = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr           = cudf::get_current_device_resource_ref());
+
+/**
+ * @brief Implements SQL LIKE pattern matching using a Shift-And style algorithm on a
+ * cudf::strings_column_view with character-aware UTF-8 matching.
+ *
+ * This function provides character-aware UTF-8 pattern matching, where:
+ * - The `_` wildcard matches exactly one UTF-8 character (regardless of byte length)
+ * - The `%` wildcard matches any sequence of UTF-8 characters
+ * - Pattern matching is done at the character level, not byte level
+ *
+ * **Limitations**:
+ * - Only supports patterns in the form `%X%` or `%X%Y%...` (must start and end with `%`)
+ * - If the num of middle patterns is 0 (e.g. %%), we fall back to use cudf::like()
+ * - Maximum pattern length of 64 UTF-8 characters
+ * - Uses hash maps, so performance may be lower than bytewise `like()` for simple patterns
+ *
+ * @param input The column of strings to evaluate.
+ * @param pattern The LIKE pattern string (must start and end with '%').
+ * @param escape_character A string scalar representing the escape character.
+ * @param stream CUDA stream on which to perform the operation.
+ * @param mr Device memory resource used to allocate the result.
+ *
+ * @return A boolean column indicating which strings match the pattern.
+ */
+std::unique_ptr<cudf::column> like_utf8(
+  cudf::strings_column_view const& input,
+  std::string const& pattern,
+  cudf::string_scalar const& escape_character = cudf::string_scalar(""),
+  rmm::cuda_stream_view stream                = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr           = cudf::get_current_device_resource_ref());
+
 }  // end of namespace gqe

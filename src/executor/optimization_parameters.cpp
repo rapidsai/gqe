@@ -134,35 +134,6 @@ gqe::compression_format parse_nvcomp_compression_format(std::string const& env_v
   }
 }
 
-nvcompType_t nvcomp_data_type_from_str(std::string const& data_format)
-{
-  if (data_format == "char") {
-    return NVCOMP_TYPE_CHAR;
-  } else if (data_format == "short") {
-    return NVCOMP_TYPE_SHORT;
-  } else if (data_format == "int") {
-    return NVCOMP_TYPE_INT;
-  } else if (data_format == "longlong") {
-    return NVCOMP_TYPE_LONGLONG;
-  } else if (data_format == "bits") {
-    return NVCOMP_TYPE_BITS;
-  } else {
-    throw std::logic_error("Unrecognized data type format");
-  }
-}
-
-nvcompType_t parse_nvcomp_data_type(std::string const& env_variable,
-                                    nvcompType_t const default_value)
-{
-  auto const val_str = std::getenv(env_variable.c_str());
-
-  if (val_str) {
-    return nvcomp_data_type_from_str(val_str);
-  } else {
-    return default_value;
-  }
-}
-
 int parse_nvcomp_chunk_size(std::string const& env_variable, int const default_value)
 {
   auto const val_str = std::getenv(env_variable.c_str());
@@ -225,15 +196,6 @@ optimization_parameters::optimization_parameters(bool only_defaults)
     use_in_memory_table_multigpu =
       parse_env_variable("GQE_IN_MEMORY_TABLE_USE_SHARED_MEMORY", use_in_memory_table_multigpu);
 
-    in_memory_table_compression_format = parse_nvcomp_compression_format(
-      "GQE_IN_MEMORY_TABLE_COMP_FORMAT", in_memory_table_compression_format);
-
-    in_memory_table_compression_data_type =
-      parse_nvcomp_data_type("GQE_COMPRESSION_DATA_TYPE", in_memory_table_compression_data_type);
-
-    compression_chunk_size =
-      parse_nvcomp_chunk_size("GQE_COMPRESSION_CHUNK_SIZE", compression_chunk_size);
-
     io_block_size = parse_env_variable("GQE_IO_BLOCK_SIZE", io_block_size);
 
     auto io_engine_str = std::getenv("GQE_IO_ENGINE");
@@ -267,8 +229,26 @@ optimization_parameters::optimization_parameters(bool only_defaults)
     num_shuffle_partitions =
       parse_env_variable("GQE_NUM_SHUFFLE_PARTITIONS", num_shuffle_partitions);
 
-    compression_ratio_threshold =
-      parse_env_variable("GQE_COMPRESSION_RATIO_THRESHOLD", compression_ratio_threshold);
+    in_memory_table_compression_ratio_threshold =
+      parse_env_variable("GQE_IN_MEMORY_TABLE_COMPRESSION_RATIO_THRESHOLD",
+                         in_memory_table_compression_ratio_threshold);
+
+    in_memory_table_compression_format = parse_nvcomp_compression_format(
+      "GQE_IN_MEMORY_TABLE_COMPRESSION_FORMAT", in_memory_table_compression_format);
+
+    in_memory_table_compression_chunk_size =
+      parse_nvcomp_chunk_size("GQE_COMPRESSION_CHUNK_SIZE", in_memory_table_compression_chunk_size);
+
+    in_memory_table_secondary_compression_format = parse_nvcomp_compression_format(
+      "GQE_IN_MEMORY_TABLE_SECONDARY_COMP_FORMAT", in_memory_table_secondary_compression_format);
+
+    in_memory_table_secondary_compression_ratio_threshold =
+      parse_env_variable("GQE_SECONDARY_COMPRESSION_RATIO_THRESHOLD",
+                         in_memory_table_secondary_compression_ratio_threshold);
+
+    in_memory_table_secondary_compression_multiplier_threshold =
+      parse_env_variable("GQE_SECONDARY_COMPRESSION_MULTIPLIER_THRESHOLD",
+                         in_memory_table_secondary_compression_multiplier_threshold);
   }
 }
 

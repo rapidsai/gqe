@@ -41,7 +41,13 @@ class device_properties {
    * @brief Enum specifying accessible and enabled device properties
    *
    */
-  enum property { multiProcessorCount, pageableMemoryAccess, unifiedAddressing, managedMemory };
+  enum property {
+    multiProcessorCount,
+    pageableMemoryAccess,
+    unifiedAddressing,
+    managedMemory,
+    memDecompressSupport
+  };
 
   /**
    * @brief Get the singleton instance of device_properties.  Properties of all visible devices are
@@ -74,7 +80,12 @@ class device_properties {
    */
   explicit device_properties();
 
+  struct driver_properties {
+    int memDecompressSupport;
+  };
+
   std::unordered_map<int, cudaDeviceProp> _device_properties_cache;
+  std::unordered_map<int, driver_properties> _driver_properties_cache;
 
   template <property p>
   struct dependent_false : std::false_type {};
@@ -83,18 +94,28 @@ class device_properties {
 template <device_properties::property p>
 auto device_properties::get(rmm::cuda_device_id device) const
 {
-  auto match = _device_properties_cache.find(device.value());
-  if (match == _device_properties_cache.end()) { throw std::runtime_error("Device not found"); }
-  auto& properties = match->second;
+  auto cuda_match = _device_properties_cache.find(device.value());
+  if (cuda_match == _device_properties_cache.end()) {
+    throw std::runtime_error("Device not found");
+  }
+  auto& cuda_properties = cuda_match->second;
+
+  auto driver_match = _driver_properties_cache.find(device.value());
+  if (driver_match == _driver_properties_cache.end()) {
+    throw std::runtime_error("Driver properties not found");
+  }
+  auto& driver_properties = driver_match->second;
 
   if constexpr (p == property::multiProcessorCount) {
-    return static_cast<int>(properties.multiProcessorCount);
+    return static_cast<int>(cuda_properties.multiProcessorCount);
   } else if constexpr (p == property::pageableMemoryAccess) {
-    return static_cast<bool>(properties.pageableMemoryAccess);
+    return static_cast<bool>(cuda_properties.pageableMemoryAccess);
   } else if constexpr (p == property::unifiedAddressing) {
-    return static_cast<bool>(properties.unifiedAddressing);
+    return static_cast<bool>(cuda_properties.unifiedAddressing);
   } else if constexpr (p == property::managedMemory) {
-    return static_cast<bool>(properties.managedMemory);
+    return static_cast<bool>(cuda_properties.managedMemory);
+  } else if constexpr (p == property::memDecompressSupport) {
+    return static_cast<bool>(driver_properties.memDecompressSupport);
   } else {
     static_assert(dependent_false<p>::value, "The requested device property is not implemented.");
   }

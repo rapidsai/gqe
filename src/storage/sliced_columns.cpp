@@ -19,6 +19,7 @@
 #include <gqe/executor/aggregate.hpp>
 
 #include <gqe/storage/in_memory.hpp>
+#include <gqe/utility/cuda.hpp>
 
 namespace gqe {
 namespace storage {
@@ -31,7 +32,9 @@ void do_decompress_buffers(
   const std::vector<std::unique_ptr<rmm::device_buffer>>& compressed_data_buffers,
   const std::vector<cudf::size_type>& compressed_data_sizes,
   rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+  rmm::device_async_resource_ref mr,
+  const bool is_secondary_compressed,
+  cudf::data_type cudf_type)
 {
   const std::vector<size_t> partition_idxs = pruning_result.partition_indexes();
   const size_t num_buffers                 = partition_idxs.size();
@@ -65,78 +68,93 @@ void do_decompress_buffers(
                                   reinterpret_cast<uint8_t**>(comp_buffers),
                                   reinterpret_cast<uint8_t**>(host_comp_buffers.data()),
                                   num_buffers,
+                                  is_secondary_compressed,
+                                  cudf_type,
                                   stream,
                                   mr);
   // Release pointer arrays in pinned memory
   cudf_pinned_resource.deallocate_async(comp_buffers, sizeof(std::byte*) * num_buffers, stream);
 }
 
-compressed_sliced_column::compressed_sliced_column(cudf::column&& cudf_column,
-                                                   compression_format comp_format,
-                                                   rmm::cuda_stream_view stream,
-                                                   rmm::device_async_resource_ref mr,
-                                                   nvcompType_t nvcomp_data_format,
-                                                   int chunk_size,
-                                                   int partition_size,
-                                                   double compression_ratio_threshold,
-                                                   std::string column_name,
-                                                   cudf::data_type cudf_type)
-  : column_base(),
-    _partition_size(partition_size),
-    _comp_format(comp_format),
-    _compression_ratio(0.0),
-    _null_mask_compression_ratio(0.0),
-    _is_compressed(false),
-    _is_null_mask_compressed(false),
-    _nvcomp_manager(comp_format,
-                    nvcomp_data_format,
-                    chunk_size,
-                    stream,
-                    mr,
-                    compression_ratio_threshold,
-                    column_name,
-                    cudf_type),
-    _nvcomp_null_manager(
-      comp_format, NVCOMP_TYPE_CHAR, chunk_size, stream, mr, compression_ratio_threshold)
+compressed_sliced_column::compressed_sliced_column(
+  cudf::column&& cudf_column,
+  int partition_size,
+  memory_kind::type memory_kind,
+  compression_format comp_format,
+  compression_format secondary_compression_format,
+  int compression_chunk_size,
+  double compression_ratio_threshold,
+  double secondary_compression_ratio_threshold,
+  double secondary_compression_multiplier_threshold,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr,
+  std::string column_name,
+  cudf::data_type cudf_type)
+  : compressed_sliced_column(cudf_column,
+                             partition_size,
+                             memory_kind,
+                             comp_format,
+                             secondary_compression_format,
+                             compression_chunk_size,
+                             compression_ratio_threshold,
+                             secondary_compression_ratio_threshold,
+                             secondary_compression_multiplier_threshold,
+                             stream,
+                             mr,
+                             column_name,
+                             cudf_type)
 {
-  _size       = cudf_column.size();
-  _dtype      = cudf_column.type();
-  _null_count = cudf_column.null_count();
-
-  compress(std::move(cudf_column), stream, mr);
+  compress(std::move(cudf_column), memory_kind, stream, mr);
 }
 
-compressed_sliced_column::compressed_sliced_column(const cudf::column& cudf_column,
-                                                   compression_format comp_format,
-                                                   rmm::cuda_stream_view stream,
-                                                   rmm::device_async_resource_ref mr,
-                                                   nvcompType_t nvcomp_data_format,
-                                                   int chunk_size,
-                                                   int partition_size,
-                                                   double compression_ratio_threshold,
-                                                   std::string column_name,
-                                                   cudf::data_type cudf_type)
+compressed_sliced_column::compressed_sliced_column(
+  const cudf::column& cudf_column,
+  int partition_size,
+  memory_kind::type memory_kind,
+  compression_format comp_format,
+  compression_format secondary_comp_format,
+  int compression_chunk_size,
+  double compression_ratio_threshold,
+  double secondary_compression_ratio_threshold,
+  double secondary_compression_multiplier_threshold,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr,
+  std::string column_name,
+  cudf::data_type cudf_type)
   : column_base(),
     _partition_size(partition_size),
     _comp_format(comp_format),
     _compression_ratio(0.0),
     _null_mask_compression_ratio(0.0),
     _is_compressed(false),
+    _is_secondary_compressed(false),
     _is_null_mask_compressed(false),
     _nvcomp_manager(comp_format,
-                    nvcomp_data_format,
-                    chunk_size,
+                    secondary_comp_format,
+                    compression_chunk_size,
                     stream,
                     mr,
                     compression_ratio_threshold,
+                    secondary_compression_ratio_threshold,
+                    secondary_compression_multiplier_threshold,
                     column_name,
                     cudf_type),
-    _nvcomp_null_manager(
-      comp_format, NVCOMP_TYPE_CHAR, chunk_size, stream, mr, compression_ratio_threshold)
-
+    _nvcomp_null_manager(comp_format,
+                         gqe::compression_format::none,
+                         compression_chunk_size,
+                         stream,
+                         mr,
+                         compression_ratio_threshold,
+                         secondary_compression_ratio_threshold,
+                         secondary_compression_multiplier_threshold,
+                         column_name,
+                         cudf_type),
+    _secondary_compression_format(secondary_comp_format),
+    _secondary_compression_ratio_threshold(secondary_compression_ratio_threshold),
+    _secondary_compression_multiplier_threshold(secondary_compression_multiplier_threshold)
 {
   _size       = cudf_column.size();
-  _dtype      = cudf_column.type();
+  _cudf_type  = cudf_column.type();
   _null_count = cudf_column.null_count();
 }
 
@@ -236,7 +254,9 @@ bool compressed_sliced_column::decompress(std::byte* target_ptr,
                         _compressed_data_buffers,
                         _compressed_data_sizes,
                         stream,
-                        mr);
+                        mr,
+                        _is_secondary_compressed,
+                        _cudf_type);
   return true;
 }
 
@@ -249,34 +269,56 @@ void compressed_sliced_column::do_compress(
   bool& is_compressed,
   size_t& compressed_size,
   bool is_null_mask,
+  memory_kind::type memory_kind,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  utility::nvtx_scoped_range compress_batch_range("compress_batch");
+
   const uint8_t* bytes_buffer = reinterpret_cast<const uint8_t*>(input->data());
   size_t start_ix             = 0;
 
-  std::vector<rmm::device_buffer> device_uncompressed_data_buffers;
+  std::vector<std::unique_ptr<rmm::device_buffer>> device_uncompressed_data_buffers;
+  std::vector<const void*> input_ptrs;
+  std::vector<size_t> input_sizes;
+  std::vector<void*> device_ptrs;
   for (size_t ix_partition = 0; ix_partition < num_partitions; ix_partition++) {
     size_t row_start_ix = ix_partition * _partition_size;
     size_t row_count    = std::min(num_rows - row_start_ix, _partition_size);
-    size_t size         = row_count * cudf::size_of(_dtype);
+    size_t size         = row_count * cudf::size_of(_cudf_type);
     if (is_null_mask) { size = gqe::utility::divide_round_up(row_count, 32) * 4; }
-    device_uncompressed_data_buffers.emplace_back(bytes_buffer + start_ix, size, stream, mr);
+
+    device_uncompressed_data_buffers.push_back(
+      std::make_unique<rmm::device_buffer>(size, stream, mr));
+    input_ptrs.push_back(reinterpret_cast<const void*>(bytes_buffer + start_ix));
+    input_sizes.push_back(size);
+    device_ptrs.push_back(reinterpret_cast<void*>(device_uncompressed_data_buffers.back()->data()));
     start_ix += size;
   }
 
-  compression_manager& manager = is_null_mask ? _nvcomp_null_manager : _nvcomp_manager;
+  gqe::utility::do_batched_memcpy((void**)device_ptrs.data(),
+                                  (void**)input_ptrs.data(),
+                                  input_sizes.data(),
+                                  num_partitions,
+                                  stream);
 
-  compressed_data_buffers = manager.compress_batch(device_uncompressed_data_buffers,
+  compression_manager& manager   = is_null_mask ? _nvcomp_null_manager : _nvcomp_manager;
+  bool try_secondary_compression = is_null_mask ? false : true;
+  compressed_data_buffers = manager.compress_batch(std::move(device_uncompressed_data_buffers),
                                                    _compression_ratio,
                                                    is_compressed,
                                                    compressed_size,
                                                    compressed_sizes,
+                                                   _cudf_type,
+                                                   memory_kind,
+                                                   _is_secondary_compressed,
+                                                   try_secondary_compression,
                                                    stream,
                                                    mr);
 }
 
 void compressed_sliced_column::compress(cudf::column&& cudf_column,
+                                        memory_kind::type memory_kind,
                                         rmm::cuda_stream_view stream,
                                         rmm::device_async_resource_ref mr)
 {
@@ -295,6 +337,7 @@ void compressed_sliced_column::compress(cudf::column&& cudf_column,
               _is_compressed,
               _compressed_size,
               false /*is_null_mask*/,
+              memory_kind,
               stream,
               mr);
 
@@ -307,6 +350,7 @@ void compressed_sliced_column::compress(cudf::column&& cudf_column,
                 _is_null_mask_compressed,
                 _null_mask_compressed_size,
                 true /*is_null_mask*/,
+                memory_kind,
                 stream,
                 mr);
     rmm::device_buffer null_mask_buffer(
@@ -328,27 +372,32 @@ cudf::size_type compressed_sliced_column::null_count() const { return _null_coun
 template <bool large_string_mode>
 string_compressed_sliced_column<large_string_mode>::string_compressed_sliced_column(
   cudf::column&& cudf_column,
+  int partition_size,
+  memory_kind::type memory_kind,
   compression_format comp_format,
+  compression_format secondary_compression_format,
+  int compression_chunk_size,
+  double compression_ratio_threshold,
+  double secondary_compression_ratio_threshold,
+  double secondary_compression_multiplier_threshold,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr,
-  int chunk_size,
-  int partition_size,
-  double compression_ratio_threshold,
   std::string column_name)
   : string_compressed_sliced_column_base(cudf_column,
+                                         partition_size,
+                                         memory_kind,
                                          comp_format,
+                                         secondary_compression_format,
+                                         compression_chunk_size,
+                                         compression_ratio_threshold,
+                                         secondary_compression_ratio_threshold,
+                                         secondary_compression_multiplier_threshold,
                                          stream,
                                          mr,
-                                         NVCOMP_TYPE_CHAR,
-                                         chunk_size,
-                                         partition_size,
-                                         compression_ratio_threshold,
                                          column_name,
-                                         cudf::data_type(cudf::type_id::STRING)),
-    _nvcomp_offset_manager(
-      comp_format, offset_nvcomp_data_type, chunk_size, stream, mr, compression_ratio_threshold)
+                                         cudf::data_type(cudf::type_id::STRING))
 {
-  compress(std::move(cudf_column), stream, mr);
+  compress(std::move(cudf_column), memory_kind, stream, mr);
 }
 
 template <bool large_string_mode>
@@ -376,6 +425,7 @@ bool string_compressed_sliced_column<large_string_mode>::is_large_string() const
  */
 template <bool large_string_mode>
 void string_compressed_sliced_column<large_string_mode>::compress(cudf::column&& cudf_column,
+                                                                  memory_kind::type memory_kind,
                                                                   rmm::cuda_stream_view stream,
                                                                   rmm::device_async_resource_ref mr)
 {
@@ -395,27 +445,52 @@ void string_compressed_sliced_column<large_string_mode>::compress(cudf::column&&
   GQE_CUDA_TRY(cudaMemcpy(
     offsets_data_host.data(), offsets_data, child_content.data->size(), cudaMemcpyDefault));
 
-  std::vector<rmm::device_buffer> device_uncompressed_data_buffers;
+  std::vector<std::unique_ptr<rmm::device_buffer>> device_uncompressed_data_buffers;
+  std::vector<const void*> input_ptrs;
+  std::vector<size_t> input_sizes;
+  std::vector<void*> device_ptrs;
+
+  device_uncompressed_data_buffers.reserve(num_partitions);
+  input_ptrs.reserve(num_partitions);
+  input_sizes.reserve(num_partitions);
+  device_ptrs.reserve(num_partitions);
   for (size_t ix_partition = 0; ix_partition < num_partitions; ix_partition++) {
     size_t start_offset        = ix_partition * _partition_size;
     size_t end_offset          = std::min(start_offset + _partition_size, num_rows);
     size_t partition_char_size = offsets_data_host[end_offset] - offsets_data_host[start_offset];
-    device_uncompressed_data_buffers.emplace_back(
-      char_data + offsets_data_host[start_offset], partition_char_size, stream, mr);
+    device_uncompressed_data_buffers.push_back(
+      std::make_unique<rmm::device_buffer>(partition_char_size, stream, mr));
+    input_ptrs.push_back(
+      reinterpret_cast<const void*>(char_data + offsets_data_host[start_offset]));
+    input_sizes.push_back(partition_char_size);
+    device_ptrs.push_back(reinterpret_cast<void*>(device_uncompressed_data_buffers.back()->data()));
     _partition_char_array_sizes.push_back(partition_char_size);
     _partition_row_counts.push_back(end_offset - start_offset);
   }
-  float compression_ratio;
-  _compressed_data_buffers = _nvcomp_manager.compress_batch(device_uncompressed_data_buffers,
-                                                            compression_ratio,
-                                                            _is_compressed,
-                                                            _compressed_size,
-                                                            _compressed_data_sizes,
-                                                            stream,
-                                                            mr);
+  gqe::utility::do_batched_memcpy((void**)device_ptrs.data(),
+                                  (void**)input_ptrs.data(),
+                                  input_sizes.data(),
+                                  num_partitions,
+                                  stream);
+
+  _compressed_data_buffers =
+    _nvcomp_manager.compress_batch(std::move(device_uncompressed_data_buffers),
+                                   _compression_ratio,
+                                   _is_compressed,
+                                   _compressed_size,
+                                   _compressed_data_sizes,
+                                   cudf::data_type(cudf::type_id::STRING),
+                                   memory_kind,
+                                   _is_secondary_compressed,
+                                   true /*try secondary compression*/,
+                                   stream,
+                                   mr);
 
   // Compress the null mask using the parent class method
   if (_null_count > 0) {
+    // Use do_compress here because the null mask is the same as in the normal compressed sliced
+    // column Char buffers and offset arrays are set up differently for strings and can't use the
+    // shared helper.
     do_compress(column_content.null_mask.get(),
                 _compressed_null_masks,
                 _compressed_null_mask_sizes,
@@ -424,6 +499,7 @@ void string_compressed_sliced_column<large_string_mode>::compress(cudf::column&&
                 _is_null_mask_compressed,
                 _null_mask_compressed_size,
                 true /*is_null_mask*/,
+                memory_kind,
                 stream,
                 mr);
     for (size_t ix_partition = 0; ix_partition < num_partitions; ix_partition++) {
@@ -438,7 +514,11 @@ void string_compressed_sliced_column<large_string_mode>::compress(cudf::column&&
   // Adjust the offset array and compress it. We can do the offset adjustment on the CPU because
   // the write task isn't timed.
   size_t child_compressed_size;
-  std::vector<rmm::device_buffer> device_uncompressed_offsets_buffers;
+  input_ptrs.clear();
+  input_sizes.clear();
+  device_ptrs.clear();
+  std::vector<std::unique_ptr<rmm::device_buffer>> device_uncompressed_offsets_buffers;
+  device_uncompressed_offsets_buffers.reserve(num_partitions);
   for (size_t ix_partition = 0; ix_partition < num_partitions; ++ix_partition) {
     size_t ix_start       = ix_partition * _partition_size;
     size_t ix_end         = std::min(ix_start + _partition_size, num_rows);
@@ -448,18 +528,31 @@ void string_compressed_sliced_column<large_string_mode>::compress(cudf::column&&
     for (size_t ix_offset = ix_start; ix_offset < ix_end; ++ix_offset) {
       offsets_data_host[ix_offset] -= partition_base;
     }
-    device_uncompressed_offsets_buffers.emplace_back(
-      &offsets_data_host[ix_start], partition_rows * sizeof(offsets_type), stream, mr);
+    input_ptrs.push_back(reinterpret_cast<const void*>(&offsets_data_host[ix_start]));
+    input_sizes.push_back(partition_rows * sizeof(offsets_type));
+    device_uncompressed_offsets_buffers.push_back(
+      std::make_unique<rmm::device_buffer>(partition_rows * sizeof(offsets_type), stream, mr));
+    device_ptrs.push_back(
+      reinterpret_cast<void*>(device_uncompressed_offsets_buffers.back()->data()));
   }
+  gqe::utility::do_batched_memcpy((void**)device_ptrs.data(),
+                                  (void**)input_ptrs.data(),
+                                  input_sizes.data(),
+                                  num_partitions,
+                                  stream);
 
   _compressed_offset_partitions =
-    _nvcomp_offset_manager.compress_batch(device_uncompressed_offsets_buffers,
-                                          compression_ratio,
-                                          _offsets_are_compressed,
-                                          child_compressed_size,
-                                          _compressed_offset_sizes,
-                                          stream,
-                                          mr);
+    _nvcomp_manager.compress_batch(std::move(device_uncompressed_offsets_buffers),
+                                   _offsets_compression_ratio,
+                                   _offsets_are_compressed,
+                                   child_compressed_size,
+                                   _compressed_offset_sizes,
+                                   offset_element_type,
+                                   memory_kind,
+                                   _offsets_are_secondary_compressed,
+                                   true /* try secondary compression */,
+                                   stream,
+                                   mr);
 }
 
 template <bool large_string_mode>
@@ -546,7 +639,9 @@ std::pair<bool, size_t> string_compressed_sliced_column<large_string_mode>::deco
                           _compressed_data_buffers,
                           _compressed_data_sizes,
                           stream,
-                          mr);
+                          mr,
+                          _is_secondary_compressed,
+                          _cudf_type);
     for (auto partition_idx : pruning_result.partition_indexes()) {
       char_decompressed_size += _partition_char_array_sizes[partition_idx];
     }
@@ -564,11 +659,13 @@ std::pair<bool, size_t> string_compressed_sliced_column<large_string_mode>::deco
     do_decompress_buffers(offset_target_ptr,
                           offset_compression_buffer,
                           pruning_result,
-                          _nvcomp_offset_manager,
+                          _nvcomp_manager,
                           _compressed_offset_partitions,
                           _compressed_offset_sizes,
                           stream,
-                          mr);
+                          mr,
+                          _offsets_are_secondary_compressed,
+                          offset_element_type);
   }
 
   return {was_compressed, char_decompressed_size};

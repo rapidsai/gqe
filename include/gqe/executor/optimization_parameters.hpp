@@ -102,11 +102,6 @@ struct optimization_parameters {
 
   bool use_in_memory_table_multigpu =
     false;  ///< Use inter-process shared memory for the in-memory table.
-  compression_format in_memory_table_compression_format =
-    compression_format::none;  ///< Compression format for the in-memory table.
-  nvcompType_t in_memory_table_compression_data_type =
-    NVCOMP_TYPE_CHAR;                    ///< Determines how input data is viewed as for compression
-  int compression_chunk_size = 1 << 16;  ///< Size of each chunk for nvcomp Compression
   std::size_t io_block_size =
     2048;  ///< Size in KiB of the I/O block used by the customized Parquet reader.
   io_engine_type io_engine =
@@ -125,9 +120,31 @@ struct optimization_parameters {
   bool aggregation_use_perfect_hash =
     true;                              ///< Allow aggregation to be optimized with perfect hashing.
   int32_t num_shuffle_partitions = 2;  ///< Number of shuffle partitions for shuffle join.
-  double compression_ratio_threshold =
-    1.0;  ///< Compression ratio threshold to decide whether to compress the columns. Below this
-          ///< threshold, columns are stored uncompressed. Higher ratio means better compression.
+  double in_memory_table_compression_ratio_threshold =
+    1.0;  ///< Compression ratio threshold that determines whether to use the primary compression
+          ///< algorithm to compress the columns. Below this threshold, the primary compression
+          ///< algorithm will not be used. If the secondary compression is not used, the data will
+          ///< be stored uncompressed. Higher ratio means better compression.
+  compression_format in_memory_table_compression_format =
+    compression_format::none;  ///< Compression format for the in-memory table.
+  int in_memory_table_compression_chunk_size =
+    1 << 16;  ///< Size of each chunk for nvcomp Compression
+  compression_format in_memory_table_secondary_compression_format =
+    compression_format::none;  ///< Compression format for the secondary compression algorithm for
+                               ///< the in-memory table.
+  double in_memory_table_secondary_compression_ratio_threshold =
+    3.0;  ///< Compression ratio threshold to decide whether to use the secondary compression
+          ///< algorithm to compress the columns. Below this threshold, the secondary compression
+          ///< algorithm will not be considered. If the secondary compression is above this
+          ///< threshold, and is at least secondary_compression_multiplier_threshold times better
+          ///< than the primary compression algorithm, then the secondary compression algorithm will
+          ///< be used.
+  double in_memory_table_secondary_compression_multiplier_threshold =
+    1.5;  ///< This threshold is used to determine whether the secondary compression algorithm is
+          ///< "better enough" to be used instead of the primary compression algorithm. If the
+          ///< secondary compression ratio is at least secondary_compression_multiplier_threshold
+          ///< times better than the primary compression ratio, then the secondary compression
+          ///< algorithm will be used.
 };
 
 }  // namespace gqe

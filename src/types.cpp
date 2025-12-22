@@ -206,6 +206,20 @@ bool memory_kind::is_gpu_accessible(memory_kind::type type)
     type);
 }
 
+bool memory_kind::is_cpu_accessible(memory_kind::type type)
+{
+  return std::visit(utility::overloaded{
+                      [&](memory_kind::system) { return true; },
+                      [&](memory_kind::numa) { return true; },
+                      [&](memory_kind::pinned) { return true; },
+                      [&](memory_kind::numa_pinned) { return true; },
+                      [&](memory_kind::managed) { return true; },
+                      [&](memory_kind::boost_shared) { return true; },
+                      [&](memory_kind::device) { return false; },
+                    },
+                    type);
+}
+
 bool memory_kind::system::operator==(system const&) const = default;
 
 bool memory_kind::numa::operator==(numa const& other) const

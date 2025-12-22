@@ -70,6 +70,18 @@ int detect_launch_grid_size(const KernelType kernel,
 }
 
 /**
+ * @brief Perform a batched memcpy operation.
+ *
+ * @param[out] dst_ptrs The destination pointers.
+ * @param[in] src_ptrs The source pointers.
+ * @param[out] sizes The sizes of each copied buffer.
+ * @param[in] num_buffers The number of buffers to copy.
+ * @param[in] stream The CUDA stream on which to execute the operation.
+ */
+void do_batched_memcpy(
+  void** dst_ptrs, void** src_ptrs, size_t* sizes, size_t num_buffers, cudaStream_t stream);
+
+/**
  * @brief NVTX domain which should be used across the GQE project
  */
 struct gqe_nvtx_domain {

@@ -37,6 +37,7 @@
 #include <cudf/column/column_view.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
+
 #include <rmm/mr/device/device_memory_resource.hpp>
 
 #include <deque>
@@ -286,7 +287,6 @@ class compressed_column : public column_base {
                     compression_format comp_format,
                     rmm::cuda_stream_view stream,
                     rmm::device_async_resource_ref mr,
-                    nvcompType_t nvcomp_data_format,
                     int compression_chunk_size,
                     double compression_ratio_threshold,
                     std::string column_name   = "",
@@ -337,11 +337,11 @@ class compressed_column : public column_base {
  private:
   int64_t _size;
   int64_t _compressed_size;
-  cudf::data_type _dtype;
+  cudf::data_type _cudf_type;
   cudf::size_type _null_count;
   compression_format _comp_format;
-  float _compression_ratio;
-  float _null_mask_compression_ratio;
+  double _compression_ratio;
+  double _null_mask_compression_ratio;
   bool _is_compressed;
   bool _is_null_mask_compressed;
   compression_manager _nvcomp_manager;
@@ -362,13 +362,16 @@ using compression_buffer_map =
 class compressed_sliced_column : public column_base {
  public:
   compressed_sliced_column(cudf::column&& cudf_column,
+                           int partition_size,
+                           memory_kind::type memory_kind,
                            compression_format comp_format,
+                           compression_format secondary_compression_format,
+                           int compression_chunk_size,
+                           double compression_ratio_threshold,
+                           double secondary_compression_ratio_threshold,
+                           double secondary_compression_multiplier_threshold,
                            rmm::cuda_stream_view stream,
                            rmm::device_async_resource_ref mr,
-                           nvcompType_t nvcomp_data_format,
-                           int compression_chunk_size,
-                           int partition_size,
-                           double compression_ratio_threshold,
                            std::string column_name   = "",
                            cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
 
@@ -447,12 +450,13 @@ class compressed_sliced_column : public column_base {
   size_t _partition_size;
   cudf::size_type _null_count;
 
-  cudf::data_type _dtype;
+  cudf::data_type _cudf_type;
   std::vector<cudf::size_type> _null_counts;
   compression_format _comp_format;
-  float _compression_ratio;
-  float _null_mask_compression_ratio;
+  double _compression_ratio;
+  double _null_mask_compression_ratio;
   bool _is_compressed;
+  bool _is_secondary_compressed;
   bool _is_null_mask_compressed;
   compression_manager _nvcomp_manager;
   compression_manager _nvcomp_null_manager;
@@ -463,18 +467,28 @@ class compressed_sliced_column : public column_base {
   std::vector<cudf::size_type> _compressed_data_sizes;
   std::vector<cudf::size_type> _compressed_null_mask_sizes;
 
+  const compression_format _secondary_compression_format;
+  const double _secondary_compression_ratio_threshold;
+  const double _secondary_compression_multiplier_threshold;
+
+  // Protected constructor -- this is only called by derived classes (the string sliced column)
+  // We fill the base members but don't do compression
   compressed_sliced_column(const cudf::column& cudf_column,
+                           int partition_size,
+                           memory_kind::type memory_kind,
                            compression_format comp_format,
+                           compression_format secondary_compression_format,
+                           int compression_chunk_size,
+                           double compression_ratio_threshold,
+                           double secondary_compression_ratio_threshold,
+                           double secondary_compression_multiplier_threshold,
                            rmm::cuda_stream_view stream,
                            rmm::device_async_resource_ref mr,
-                           nvcompType_t nvcomp_data_format,
-                           int compression_chunk_size,
-                           int partition_size,
-                           double compression_ratio_threshold,
                            std::string column_name,
                            cudf::data_type cudf_type);
 
   void compress(cudf::column&& cudf_column,
+                memory_kind::type memory_kind,
                 rmm::cuda_stream_view stream,
                 rmm::device_async_resource_ref mr);
 
@@ -500,6 +514,7 @@ class compressed_sliced_column : public column_base {
                    bool& is_compressed,
                    size_t& compressed_size,
                    bool is_null_mask,
+                   memory_kind::type memory_kind,
                    rmm::cuda_stream_view stream,
                    rmm::device_async_resource_ref mr);
 
@@ -574,21 +589,29 @@ template <bool large_string_mode>
 class string_compressed_sliced_column : public string_compressed_sliced_column_base {
  public:
   string_compressed_sliced_column(cudf::column&& cudf_column,
+                                  int partition_size,
+                                  memory_kind::type memory_kind,
                                   compression_format comp_format,
+                                  compression_format secondary_compression_format,
+                                  int compression_chunk_size,
+                                  double compression_ratio_threshold,
+                                  double secondary_compression_ratio_threshold,
+                                  double secondary_compression_multiplier_threshold,
                                   rmm::cuda_stream_view stream,
                                   rmm::device_async_resource_ref mr,
-                                  int compression_chunk_size,
-                                  int partition_size,
-                                  double compression_ratio_threshold,
-                                  std::string column_name = "");
+                                  std::string column_name);
 
   /// @copydoc string_compressed_sliced_column_base::is_large_string
   virtual bool is_large_string() const override;
 
   /// Represent the size of the character offsets.
   using offsets_type = std::conditional_t<large_string_mode, int64_t, int32_t>;
+  static constexpr cudf::data_type offset_element_type = large_string_mode
+                                                           ? cudf::data_type(cudf::type_id::INT64)
+                                                           : cudf::data_type(cudf::type_id::INT32);
 
   void compress(cudf::column&& cudf_column,
+                memory_kind::type memory_kind,
                 rmm::cuda_stream_view stream,
                 rmm::device_async_resource_ref mr);
 
@@ -680,11 +703,10 @@ class string_compressed_sliced_column : public string_compressed_sliced_column_b
   std::vector<cudf::size_type> _compressed_offset_sizes;
   std::vector<cudf::size_type> _partition_char_array_sizes;
   std::vector<cudf::size_type> _partition_row_counts;
-  compression_manager _nvcomp_offset_manager;
-  // This needs to come after the manager for proper destruction order
-  std::vector<nvcomp::CompressionConfig> _compressed_offset_configs;
 
   bool _offsets_are_compressed;
+  bool _offsets_are_secondary_compressed;
+  double _offsets_compression_ratio;
 
   static constexpr nvcompType_t offset_nvcomp_data_type =
     large_string_mode ? NVCOMP_TYPE_LONGLONG : NVCOMP_TYPE_INT;
@@ -721,11 +743,11 @@ class shared_compressed_column_base {
   int64_t _size;
   int64_t _compressed_size;
   int64_t _compressed_null_mask_size;
-  cudf::data_type _dtype;
+  cudf::data_type _cudf_type;
   cudf::size_type _null_count;
   compression_format _comp_format;
-  float _compression_ratio;
-  float _null_mask_compression_ratio;
+  double _compression_ratio;
+  double _null_mask_compression_ratio;
   bool _is_compressed;
   bool _is_null_mask_compressed;
   compression_manager _nvcomp_manager;
@@ -1269,6 +1291,7 @@ class in_memory_write_task : public write_task_base {
                        std::shared_ptr<task> input,
                        rmm::mr::device_memory_resource* non_owned_memory_resource,
                        in_memory_table::row_group_appender appender,
+                       memory_kind::type memory_kind,
                        std::vector<cudf::size_type> column_indexes,
                        std::vector<std::string> column_names,
                        std::vector<cudf::data_type> data_types,
@@ -1290,6 +1313,7 @@ class in_memory_write_task : public write_task_base {
   std::vector<cudf::size_type> _column_indexes;
   std::vector<std::string> _column_names;
   std::vector<cudf::data_type> _data_types;
+  memory_kind::type _memory_kind;
   table_statistics_manager* _statistics;
 };
 

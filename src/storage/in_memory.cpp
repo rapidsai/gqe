@@ -330,7 +330,6 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
                                      compression_format comp_format,
                                      rmm::cuda_stream_view stream,
                                      rmm::device_async_resource_ref mr,
-                                     nvcompType_t nvcomp_data_format,
                                      int compression_chunk_size,
                                      double compression_ratio_threshold,
                                      std::string column_name,
@@ -342,16 +341,18 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
     _is_compressed(false),
     _is_null_mask_compressed(false),
     _nvcomp_manager(comp_format,
-                    nvcomp_data_format,
+                    compression_format::none,
                     compression_chunk_size,
                     stream,
                     mr,
                     compression_ratio_threshold,
+                    0.0,  // secondary compression ratio threshold
+                    0.0,  // secondary compression multiplier threshold
                     column_name,
                     cudf_type)
 {
   _size       = cudf_column.size();
-  _dtype      = cudf_column.type();
+  _cudf_type  = cudf_column.type();
   _null_count = cudf_column.null_count();
 
   auto column_content = cudf_column.release();
@@ -364,15 +365,13 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
   _compressed_children.reserve(column_content.children.size());
 
   for (auto& child : column_content.children) {
-    auto dtype         = child->type().id();
-    nvcomp_data_format = get_optimal_nvcomp_data_type(dtype);
+    auto dtype = child->type().id();
 
     if ((comp_format == gqe::compression_format::best_compression_ratio) ||
         (comp_format == gqe::compression_format::best_decompression_speed)) {
       best_compression_config(
         dtype,
         comp_format,
-        nvcomp_data_format,
         (comp_format == gqe::compression_format::best_compression_ratio ? 0 : 1));
     }
 
@@ -380,7 +379,6 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
                                                                        comp_format,
                                                                        stream,
                                                                        mr,
-                                                                       nvcomp_data_format,
                                                                        compression_chunk_size,
                                                                        compression_ratio_threshold,
                                                                        column_name + "_child",
@@ -397,7 +395,7 @@ shared_compressed_column_base::shared_compressed_column_base(
     _compressed_size(compressed_column._compressed_data->size()),
     _compressed_null_mask_size(
       compressed_column._null_count > 0 ? compressed_column._compressed_null_mask->size() : 0),
-    _dtype(compressed_column._dtype),
+    _cudf_type(compressed_column._cudf_type),
     _null_count(compressed_column._null_count),
     _comp_format(compressed_column._comp_format),
     _compression_ratio(compressed_column._compression_ratio),
@@ -406,11 +404,13 @@ shared_compressed_column_base::shared_compressed_column_base(
     _is_compressed(compressed_column._is_compressed),
     _is_null_mask_compressed(compressed_column._is_null_mask_compressed),
     _nvcomp_manager(compressed_column._nvcomp_manager.get_comp_format(),
-                    compressed_column._nvcomp_manager.get_data_type(),
+                    compression_format::none,
                     compressed_column._nvcomp_manager.get_compression_chunk_size(),
                     stream,
                     mr,
                     compressed_column._nvcomp_manager.get_compression_ratio_threshold(),
+                    0.0,  // secondary compression ratio threshold
+                    0.0,  // secondary compression multiplier threshold
                     compressed_column._nvcomp_manager.get_column_name(),
                     compressed_column._nvcomp_manager.get_cudf_type()),
     _compressed_children(SharedColumnAllocator(segment.get_segment_manager())),
@@ -476,7 +476,7 @@ std::unique_ptr<cudf::column> shared_compressed_column_base::decompress(
     decompressed_null_mask = std::make_unique<rmm::device_buffer>();
   }
 
-  return std::make_unique<cudf::column>(_dtype,
+  return std::make_unique<cudf::column>(_cudf_type,
                                         _size,
                                         std::move(*decompressed_data),
                                         std::move(*decompressed_null_mask),
@@ -588,7 +588,7 @@ std::unique_ptr<cudf::column> compressed_column::decompress(rmm::cuda_stream_vie
     decompressed_null_mask = std::make_unique<rmm::device_buffer>();
   }
 
-  return std::make_unique<cudf::column>(_dtype,
+  return std::make_unique<cudf::column>(_cudf_type,
                                         _size,
                                         std::move(*decompressed_data),
                                         std::move(*decompressed_null_mask),
@@ -720,39 +720,6 @@ cudf::column_view slice_column(const cudf::column_view& full_column,
   const auto children =
     std::vector<cudf::column_view>(full_column.child_begin(), full_column.child_end());
   return cudf::column_view(type, size, head, null_mask, null_counts, offset, children);
-}
-
-void do_batched_memcpy(std::byte** dst_ptrs,
-                       std::byte** src_ptrs,
-                       size_t* sizes,
-                       size_t num_buffers,
-                       rmm::cuda_stream_view stream)
-{
-  assert(num_buffers > 0 && "Must at least copy a single buffer");
-  std::vector<cudaMemcpyAttributes> attrs(1);
-  attrs[0].srcAccessOrder       = cudaMemcpySrcAccessOrderStream;
-  attrs[0].flags                = 0;
-  std::vector<size_t> attrsIdxs = {0};
-  size_t numAttrs               = attrs.size();
-  size_t fail_idx;
-#ifndef NDEBUG
-  for (size_t i = 0; i < num_buffers; ++i) {
-    GQE_LOG_DEBUG("i = {}, dst_ptrs[i] = {}, src_ptrs[i] = {}, sizes[i] = {}",
-                  i,
-                  (void*)dst_ptrs[i],
-                  (void*)src_ptrs[i],
-                  sizes[i]);
-  }
-#endif
-  GQE_CUDA_TRY(cudaMemcpyBatchAsync((void**)dst_ptrs,
-                                    (void**)src_ptrs,
-                                    sizes,
-                                    num_buffers,
-                                    attrs.data(),
-                                    attrsIdxs.data(),
-                                    numAttrs,
-                                    &fail_idx,
-                                    stream));
 }
 
 // This is called for all columns but always returns the same value.
@@ -1228,8 +1195,11 @@ string_compressed_sliced_output_column_helper<large_string_mode>::make_cudf_colu
   for (auto& [row_group, pruning_result] : *_pruning_results) {
     num_partitions += pruning_result.partition_indexes().size();
   }
-  offsets_type* partition_offsets = static_cast<offsets_type*>(cudf_pinned_resource.allocate_async(
-    num_partitions * sizeof(offsets_type), alignof(offsets_type), concatenation_stream));
+
+  rmm::device_buffer partition_offsets_buffer(
+    num_partitions * sizeof(offsets_type), concatenation_stream, cudf_pinned_resource);
+  offsets_type* partition_offsets =
+    reinterpret_cast<offsets_type*>(partition_offsets_buffer.data());
   GQE_CUDA_TRY(cudaStreamSynchronize(concatenation_stream));
   size_t char_offset          = 0;
   size_t partition_offset_idx = 0;
@@ -1247,8 +1217,6 @@ string_compressed_sliced_output_column_helper<large_string_mode>::make_cudf_colu
                      partition_offsets,
                      _char_buffer->size(),
                      concatenation_stream);
-  cudf_pinned_resource.deallocate_async(
-    partition_offsets, num_partitions * sizeof(offsets_type), concatenation_stream);
   GQE_LOG_DEBUG(
     "Adjusted offsets; _column_idx = {}, num_partitions = {}, char_offset = {}, _num_rows = {}, "
     "partition_size = {}, _char_buffer->size() = {}",
@@ -1525,12 +1493,16 @@ void in_memory_read_task::emit_copied_result(std::unique_ptr<pruning_results_t> 
     // Allocate pointer and size arrays for batched memcpy
     auto cudf_pinned_resource = cudf::get_pinned_memory_resource();
     auto stream               = cudf::get_default_stream();
-    std::byte** src_ptrs      = reinterpret_cast<std::byte**>(cudf_pinned_resource.allocate_async(
-      sizeof(std::byte*) * num_copied_buffers, alignof(std::byte*), stream));
-    std::byte** dst_ptrs      = reinterpret_cast<std::byte**>(cudf_pinned_resource.allocate_async(
-      sizeof(std::byte*) * num_copied_buffers, alignof(std::byte*), stream));
-    size_t* sizes             = reinterpret_cast<size_t*>(cudf_pinned_resource.allocate_async(
-      sizeof(size_t) * num_copied_buffers, alignof(size_t), stream));
+
+    rmm::device_buffer sizes_buffer(
+      sizeof(size_t) * num_copied_buffers, stream, cudf_pinned_resource);
+    size_t* sizes = reinterpret_cast<size_t*>(sizes_buffer.data());
+    rmm::device_buffer dst_ptrs_buffer(
+      sizeof(std::byte*) * num_copied_buffers, stream, cudf_pinned_resource);
+    std::byte** dst_ptrs = reinterpret_cast<std::byte**>(dst_ptrs_buffer.data());
+    rmm::device_buffer src_ptrs_buffer(
+      sizeof(std::byte*) * num_copied_buffers, stream, cudf_pinned_resource);
+    std::byte** src_ptrs = reinterpret_cast<std::byte**>(src_ptrs_buffer.data());
     GQE_CUDA_TRY(cudaStreamSynchronize(stream));
 
     GQE_LOG_DEBUG(
@@ -1550,20 +1522,14 @@ void in_memory_read_task::emit_copied_result(std::unique_ptr<pruning_results_t> 
     }
 
     GQE_LOG_DEBUG("Batched memcpy");
-    do_batched_memcpy(dst_ptrs, src_ptrs, sizes, num_copied_buffers, stream);
-
-    // Release pointer arrays in pinned memory
-    cudf_pinned_resource.deallocate_async(
-      src_ptrs, sizeof(std::byte*) * num_copied_buffers, stream);
-    cudf_pinned_resource.deallocate_async(
-      dst_ptrs, sizeof(std::byte*) * num_copied_buffers, stream);
-    cudf_pinned_resource.deallocate_async(sizes, sizeof(size_t) * num_copied_buffers, stream);
+    gqe::utility::do_batched_memcpy(
+      (void**)dst_ptrs, (void**)src_ptrs, sizes, num_copied_buffers, stream);
   }
 
-  GQE_LOG_DEBUG("Decompressing colunns");
+  GQE_LOG_DEBUG("Decompressing columns");
   bool has_compressed_columns = false;
   {
-    utility::nvtx_scoped_range nvtx_range("Decompressing colunns");
+    utility::nvtx_scoped_range nvtx_range("Decompressing columns");
     for (auto& column_creator : output_columns) {
       bool was_compressed = column_creator->decompress_row_group_columns(decompression_stream);
       has_compressed_columns |= was_compressed;
@@ -1653,6 +1619,7 @@ in_memory_write_task::in_memory_write_task(
   std::shared_ptr<task> input,
   rmm::mr::device_memory_resource* non_owned_memory_resource,
   in_memory_table::row_group_appender appender,
+  memory_kind::type memory_kind,
   std::vector<cudf::size_type> column_indexes,
   std::vector<std::string> column_names,
   std::vector<cudf::data_type> data_types,
@@ -1663,6 +1630,7 @@ in_memory_write_task::in_memory_write_task(
     _column_indexes(std::move(column_indexes)),
     _column_names(std::move(column_names)),
     _data_types(std::move(data_types)),
+    _memory_kind(memory_kind),
     _statistics(statistics)
 {
 }
@@ -1712,19 +1680,24 @@ void in_memory_write_task::execute_default()
     auto cudf_column         = cudf::column(input_column, stream, _non_owned_memory_resource);
 
     auto comp_format = get_query_context()->parameters.in_memory_table_compression_format;
-    auto const compression_chunk_size = get_query_context()->parameters.compression_chunk_size;
-    auto compression_ratio_threshold  = get_query_context()->parameters.compression_ratio_threshold;
+    auto const compression_chunk_size =
+      get_query_context()->parameters.in_memory_table_compression_chunk_size;
+    auto compression_ratio_threshold =
+      get_query_context()->parameters.in_memory_table_compression_ratio_threshold;
+    auto secondary_comp_format =
+      get_query_context()->parameters.in_memory_table_secondary_compression_format;
+    auto secondary_compression_ratio_threshold =
+      get_query_context()->parameters.in_memory_table_secondary_compression_ratio_threshold;
+    auto secondary_compression_multiplier_threshold =
+      get_query_context()->parameters.in_memory_table_secondary_compression_multiplier_threshold;
 
     auto dtype = cudf_column.type().id();
-
-    nvcompType_t nvcomp_data_format = get_optimal_nvcomp_data_type(dtype);
 
     if ((comp_format == gqe::compression_format::best_compression_ratio) ||
         (comp_format == gqe::compression_format::best_decompression_speed)) {
       best_compression_config(
         dtype,
         comp_format,
-        nvcomp_data_format,
         (comp_format == gqe::compression_format::best_compression_ratio ? 0 : 1));
     }
 
@@ -1740,7 +1713,6 @@ void in_memory_write_task::execute_default()
                                               comp_format,
                                               stream,
                                               _non_owned_memory_resource,
-                                              nvcomp_data_format,
                                               compression_chunk_size,
                                               compression_ratio_threshold,
                                               _column_names[column_idx],
@@ -1752,36 +1724,49 @@ void in_memory_write_task::execute_default()
         GQE_LOG_TRACE("String column size {}", chars_size);
         if (chars_size > std::numeric_limits<int32_t>::max()) {
           new_columns[_column_indexes[column_idx]] =
-            std::make_unique<string_compressed_sliced_column<true>>(std::move(cudf_column),
-                                                                    comp_format,
-                                                                    stream,
-                                                                    _non_owned_memory_resource,
-                                                                    compression_chunk_size,
-                                                                    partition_size,
-                                                                    compression_ratio_threshold,
-                                                                    _column_names[column_idx]);
+            std::make_unique<string_compressed_sliced_column<true>>(
+              std::move(cudf_column),
+              partition_size,
+              _memory_kind,
+              comp_format,
+              secondary_comp_format,
+              compression_chunk_size,
+              compression_ratio_threshold,
+              secondary_compression_ratio_threshold,
+              secondary_compression_multiplier_threshold,
+              stream,
+              _non_owned_memory_resource,
+              _column_names[column_idx]);
         } else {
           new_columns[_column_indexes[column_idx]] =
-            std::make_unique<string_compressed_sliced_column<false>>(std::move(cudf_column),
-                                                                     comp_format,
-                                                                     stream,
-                                                                     _non_owned_memory_resource,
-                                                                     compression_chunk_size,
-                                                                     partition_size,
-                                                                     compression_ratio_threshold,
-                                                                     _column_names[column_idx]);
+            std::make_unique<string_compressed_sliced_column<false>>(
+              std::move(cudf_column),
+              partition_size,
+              _memory_kind,
+              comp_format,
+              secondary_comp_format,
+              compression_chunk_size,
+              compression_ratio_threshold,
+              secondary_compression_ratio_threshold,
+              secondary_compression_multiplier_threshold,
+              stream,
+              _non_owned_memory_resource,
+              _column_names[column_idx]);
         }
       } else {
         GQE_LOG_TRACE("Compressed sliced column size {}", cudf_column.size());
         new_columns[_column_indexes[column_idx]] =
           std::make_unique<compressed_sliced_column>(std::move(cudf_column),
+                                                     partition_size,
+                                                     _memory_kind,
                                                      comp_format,
+                                                     secondary_comp_format,
+                                                     compression_chunk_size,
+                                                     compression_ratio_threshold,
+                                                     secondary_compression_ratio_threshold,
+                                                     secondary_compression_multiplier_threshold,
                                                      stream,
                                                      _non_owned_memory_resource,
-                                                     nvcomp_data_format,
-                                                     compression_chunk_size,
-                                                     partition_size,
-                                                     compression_ratio_threshold,
                                                      _column_names[column_idx],
                                                      cudf_column.type());
       }
@@ -1856,7 +1841,8 @@ void in_memory_write_task::execute_shared_memory()
 
   for (decltype(num_columns) column_idx = 0; column_idx < num_columns; ++column_idx) {
     auto comp_format = get_query_context()->parameters.in_memory_table_compression_format;
-    auto compression_ratio_threshold = get_query_context()->parameters.compression_ratio_threshold;
+    auto compression_ratio_threshold =
+      get_query_context()->parameters.in_memory_table_compression_ratio_threshold;
 
     std::string shared_column_name = [this, &column_idx] {
       std::ostringstream oss;
@@ -1885,17 +1871,16 @@ void in_memory_write_task::execute_shared_memory()
       if (gqe::utility::multi_process::mpi_rank_zero()) {
         cudf::column cudf_column(input_column, stream, rmm::mr::get_current_device_resource());
 
-        auto const chunk_size = get_query_context()->parameters.compression_chunk_size;
+        auto const chunk_size =
+          get_query_context()->parameters.in_memory_table_compression_chunk_size;
 
-        auto dtype                      = input_column.type().id();
-        nvcompType_t nvcomp_data_format = get_optimal_nvcomp_data_type(dtype);
+        auto dtype = input_column.type().id();
 
         if ((comp_format == gqe::compression_format::best_compression_ratio) ||
             (comp_format == gqe::compression_format::best_decompression_speed)) {
           best_compression_config(
             dtype,
             comp_format,
-            nvcomp_data_format,
             (comp_format == gqe::compression_format::best_compression_ratio ? 0 : 1));
         }
 
@@ -1905,7 +1890,6 @@ void in_memory_write_task::execute_shared_memory()
                                                           comp_format,
                                                           stream,
                                                           rmm::mr::get_current_device_resource(),
-                                                          nvcomp_data_format,
                                                           chunk_size,
                                                           compression_ratio_threshold,
                                                           _column_names[column_idx]);
@@ -2110,6 +2094,7 @@ std::vector<std::unique_ptr<write_task_base>> in_memory_writeable_view::get_writ
                                                              std::move(task_parameter.input),
                                                              memory_resource,
                                                              std::move(appender),
+                                                             _non_owning_table->_memory_kind,
                                                              column_indexes,
                                                              column_names,
                                                              data_types,

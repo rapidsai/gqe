@@ -308,6 +308,11 @@ using type = std::variant<memory_kind::system,
 bool is_gpu_accessible(memory_kind::type type);
 
 /**
+ * @brief Return whether the CPU can directly access the memory kind
+ */
+bool is_cpu_accessible(memory_kind::type type);
+
+/**
  * @brief Hash function for memory_kind::type.
  */
 struct type_hash {

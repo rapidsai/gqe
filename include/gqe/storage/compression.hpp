@@ -41,22 +41,91 @@ using namespace gqe;
 class compression_manager {
  private:
   gqe::compression_format _comp_format;
-  nvcompType_t _data_type;
+  gqe::compression_format _secondary_comp_format;
   int _compression_chunk_size;
   std::string _column_name;
   cudf::data_type _cudf_type;
   double _compression_ratio_threshold;
+  double _secondary_compression_ratio_threshold;
+  double _secondary_compression_multiplier_threshold;
+  nvcompDecompressBackend_t _decompress_backend;
 
   void print_usage() const;
   /**
-   * @brief Function that creates a nvcompManagerBase object based on the compression format.
+   * @brief Factory method to create a nvcompManagerBase object based on the compression format.
    *
    * @param[in] supplied_stream Stream to use for compression/decompression
    * @param[in] mr Memory resource to use for allocator and deallocating scratch memory required for
    * nvcomp
    */
-  std::unique_ptr<nvcompManagerBase> create_manager(rmm::cuda_stream_view stream,
+  std::unique_ptr<nvcompManagerBase> create_manager(gqe::compression_format comp_format,
+                                                    nvcompType_t data_type,
+                                                    rmm::cuda_stream_view stream,
                                                     rmm::device_async_resource_ref mr) const;
+
+  /**
+   * @brief Helper function to try a single compression algorithm
+   *
+   * @param[in] device_uncompressed Array of pointers to uncompressed buffers
+
+   * @param[in] total_uncompressed_size Total size of the uncompressed column
+   * @param[in] uncompressed_ptrs Array of pointers to uncompressed buffers
+   * @param[in] comp_format Compression format to use
+   * @param[in] data_type Data type to use for compression
+   * @param[in] cudf_type CUDF data type of the column being compressed
+   * @param[in] num_buffers Number of buffers to compress
+   * @param[in] memory_kind Memory kind of the column being compressed
+   * @param[out] compressed_ptrs Array of pointers to compressed buffers
+   * @param[out] compression_ratio Compression ratio of the compressed column
+   * @param[out] compressed_size Total size of the compressed column
+   * @param[out] compressed_sizes Vector of sizes of the compressed buffers
+   * @param[in] stream Stream to use for compression
+   * @param[in] mr Memory resource to use for compression
+   * @return Vector of pointers to compressed buffers
+   */
+  std::vector<std::unique_ptr<rmm::device_buffer>> try_compression_algorithm(
+    const std::vector<std::unique_ptr<rmm::device_buffer>>& device_uncompressed,
+    const size_t total_uncompressed_size,
+    uint8_t** uncompressed_ptrs,
+    gqe::compression_format comp_format,
+    nvcompType_t data_type,
+    cudf::data_type cudf_type,
+    size_t num_buffers,
+    memory_kind::type memory_kind,
+    uint8_t** compressed_ptrs,
+    double& compression_ratio,
+    size_t& compressed_size,
+    std::vector<cudf::size_type>& compressed_sizes,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr) const;
+
+  /**
+   * @brief Helper function to compact the compressed data buffers
+   *
+   * @param[in] compressed_data_buffers Array of pointers to compressed buffers
+   * @param[in] compressed_sizes Vector of sizes of the compressed buffers
+   * @param[in] num_buffers Number of buffers to compact
+   * @param[in] stream Stream to use for compression/decompression
+   * @param[in] mr Memory resource to use for compression/decompression
+   * @return Vector of pointers to compressed buffers
+   */
+  std::vector<std::unique_ptr<rmm::device_buffer>> compact_compressed_buffers(
+    const std::vector<std::unique_ptr<rmm::device_buffer>>& compressed_data_buffers,
+    const std::vector<cudf::size_type>& compressed_sizes,
+    const size_t num_buffers,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr) const;
+
+  /**
+   * @brief Helper function to determine the best compression algorithm
+   *
+   * @param[in] base_compression_ratio Compression ratio of the base compression algorithm
+   * @param[in] secondary_compression_ratio Compression ratio of the secondary compression algorithm
+   * @return a pair of booleans indicating whether compression was viable or not and whether
+   secondary compression was used
+   */
+  std::pair<bool, bool> determine_best_compression(const double base_compression_ratio,
+                                                   const double secondary_compression_ratio) const;
 
  public:
   /**
@@ -64,7 +133,7 @@ class compression_manager {
    *
    * @param[in] comp_format Compression format to use
    * @param[in] data_format Data format to use for compression configuration
-   * @param[in] explicit_compression_chunk_size Chunk size to use for nvcomp
+   * @param[in] compression_chunk_size Chunk size to use for nvcomp
    * @param[in] stream Stream to use for compression/decompression
    * @param[in] mr Memory resource to use for allocator in nvcomp
    * @param[in] compression_ratio_threshold Compression ratio threshold to decide whether to
@@ -73,11 +142,13 @@ class compression_manager {
    * @param[in] cudf_type CUDF data type of the column being compressed
    */
   compression_manager(gqe::compression_format comp_format,
-                      nvcompType_t data_format,
-                      int explicit_compression_chunk_size,
+                      gqe::compression_format secondary_compression_format,
+                      int compression_chunk_size,
                       rmm::cuda_stream_view stream,
                       rmm::device_async_resource_ref mr,
                       double compression_ratio_threshold,
+                      double secondary_compression_ratio_threshold,
+                      double secondary_compression_multiplier_threshold,
                       std::string column_name   = "",
                       cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
 
@@ -91,7 +162,7 @@ class compression_manager {
    * @param[in] mr Memory resource to use for compression
    */
   std::unique_ptr<rmm::device_buffer> do_compress(rmm::device_buffer const* uncompressed,
-                                                  float& compression_ratio,
+                                                  double& compression_ratio,
                                                   bool& is_compressed,
                                                   rmm::cuda_stream_view supplied_stream,
                                                   rmm::device_async_resource_ref mr);
@@ -115,6 +186,9 @@ class compression_manager {
    * @param[in] device_compressed Array of pointers to compressed buffers
    * @param[in] host_compressed A copy of device_compressed available to host
    * @param[in] batch_count the number of compressed batches to decompress
+   * @param[in] is_secondary_compressed Boolean flag that stores whether secondary compression was
+   * used
+   * @param[in] cudf_type CUDF data type of the column being decompressed
    * @param[in] stream Stream to use for decompression
    * @param[in] mr Memory resource to use for decompression
    */
@@ -122,6 +196,8 @@ class compression_manager {
                         const uint8_t* const* device_compressed,
                         const uint8_t* const* host_compressed,
                         const size_t batch_count,
+                        const bool is_secondary_compressed,
+                        cudf::data_type cudf_type,
                         rmm::cuda_stream_view stream,
                         rmm::device_async_resource_ref mr) const;
 
@@ -133,15 +209,25 @@ class compression_manager {
    * @param[out] is_compressed Boolean flag that stores whether compression was viable or not
    * @param[out] compressed_size Total size of the compressed column
    * @param[out] compressed_sizes Vector of sizes of the compressed buffers
+   * @param[in] cudf_type CUDF data type of the column being compressed
+   * @param[in] memory_kind Memory kind of the column being compressed
+   * @param[out] is_secondary_compressed Boolean flag that stores whether secondary compression was
+   * used
+   * @param[in] try_secondary_compression Boolean flag that stores whether to try secondary
+   * compression
    * @param[in] stream Stream to use for compression
    * @param[in] mr Memory resource to use for compression
    */
   std::vector<std::unique_ptr<rmm::device_buffer>> compress_batch(
-    const std::vector<rmm::device_buffer>& device_uncompressed,
-    float& compression_ratio,
+    std::vector<std::unique_ptr<rmm::device_buffer>>&& device_uncompressed,
+    double& compression_ratio,
     bool& is_compressed,
     size_t& compressed_size,
     std::vector<cudf::size_type>& compressed_sizes,
+    cudf::data_type cudf_type,
+    memory_kind::type memory_kind,
+    bool& is_secondary_compressed,
+    bool try_secondary_compression,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr);
 
@@ -157,11 +243,6 @@ class compression_manager {
    *
    * */
   gqe::compression_format get_comp_format() const;
-
-  /**
-   * @brief Function to fetch the data type used by the compression manager.
-   * */
-  nvcompType_t get_data_type() const;
 
   /**
    * @brief Function to fetch the chunk size used by the compression manager.
@@ -214,57 +295,30 @@ inline nvcompType_t get_optimal_nvcomp_data_type(cudf::type_id dtype)
   }
 }
 
-// Function to map cudf::type_id to ideal compression_format and nvcomp_data_format.
+// Function to map cudf::type_id to ideal compression_format.
 // Mode 0: Optimizes for best compression ratio
 // Mode 1: Optimizes for best decompression speed
 inline void best_compression_config(cudf::type_id dtype,
                                     gqe::compression_format& comp_format,
-                                    nvcompType_t& nvcomp_data_format,
                                     int mode)
 {
   switch (dtype) {
-    case cudf::type_id::INT8:
-      comp_format        = gqe::compression_format::bitcomp;
-      nvcomp_data_format = NVCOMP_TYPE_CHAR;
-      break;
-    case cudf::type_id::INT16:
-      comp_format        = gqe::compression_format::bitcomp;
-      nvcomp_data_format = NVCOMP_TYPE_SHORT;
-      break;
-    case cudf::type_id::INT32:
-      comp_format        = gqe::compression_format::bitcomp;
-      nvcomp_data_format = NVCOMP_TYPE_INT;
-      break;
-    case cudf::type_id::INT64:
-      comp_format        = gqe::compression_format::bitcomp;
-      nvcomp_data_format = NVCOMP_TYPE_LONGLONG;
-      break;
-    case cudf::type_id::UINT8:
-      comp_format        = gqe::compression_format::bitcomp;
-      nvcomp_data_format = NVCOMP_TYPE_UCHAR;
-      break;
-    case cudf::type_id::UINT16:
-      comp_format        = gqe::compression_format::bitcomp;
-      nvcomp_data_format = NVCOMP_TYPE_USHORT;
-      break;
-    case cudf::type_id::UINT32:
-      comp_format        = gqe::compression_format::bitcomp;
-      nvcomp_data_format = NVCOMP_TYPE_UINT;
-      break;
-    case cudf::type_id::UINT64:
-      comp_format        = gqe::compression_format::bitcomp;
-      nvcomp_data_format = NVCOMP_TYPE_ULONGLONG;
-      break;
+    case cudf::type_id::INT8: comp_format = gqe::compression_format::bitcomp; break;
+    case cudf::type_id::INT16: comp_format = gqe::compression_format::bitcomp; break;
+    case cudf::type_id::INT32: comp_format = gqe::compression_format::bitcomp; break;
+    case cudf::type_id::INT64: comp_format = gqe::compression_format::bitcomp; break;
+    case cudf::type_id::UINT8: comp_format = gqe::compression_format::bitcomp; break;
+    case cudf::type_id::UINT16: comp_format = gqe::compression_format::bitcomp; break;
+    case cudf::type_id::UINT32: comp_format = gqe::compression_format::bitcomp; break;
+    case cudf::type_id::UINT64: comp_format = gqe::compression_format::bitcomp; break;
     case cudf::type_id::FLOAT32:
     case cudf::type_id::FLOAT64:
     case cudf::type_id::DICTIONARY32:
     case cudf::type_id::LIST:
       if (mode == 0) {
-        comp_format        = gqe::compression_format::zstd;
-        nvcomp_data_format = NVCOMP_TYPE_CHAR;
+        comp_format = gqe::compression_format::zstd;
       } else {
-        comp_format        = gqe::compression_format::ans;
-        nvcomp_data_format = NVCOMP_TYPE_FLOAT16;
+        comp_format = gqe::compression_format::ans;
       }
       break;
     case cudf::type_id::BOOL8:
@@ -278,23 +332,11 @@ inline void best_compression_config(cudf::type_id dtype,
     case cudf::type_id::DURATION_MILLISECONDS:
     case cudf::type_id::DURATION_MICROSECONDS:
     case cudf::type_id::DURATION_NANOSECONDS:
-    case cudf::type_id::DECIMAL32:
-      comp_format        = gqe::compression_format::bitcomp;
-      nvcomp_data_format = NVCOMP_TYPE_INT;
-      break;
+    case cudf::type_id::DECIMAL32: comp_format = gqe::compression_format::bitcomp; break;
     case cudf::type_id::DECIMAL64:
-    case cudf::type_id::DECIMAL128:
-      comp_format        = gqe::compression_format::bitcomp;
-      nvcomp_data_format = NVCOMP_TYPE_LONGLONG;
-      break;
-    case cudf::type_id::STRING:
-      comp_format        = gqe::compression_format::ans;
-      nvcomp_data_format = NVCOMP_TYPE_CHAR;
-      break;
-    default:
-      comp_format        = gqe::compression_format::bitcomp;
-      nvcomp_data_format = NVCOMP_TYPE_INT;
-      break;
+    case cudf::type_id::DECIMAL128: comp_format = gqe::compression_format::bitcomp; break;
+    case cudf::type_id::STRING: comp_format = gqe::compression_format::ans; break;
+    default: comp_format = gqe::compression_format::bitcomp; break;
   }
 }
 

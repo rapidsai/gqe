@@ -53,6 +53,36 @@ rmm::cuda_device_id current_cuda_device_id()
   return rmm::cuda_device_id{id};
 }
 
+void do_batched_memcpy(
+  void** dst_ptrs, void** src_ptrs, size_t* sizes, size_t num_buffers, cudaStream_t stream)
+{
+  assert(num_buffers > 0 && "Must at least copy a single buffer");
+  std::vector<cudaMemcpyAttributes> attrs(1);
+  attrs[0].srcAccessOrder       = cudaMemcpySrcAccessOrderStream;
+  attrs[0].flags                = 0;
+  std::vector<size_t> attrsIdxs = {0};
+  size_t numAttrs               = attrs.size();
+  size_t fail_idx;
+#ifndef NDEBUG
+  for (size_t i = 0; i < num_buffers; ++i) {
+    GQE_LOG_DEBUG("i = {}, dst_ptrs[i] = {}, src_ptrs[i] = {}, sizes[i] = {}",
+                  i,
+                  (void*)dst_ptrs[i],
+                  (void*)src_ptrs[i],
+                  sizes[i]);
+  }
+#endif
+  GQE_CUDA_TRY(cudaMemcpyBatchAsync((void**)dst_ptrs,
+                                    (void**)src_ptrs,
+                                    sizes,
+                                    num_buffers,
+                                    attrs.data(),
+                                    attrsIdxs.data(),
+                                    numAttrs,
+                                    &fail_idx,
+                                    stream));
+}
+
 }  // namespace utility
 
 }  // namespace gqe

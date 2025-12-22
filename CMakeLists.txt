@@ -20,7 +20,7 @@ if(CCACHE_FOUND)
   set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
   set(CMAKE_C_COMPILER_LAUNCHER ccache)
   set(CMAKE_CUDA_COMPILER_LAUNCHER ccache)
-  set(env{CCACHE_BASEDIR} ${CMAKE_SOURCE_DIR})
+  set(env{CCACHE_BASEDIR} ${CMAKE_CURRENT_LIST_DIR})
 endif()
 
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
@@ -86,7 +86,7 @@ cpmaddpackage(
 
 # CMake variable for gqe-nvcomp tag
 set(GQE_NVCOMP_TAG
-    "aab6b669b6e5fe1a370aa5c87c2dfdf0dbe82c69"
+    "4b0330cb579cc3f0dd868916139044fcc7aca4aa"
     CACHE STRING "Git tag for gqe-nvcomp")
 set(GQE_NVCOMP_SOURCE_DIR
     ""
@@ -107,7 +107,8 @@ if(GQE_NVCOMP_SOURCE_DIR)
     "BUILD_BENCHMARKS OFF"
     "BUILD_EXAMPLES OFF"
     "BUILD_NVCOMP ON"
-    "BUILD_NVCOMPDX OFF")
+    "BUILD_NVCOMPDX OFF"
+    "CMAKE_CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES}")
 else()
   message(STATUS "Using nvcomp from git with tag: ${GQE_NVCOMP_TAG}")
   cpmaddpackage(
@@ -124,7 +125,16 @@ else()
     "BUILD_BENCHMARKS OFF"
     "BUILD_EXAMPLES OFF"
     "BUILD_NVCOMP ON"
-    "BUILD_NVCOMPDX OFF")
+    "BUILD_NVCOMPDX OFF"
+    "CMAKE_CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES}")
+endif()
+
+find_program(CCACHE_FOUND ccache)
+if(CCACHE_FOUND)
+  set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
+  set(CMAKE_C_COMPILER_LAUNCHER ccache)
+  set(CMAKE_CUDA_COMPILER_LAUNCHER ccache)
+  set(env{CCACHE_BASEDIR} ${CMAKE_CURRENT_LIST_DIR})
 endif()
 
 # ##############################################################################

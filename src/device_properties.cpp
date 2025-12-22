@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+#include <cuda.h>
 #include <gqe/device_properties.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
@@ -52,7 +53,15 @@ device_properties::device_properties()
   for (auto const& device : get_all_devices()) {
     cudaDeviceProp deviceProp;
     GQE_CUDA_TRY(cudaGetDeviceProperties(&deviceProp, device.value()));
+    int memDecompressSupport = 0;
+    CUresult result          = cuDeviceGetAttribute(
+      &memDecompressSupport, CU_DEVICE_ATTRIBUTE_MEM_DECOMPRESS_ALGORITHM_MASK, device.value());
+    if (result != CUDA_SUCCESS) {
+      throw std::runtime_error("Failed to get device attribute MEM_DECOMPRESS_ALGORITHM_MASK");
+    }
     _device_properties_cache.insert(std::make_pair(device.value(), deviceProp));
+    _driver_properties_cache.insert(
+      std::make_pair(device.value(), driver_properties{memDecompressSupport}));
   }
 }
 

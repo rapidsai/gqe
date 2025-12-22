@@ -83,17 +83,17 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
     test_columns.push_back(col_1.release());
 
     // Setup row group
-    auto comp_format                 = query_ctx->parameters.in_memory_table_compression_format;
-    auto nvcomp_data_format          = query_ctx->parameters.in_memory_table_compression_data_type;
-    auto const chunk_size            = query_ctx->parameters.compression_chunk_size;
-    auto compression_ratio_threshold = query_ctx->parameters.compression_ratio_threshold;
+    auto comp_format      = query_ctx->parameters.in_memory_table_compression_format;
+    auto const chunk_size = query_ctx->parameters.in_memory_table_compression_chunk_size;
+    auto compression_ratio_threshold =
+      query_ctx->parameters.in_memory_table_compression_ratio_threshold;
 
     std::vector<std::unique_ptr<gqe::storage::column_base>> columns;
     std::transform(
       test_columns.cbegin(),
       test_columns.cend(),
       std::back_inserter(columns),
-      [comp_format, nvcomp_data_format, chunk_size, compression_ratio_threshold](
+      [comp_format, chunk_size, compression_ratio_threshold](
         auto const& col) mutable -> std::unique_ptr<gqe::storage::column_base> {
         if (comp_format == gqe::compression_format::none) {
           return std::make_unique<gqe::storage::contiguous_column>(cudf::column(*col));
@@ -105,7 +105,6 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
             best_compression_config(
               dtype,
               comp_format,
-              nvcomp_data_format,
               (comp_format == gqe::compression_format::best_compression_ratio ? 0 : 1));
           }
           return std::make_unique<gqe::storage::compressed_column>(
@@ -113,7 +112,6 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
             comp_format,
             cudf::get_default_stream(),
             rmm::mr::get_current_device_resource(),
-            nvcomp_data_format,
             chunk_size,
             compression_ratio_threshold);
         }
@@ -434,22 +432,36 @@ class InMemoryReadTaskTest : public ::testing::Test {
 
   // Create row groups from input table_views
   std::vector<const gqe::storage::row_group*> create_row_groups(
-    std::vector<cudf::table_view>::iterator begin, std::vector<cudf::table_view>::iterator end)
+    std::vector<cudf::table_view>::iterator begin,
+    std::vector<cudf::table_view>::iterator end,
+    bool try_cascaded = false)
   {
     std::vector<const gqe::storage::row_group*> result;
     std::transform(
       begin, end, std::back_inserter(result), [&](const cudf::table_view& input_table) {
         auto const comp_format = _query_ctx->parameters.in_memory_table_compression_format;
-        auto const nvcomp_data_format =
-          _query_ctx->parameters.in_memory_table_compression_data_type;
-        auto const chunk_size                  = _query_ctx->parameters.compression_chunk_size;
-        auto const compression_ratio_threshold = _query_ctx->parameters.compression_ratio_threshold;
+        auto const chunk_size  = _query_ctx->parameters.in_memory_table_compression_chunk_size;
+        auto const compression_ratio_threshold =
+          _query_ctx->parameters.in_memory_table_compression_ratio_threshold;
+        auto const secondary_compression_format =
+          _query_ctx->parameters.in_memory_table_secondary_compression_format;
+        auto const secondary_compression_ratio_threshold =
+          _query_ctx->parameters.in_memory_table_secondary_compression_ratio_threshold;
+        auto const secondary_compression_multiplier_threshold =
+          _query_ctx->parameters.in_memory_table_secondary_compression_multiplier_threshold;
         std::vector<std::unique_ptr<gqe::storage::column_base>> columns;
         std::transform(
           input_table.begin(),
           input_table.end(),
           std::back_inserter(columns),
-          [comp_format, nvcomp_data_format, chunk_size, compression_ratio_threshold, this](
+          [comp_format,
+           chunk_size,
+           compression_ratio_threshold,
+           secondary_compression_format,
+           secondary_compression_ratio_threshold,
+           secondary_compression_multiplier_threshold,
+           try_cascaded,
+           this](
             const cudf::column_view& column_view) -> std::unique_ptr<gqe::storage::column_base> {
             if (comp_format == gqe::compression_format::none) {
               return std::make_unique<gqe::storage::contiguous_column>(cudf::column(column_view));
@@ -458,28 +470,37 @@ class InMemoryReadTaskTest : public ::testing::Test {
                                                                        comp_format,
                                                                        cudf::get_default_stream(),
                                                                        *_memory_resource,
-                                                                       nvcomp_data_format,
                                                                        chunk_size,
                                                                        compression_ratio_threshold);
             } else if (column_view.type().id() == cudf::type_id::STRING) {
               return std::make_unique<gqe::storage::string_compressed_sliced_column<false>>(
                 cudf::column(column_view),
+                _partition_size,
+                _memory_kind,
                 comp_format,
+                secondary_compression_format,
+                chunk_size,
+                compression_ratio_threshold,
+                secondary_compression_ratio_threshold,
+                secondary_compression_multiplier_threshold,
                 cudf::get_default_stream(),
                 *_memory_resource,
-                chunk_size,
-                _partition_size,
-                compression_ratio_threshold);
+                "StringColumn" /*column_name*/);
             } else {
               return std::make_unique<gqe::storage::compressed_sliced_column>(
                 cudf::column(column_view),
+                _partition_size,
+                _memory_kind,
                 comp_format,
+                secondary_compression_format,
+                chunk_size,
+                compression_ratio_threshold,
+                secondary_compression_ratio_threshold,
+                secondary_compression_multiplier_threshold,
                 cudf::get_default_stream(),
                 *_memory_resource,
-                nvcomp_data_format,
-                chunk_size,
-                _partition_size,
-                compression_ratio_threshold);
+                "OtherColumn" /*column_name*/,
+                column_view.type());
             }
           });
 
@@ -977,7 +998,7 @@ TEST_F(InMemoryReadTaskTest,
   CUDF_TEST_EXPECT_TABLES_EQUAL(expected->view(), *task.result());
 }
 
-TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnWithGapMultipleRowGroups)
+TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnWithGapmultiplierowGroups)
 {
   constexpr auto partition_size         = 64 * 1024;
   constexpr auto num_rows_per_row_group = 4 * 64 * 1024;
@@ -1090,7 +1111,7 @@ TEST_F(InMemoryReadTaskTest, PartialIneffectiveCompression)
   // Compress input data.
   _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
   // Column with compression ratio ~1.41 would not take effect, fall back to uncompressed.
-  _query_ctx->parameters.compression_ratio_threshold = 2.0f;
+  _query_ctx->parameters.in_memory_table_compression_ratio_threshold = 2.0f;
   // Create a zone map filter 148 <= col0 < 157, which returns 1 partition.
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
   auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
@@ -1112,5 +1133,37 @@ TEST_F(InMemoryReadTaskTest, PartialIneffectiveCompression)
   constexpr cudf::size_type num_rows_in_result     = 64 * 1024;
   constexpr cudf::size_type start_offset_in_result = 0;
   auto expected = create_input_table(num_rows_in_result, start_offset_in_result);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
+}
+
+TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnAndCascaded)
+{
+  SetUp(true, 4 * 64 * 1024, 64 * 1024, true);
+  // SetUp(true, 1024, 512, true);
+  // Compress input dat
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+  _query_ctx->parameters.in_memory_table_secondary_compression_format =
+    gqe::compression_format::cascaded;
+  // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
+  std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 100, 65 * 1024);
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
+  // one row groups.
+
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end(), true /*try cascaded*/);
+  storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+
+  constexpr cudf::size_type num_rows_in_result = 128 * 1024;
+  auto expected = create_input_table(num_rows_in_result, 0 /*offset*/, true /*add_string_column*/);
   CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
 }

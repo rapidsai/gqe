@@ -54,7 +54,7 @@ tpch_queries:
     #- rm -rf build
     #- mkdir build
     #- pushd build
-    #- cmake -DCMAKE_BUILD_TYPE=Debug -DGQE_ENABLE_CUSTOMIZED_PARQUET=ON ..
+    #- cmake -DCMAKE_BUILD_TYPE=Debug -DGQE_ENABLE_CUSTOMIZED_PARQUET=ON -DCMAKE_VERBOSE_MAKEFILE=ON ..
     #- make -j30
     #- ctest --output-on-failure --exclude-regex parquet_reader
     #- popd

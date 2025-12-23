@@ -289,6 +289,8 @@ class compressed_column : public column_base {
                     rmm::device_async_resource_ref mr,
                     int compression_chunk_size,
                     double compression_ratio_threshold,
+                    bool use_cpu_compression  = false,
+                    int compression_level     = 10,
                     std::string column_name   = "",
                     cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
 
@@ -370,6 +372,8 @@ class compressed_sliced_column : public column_base {
                            double compression_ratio_threshold,
                            double secondary_compression_ratio_threshold,
                            double secondary_compression_multiplier_threshold,
+                           bool use_cpu_compression,
+                           int compression_level,
                            rmm::cuda_stream_view stream,
                            rmm::device_async_resource_ref mr,
                            std::string column_name   = "",
@@ -482,6 +486,8 @@ class compressed_sliced_column : public column_base {
                            double compression_ratio_threshold,
                            double secondary_compression_ratio_threshold,
                            double secondary_compression_multiplier_threshold,
+                           bool use_cpu_compression,
+                           int compression_level,
                            rmm::cuda_stream_view stream,
                            rmm::device_async_resource_ref mr,
                            std::string column_name,
@@ -597,6 +603,8 @@ class string_compressed_sliced_column : public string_compressed_sliced_column_b
                                   double compression_ratio_threshold,
                                   double secondary_compression_ratio_threshold,
                                   double secondary_compression_multiplier_threshold,
+                                  bool use_cpu_compression,
+                                  int compression_level,
                                   rmm::cuda_stream_view stream,
                                   rmm::device_async_resource_ref mr,
                                   std::string column_name);

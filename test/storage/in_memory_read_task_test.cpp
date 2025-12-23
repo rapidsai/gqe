@@ -449,6 +449,8 @@ class InMemoryReadTaskTest : public ::testing::Test {
           _query_ctx->parameters.in_memory_table_secondary_compression_ratio_threshold;
         auto const secondary_compression_multiplier_threshold =
           _query_ctx->parameters.in_memory_table_secondary_compression_multiplier_threshold;
+        auto const use_cpu_compression = _query_ctx->parameters.use_cpu_compression;
+        auto const compression_level   = _query_ctx->parameters.compression_level;
         std::vector<std::unique_ptr<gqe::storage::column_base>> columns;
         std::transform(
           input_table.begin(),
@@ -460,6 +462,8 @@ class InMemoryReadTaskTest : public ::testing::Test {
            secondary_compression_format,
            secondary_compression_ratio_threshold,
            secondary_compression_multiplier_threshold,
+           use_cpu_compression,
+           compression_level,
            try_cascaded,
            this](
             const cudf::column_view& column_view) -> std::unique_ptr<gqe::storage::column_base> {
@@ -483,6 +487,8 @@ class InMemoryReadTaskTest : public ::testing::Test {
                 compression_ratio_threshold,
                 secondary_compression_ratio_threshold,
                 secondary_compression_multiplier_threshold,
+                use_cpu_compression,
+                compression_level,
                 cudf::get_default_stream(),
                 *_memory_resource,
                 "StringColumn" /*column_name*/);
@@ -497,6 +503,8 @@ class InMemoryReadTaskTest : public ::testing::Test {
                 compression_ratio_threshold,
                 secondary_compression_ratio_threshold,
                 secondary_compression_multiplier_threshold,
+                use_cpu_compression,
+                compression_level,
                 cudf::get_default_stream(),
                 *_memory_resource,
                 "OtherColumn" /*column_name*/,

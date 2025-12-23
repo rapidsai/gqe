@@ -49,7 +49,8 @@ cxx_gqe::optimization_parameters new_optimization_parameters()
           p.io_block_size,
           p.io_engine,
           p.io_pipelining,
-          p.io_alignment};
+          p.io_alignment,
+          p.use_cpu_compression};
 }
 
 gqe::optimization_parameters to_gqe(cxx_gqe::optimization_parameters const& p)

@@ -21,6 +21,7 @@
 #include <gqe/storage/compression.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
+#include <mutex>
 
 // Helper function to convert compression format enum to string for logging
 std::string compression_format_to_string(gqe::compression_format comp_format)
@@ -41,6 +42,12 @@ std::string compression_format_to_string(gqe::compression_format comp_format)
   }
 }
 
+// Helper function to check if a compression algorithm is supported on the CPU
+bool is_algorthm_cpu_supported(gqe::compression_format comp_format)
+{
+  return comp_format == gqe::compression_format::lz4;
+}
+
 compression_manager::compression_manager(gqe::compression_format comp_format,
                                          gqe::compression_format secondary_compression_format,
                                          int compression_chunk_size,
@@ -49,6 +56,8 @@ compression_manager::compression_manager(gqe::compression_format comp_format,
                                          double compression_ratio_threshold,
                                          double secondary_compression_ratio_threshold,
                                          double secondary_compression_multiplier_threshold,
+                                         bool use_cpu_compression,
+                                         int compression_level,
                                          std::string column_name,
                                          cudf::data_type cudf_type)
   : _comp_format(comp_format),
@@ -58,7 +67,9 @@ compression_manager::compression_manager(gqe::compression_format comp_format,
     _cudf_type(cudf_type),
     _compression_ratio_threshold(compression_ratio_threshold),
     _secondary_compression_ratio_threshold(secondary_compression_ratio_threshold),
-    _secondary_compression_multiplier_threshold(secondary_compression_multiplier_threshold)
+    _secondary_compression_multiplier_threshold(secondary_compression_multiplier_threshold),
+    _use_cpu_compression(use_cpu_compression),
+    _compression_level(compression_level)
 {
   // Try a test allocation to see if we can access on the host
 
@@ -83,11 +94,13 @@ compression_manager::compression_manager(gqe::compression_format comp_format,
 
   GQE_LOG_TRACE(
     "Created compression manager for column '{}': format={}, chunk_size={}, "
-    "cudf_type={}",
+    "cudf_type={}, use_cpu_compression={}, compression_level={}",
     _column_name,
     compression_format_to_string(_comp_format),
     _compression_chunk_size,
-    _cudf_type);
+    _cudf_type,
+    _use_cpu_compression,
+    _compression_level);
 }
 
 std::unique_ptr<rmm::device_buffer> compression_manager::do_compress(
@@ -272,13 +285,31 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::try_compre
 {
   bool compression_mr_is_host_accessible = memory_kind::is_cpu_accessible(memory_kind);
 
-  std::vector<nvcomp::CompressionConfig> compression_configs;
-  std::vector<std::unique_ptr<rmm::device_buffer>> compressed_data_buffers;
   compressed_sizes.reserve(num_buffers);
 
-  auto compression_manager     = create_manager(comp_format, data_type, stream, mr);
-  size_t total_compressed_size = 0;
+  if ((_use_cpu_compression) && (is_algorthm_cpu_supported(comp_format))) {
+    return try_cpu_compression(device_uncompressed,
+                               total_uncompressed_size,
+                               uncompressed_ptrs,
+                               comp_format,
+                               data_type,
+                               cudf_type,
+                               num_buffers,
+                               memory_kind,
+                               compressed_ptrs,
+                               compression_ratio,
+                               compressed_size,
+                               compressed_sizes,
+                               stream,
+                               mr);
+  }
+
+  std::vector<nvcomp::CompressionConfig> compression_configs;
+  std::vector<std::unique_ptr<rmm::device_buffer>> compressed_data_buffers;
+  std::unique_ptr<nvcomp::nvcompManagerBase> compression_manager =
+    create_manager(comp_format, data_type, stream, mr);
   compression_configs.reserve(num_buffers);
+
   for (size_t ix = 0; ix < num_buffers; ix++) {
     auto& uncompressed = device_uncompressed[ix];
     auto config        = compression_manager->configure_compression(uncompressed->size());
@@ -287,26 +318,129 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::try_compre
       std::make_unique<rmm::device_buffer>(config.max_compressed_buffer_size, stream, mr));
     compressed_ptrs[ix] = static_cast<uint8_t*>(compressed_data_buffers.back()->data());
   }
-
   compression_manager->compress(uncompressed_ptrs, compressed_ptrs, compression_configs);
   if (compression_mr_is_host_accessible) {
     // Only necessary if we're going to grab the compressed sizes from the host
     GQE_CUDA_TRY(cudaStreamSynchronize(stream));
   }
 
+  size_t total_compressed_size = 0;
   for (size_t ix = 0; ix < num_buffers; ix++) {
-    size_t compressed_size = 0;
+    size_t comp_size = 0;
     if (compression_mr_is_host_accessible) {
-      compressed_size = compression_manager->get_compressed_output_size_host(compressed_ptrs[ix]);
-    } else {
-      compressed_size = compression_manager->get_compressed_output_size(compressed_ptrs[ix]);
-    }
-    assert(compressed_size <= compression_configs[ix].max_compressed_buffer_size);
+      comp_size = compression_manager->get_compressed_output_size_host(compressed_ptrs[ix]);
 
-    compressed_sizes.push_back(compressed_size);
-    total_compressed_size += compressed_size;
+    } else {
+      comp_size = compression_manager->get_compressed_output_size(compressed_ptrs[ix]);
+    }
+
+    assert(comp_size <= compression_configs[ix].max_compressed_buffer_size);
+
+    compressed_sizes.push_back(comp_size);
+    total_compressed_size += comp_size;
+  }
+  compression_ratio = static_cast<double>(total_uncompressed_size) / total_compressed_size;
+  return compressed_data_buffers;
+}
+
+std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::try_cpu_compression(
+  const std::vector<std::unique_ptr<rmm::device_buffer>>& device_uncompressed,
+  const size_t total_uncompressed_size,
+  uint8_t** uncompressed_ptrs,
+  gqe::compression_format comp_format,
+  nvcompType_t data_type,
+  cudf::data_type cudf_type,
+  size_t num_buffers,
+  memory_kind::type memory_kind,
+  uint8_t** compressed_ptrs,
+  double& compression_ratio,
+  size_t& compressed_size,
+  std::vector<cudf::size_type>& compressed_sizes,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr) const
+{
+  bool compression_mr_is_host_accessible = memory_kind::is_cpu_accessible(memory_kind);
+
+  std::unique_ptr<CPUHLIFManager> cpu_compression_manager;
+  std::vector<std::vector<uint8_t>> cpu_comp_buffers;
+
+  cpu_compression_manager = create_cpu_manager(_compression_level);
+
+  std::vector<size_t> max_comp_sizes;
+  std::vector<std::vector<uint8_t>> cpu_uncomp_buffers;
+  std::vector<std::unique_ptr<rmm::device_buffer>> compressed_data_buffers;
+
+  for (size_t ix = 0; ix < device_uncompressed.size(); ix++) {
+    auto& uncompressed = device_uncompressed[ix];
+    size_t max_compressed_size =
+      cpu_compression_manager->get_max_compressed_output_size(uncompressed->size());
+    max_comp_sizes.push_back(max_compressed_size);
+    cpu_comp_buffers.push_back(std::vector<uint8_t>(max_compressed_size));
+
+    compressed_data_buffers.push_back(
+      std::make_unique<rmm::device_buffer>(max_compressed_size, stream, mr));
+    compressed_ptrs[ix] = static_cast<uint8_t*>(compressed_data_buffers.back()->data());
+
+    // Check if uncompressed data is host-accessible
+    if (compression_mr_is_host_accessible) {
+      const uint8_t* host_ptr = static_cast<const uint8_t*>(uncompressed->data());
+      cpu_uncomp_buffers.push_back(std::vector<uint8_t>(host_ptr, host_ptr + uncompressed->size()));
+      // cpu_batch_compress expects const std::vector<std::vector<uint8_t>>&, so we cannot
+      // directly use the host pointer
+      GQE_LOG_TRACE("compress_batch: Buffer {} is host-accessible, avoiding cudaMemcpy D2H", ix);
+    } else {
+      GQE_LOG_TRACE("compress_batch: Buffer {} is device-only memory, copying via cudaMemcpy D2H",
+                    ix);
+      // Data is device-only memory, need to copy via cudaMemcpy
+      utility::nvtx_scoped_range nvtx_cpu_compress_dtoh("CPU_Compress_DtoH");
+      cpu_uncomp_buffers.push_back(std::vector<uint8_t>(uncompressed->size()));
+      GQE_CUDA_TRY(cudaMemcpyAsync(cpu_uncomp_buffers.back().data(),
+                                   uncompressed->data(),
+                                   uncompressed->size(),
+                                   cudaMemcpyDeviceToHost,
+                                   stream));
+    }
   }
 
+  if (compression_mr_is_host_accessible) {
+    // Synchronize the stream to ensure the data is copied before we launch CPU compression (which
+    // does not use CUDA stream).
+    GQE_CUDA_TRY(cudaStreamSynchronize(stream));
+  }
+
+  size_t total_compressed_size = 0;
+  // Use lock_guard in a scope to serialize CPU batch compression
+  {
+    static std::mutex cpu_batch_compress_mutex;
+    std::lock_guard<std::mutex> cpu_lock(cpu_batch_compress_mutex);
+
+    utility::nvtx_scoped_range nvtx_cpu_compress("CPU_Compress");
+    const int num_threads = std::thread::hardware_concurrency();
+    GQE_LOG_TRACE(
+      "Using CPU compression manager for batched compression of column '{}' with compression "
+      "level {}",
+      _column_name,
+      _compression_level);
+
+    cpu_compression_manager->cpu_batch_compress(
+      cpu_comp_buffers, cpu_uncomp_buffers, num_threads, max_comp_sizes);
+  }
+
+  for (size_t ix = 0; ix < cpu_comp_buffers.size(); ix++) {
+    size_t batch_comp_size =
+      cpu_compression_manager->get_compressed_output_size(cpu_comp_buffers[ix].data());
+    assert(batch_comp_size <= max_comp_sizes[ix]);
+    compressed_sizes.push_back(batch_comp_size);
+    total_compressed_size += batch_comp_size;
+
+    GQE_CUDA_TRY(cudaMemcpyAsync(compressed_ptrs[ix],
+                                 cpu_comp_buffers[ix].data(),
+                                 batch_comp_size,
+                                 cudaMemcpyHostToDevice,
+                                 stream));
+  }
+
+  compressed_size   = total_compressed_size;
   compression_ratio = static_cast<double>(total_uncompressed_size) / total_compressed_size;
   return compressed_data_buffers;
 }
@@ -478,7 +612,7 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_b
   }
 
   const char* success_msg = is_compressed ? "successful" : "unsuccessful";
-  GQE_LOG_INFO(
+  GQE_LOG_TRACE(
     "Compression {} for column '{}' using compression algorithm {}: "
     "uncompressed_size={}, "
     "compressed_size={}, compression_ratio={:.2f}, "
@@ -689,6 +823,30 @@ std::unique_ptr<nvcompManagerBase> compression_manager::create_manager(
   return manager;
 }
 
+std::unique_ptr<CPUHLIFManager> compression_manager::create_cpu_manager(int compression_level) const
+{
+  std::unique_ptr<CPUHLIFManager> cpu_manager;
+  switch (_comp_format) {
+    case gqe::compression_format::lz4:
+      cpu_manager = std::make_unique<LZ4CPUHLIFManager>(_compression_chunk_size);
+      cpu_manager->set_compression_level(compression_level);
+      break;
+    case gqe::compression_format::none:
+    case gqe::compression_format::ans:
+    case gqe::compression_format::snappy:
+    case gqe::compression_format::gdeflate:
+    case gqe::compression_format::deflate:
+    case gqe::compression_format::cascaded:
+    case gqe::compression_format::zstd:
+    case gqe::compression_format::gzip:
+    case gqe::compression_format::bitcomp:
+    case gqe::compression_format::best_compression_ratio:
+    case gqe::compression_format::best_decompression_speed:
+    default: throw std::runtime_error("Unsupported compression format for CPU compression manager");
+  }
+  return cpu_manager;
+}
+
 gqe::compression_format compression_manager::get_comp_format() const { return _comp_format; }
 
 int compression_manager::get_compression_chunk_size() const { return _compression_chunk_size; }
@@ -701,3 +859,7 @@ double compression_manager::get_compression_ratio_threshold() const
 {
   return _compression_ratio_threshold;
 }
+
+bool compression_manager::get_use_cpu_compression() const { return _use_cpu_compression; }
+
+int compression_manager::get_compression_level() const { return _compression_level; }

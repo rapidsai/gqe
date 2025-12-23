@@ -32,6 +32,9 @@
 #include <string>
 #include <vector>
 
+#include <CPUManager.hpp>
+#include <LZ4CPUHLIFManager.hpp>
+
 using namespace nvcomp;
 using namespace gqe;
 
@@ -49,6 +52,8 @@ class compression_manager {
   double _secondary_compression_ratio_threshold;
   double _secondary_compression_multiplier_threshold;
   nvcompDecompressBackend_t _decompress_backend;
+  bool _use_cpu_compression;
+  int _compression_level;
 
   void print_usage() const;
   /**
@@ -100,6 +105,41 @@ class compression_manager {
     rmm::device_async_resource_ref mr) const;
 
   /**
+   * @brief Helper function to try CPU compression
+   *
+   * @param[in] device_uncompressed Array of pointers to uncompressed buffers
+   * @param[in] total_uncompressed_size Total size of the uncompressed column
+   * @param[in] uncompressed_ptrs Array of pointers to uncompressed buffers
+   * @param[in] comp_format Compression format to use
+   * @param[in] data_type Data type to use for compression
+   * @param[in] cudf_type CUDF data type of the column being compressed
+   * @param[in] num_buffers Number of buffers to compress
+   * @param[in] memory_kind Memory kind of the column being compressed
+   * @param[out] compressed_ptrs Array of pointers to compressed buffers
+   * @param[out] compression_ratio Compression ratio of the compressed column
+   * @param[out] compressed_size Total size of the compressed column
+   * @param[out] compressed_sizes Vector of sizes of the compressed buffers
+   * @param[in] stream Stream to use for compression
+   * @param[in] mr Memory resource to use for compression
+   * @return Vector of pointers to compressed buffers
+   */
+  std::vector<std::unique_ptr<rmm::device_buffer>> try_cpu_compression(
+    const std::vector<std::unique_ptr<rmm::device_buffer>>& device_uncompressed,
+    const size_t total_uncompressed_size,
+    uint8_t** uncompressed_ptrs,
+    gqe::compression_format comp_format,
+    nvcompType_t data_type,
+    cudf::data_type cudf_type,
+    size_t num_buffers,
+    memory_kind::type memory_kind,
+    uint8_t** compressed_ptrs,
+    double& compression_ratio,
+    size_t& compressed_size,
+    std::vector<cudf::size_type>& compressed_sizes,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr) const;
+
+  /**
    * @brief Helper function to compact the compressed data buffers
    *
    * @param[in] compressed_data_buffers Array of pointers to compressed buffers
@@ -127,6 +167,14 @@ class compression_manager {
   std::pair<bool, bool> determine_best_compression(const double base_compression_ratio,
                                                    const double secondary_compression_ratio) const;
 
+  /**
+   * @brief Factory method to create a CPUHLIFManager object.
+   *
+   * @param[in] compression_level Compression level (1-12)
+   * @return A unique pointer to the CPUHLIFManager object
+   */
+  std::unique_ptr<CPUHLIFManager> create_cpu_manager(int compression_level) const;
+
  public:
   /**
    * @brief Constructor for class
@@ -138,6 +186,8 @@ class compression_manager {
    * @param[in] mr Memory resource to use for allocator in nvcomp
    * @param[in] compression_ratio_threshold Compression ratio threshold to decide whether to
    * compress the columns or not.
+   * @param[in] use_cpu_compression Whether to use CPU-based compression instead of GPU
+   * @param[in] compression_level Compression level (1-12)
    * @param[in] column_name Name of the column being compressed
    * @param[in] cudf_type CUDF data type of the column being compressed
    */
@@ -149,6 +199,8 @@ class compression_manager {
                       double compression_ratio_threshold,
                       double secondary_compression_ratio_threshold,
                       double secondary_compression_multiplier_threshold,
+                      bool use_cpu_compression,
+                      int compression_level,
                       std::string column_name   = "",
                       cudf::data_type cudf_type = cudf::data_type{cudf::type_id::EMPTY});
 
@@ -263,6 +315,16 @@ class compression_manager {
    * @brief Function to fetch the compression ratio threshold used by the compression manager.
    * */
   double get_compression_ratio_threshold() const;
+
+  /**
+   * @brief Function to fetch whether CPU compression is enabled.
+   * */
+  bool get_use_cpu_compression() const;
+
+  /**
+   * @brief Function to fetch the compression level.
+   * */
+  int get_compression_level() const;
 };
 
 // Function to map cudf::type_id to nvcomp_data_format

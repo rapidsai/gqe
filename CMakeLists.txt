@@ -86,7 +86,7 @@ cpmaddpackage(
 
 # CMake variable for gqe-nvcomp tag
 set(GQE_NVCOMP_TAG
-    "4b0330cb579cc3f0dd868916139044fcc7aca4aa"
+    "f11b07146125bd2322018038f356ef7906a9efdf"
     CACHE STRING "Git tag for gqe-nvcomp")
 set(GQE_NVCOMP_SOURCE_DIR
     ""
@@ -108,7 +108,8 @@ if(GQE_NVCOMP_SOURCE_DIR)
     "BUILD_EXAMPLES OFF"
     "BUILD_NVCOMP ON"
     "BUILD_NVCOMPDX OFF"
-    "CMAKE_CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES}")
+    "CMAKE_CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES}"
+    "BUILD_CPU_COMPRESSORS ON")
 else()
   message(STATUS "Using nvcomp from git with tag: ${GQE_NVCOMP_TAG}")
   cpmaddpackage(
@@ -126,7 +127,8 @@ else()
     "BUILD_EXAMPLES OFF"
     "BUILD_NVCOMP ON"
     "BUILD_NVCOMPDX OFF"
-    "CMAKE_CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES}")
+    "CMAKE_CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES}"
+    "BUILD_CPU_COMPRESSORS ON")
 endif()
 
 find_program(CCACHE_FOUND ccache)
@@ -137,6 +139,17 @@ if(CCACHE_FOUND)
   set(env{CCACHE_BASEDIR} ${CMAKE_CURRENT_LIST_DIR})
 endif()
 
+# ##############################################################################
+# * nvcomp CPU setup
+# ----------------------------------------------------------------------------------
+
+# Create an alias 'deflate' for 'libdeflate_static' to satisfy linking
+# requirements nvcomp's cpu_compression tests expect a 'deflate' target
+if(TARGET libdeflate_static AND NOT TARGET deflate)
+  add_library(deflate ALIAS libdeflate_static)
+endif()
+
+find_package(lz4 REQUIRED)
 # ##############################################################################
 # * compiler options
 # ------------------------------------------------------------------------------
@@ -167,6 +180,7 @@ add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--generate-line-info>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:-Wno-deprecated-gpu-targets>")
 add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>")
+add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-fopenmp>")
 
 # needed for clang-tidy
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

@@ -332,6 +332,8 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
                                      rmm::device_async_resource_ref mr,
                                      int compression_chunk_size,
                                      double compression_ratio_threshold,
+                                     bool use_cpu_compression,
+                                     int compression_level,
                                      std::string column_name,
                                      cudf::data_type cudf_type)
   : column_base(),
@@ -348,6 +350,8 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
                     compression_ratio_threshold,
                     0.0,  // secondary compression ratio threshold
                     0.0,  // secondary compression multiplier threshold
+                    use_cpu_compression,
+                    compression_level,
                     column_name,
                     cudf_type)
 {
@@ -381,6 +385,8 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
                                                                        mr,
                                                                        compression_chunk_size,
                                                                        compression_ratio_threshold,
+                                                                       use_cpu_compression,
+                                                                       compression_level,
                                                                        column_name + "_child",
                                                                        cudf_type));
   }
@@ -411,6 +417,8 @@ shared_compressed_column_base::shared_compressed_column_base(
                     compressed_column._nvcomp_manager.get_compression_ratio_threshold(),
                     0.0,  // secondary compression ratio threshold
                     0.0,  // secondary compression multiplier threshold
+                    compressed_column._nvcomp_manager.get_use_cpu_compression(),
+                    compressed_column._nvcomp_manager.get_compression_level(),
                     compressed_column._nvcomp_manager.get_column_name(),
                     compressed_column._nvcomp_manager.get_cudf_type()),
     _compressed_children(SharedColumnAllocator(segment.get_segment_manager())),
@@ -1690,6 +1698,8 @@ void in_memory_write_task::execute_default()
       get_query_context()->parameters.in_memory_table_secondary_compression_ratio_threshold;
     auto secondary_compression_multiplier_threshold =
       get_query_context()->parameters.in_memory_table_secondary_compression_multiplier_threshold;
+    auto use_cpu_compression = get_query_context()->parameters.use_cpu_compression;
+    auto compression_level   = get_query_context()->parameters.compression_level;
 
     auto dtype = cudf_column.type().id();
 
@@ -1708,6 +1718,7 @@ void in_memory_write_task::execute_default()
     } else {
       if (not partition_pruning_enabled) {
         GQE_LOG_TRACE("Compressed column size {}", cudf_column.size());
+        auto cudf_type = cudf_column.type();
         new_columns[_column_indexes[column_idx]] =
           std::make_unique<compressed_column>(std::move(cudf_column),
                                               comp_format,
@@ -1715,8 +1726,10 @@ void in_memory_write_task::execute_default()
                                               _non_owned_memory_resource,
                                               compression_chunk_size,
                                               compression_ratio_threshold,
+                                              use_cpu_compression,
+                                              compression_level,
                                               _column_names[column_idx],
-                                              cudf_column.type());
+                                              cudf_type);
       } else if (dtype == cudf::type_id::STRING) {
         // Get a string view of the column
         cudf::strings_column_view strings_column_view(cudf_column);
@@ -1734,6 +1747,8 @@ void in_memory_write_task::execute_default()
               compression_ratio_threshold,
               secondary_compression_ratio_threshold,
               secondary_compression_multiplier_threshold,
+              use_cpu_compression,
+              compression_level,
               stream,
               _non_owned_memory_resource,
               _column_names[column_idx]);
@@ -1749,12 +1764,15 @@ void in_memory_write_task::execute_default()
               compression_ratio_threshold,
               secondary_compression_ratio_threshold,
               secondary_compression_multiplier_threshold,
+              use_cpu_compression,
+              compression_level,
               stream,
               _non_owned_memory_resource,
               _column_names[column_idx]);
         }
       } else {
         GQE_LOG_TRACE("Compressed sliced column size {}", cudf_column.size());
+        auto cudf_type = cudf_column.type();
         new_columns[_column_indexes[column_idx]] =
           std::make_unique<compressed_sliced_column>(std::move(cudf_column),
                                                      partition_size,
@@ -1765,10 +1783,12 @@ void in_memory_write_task::execute_default()
                                                      compression_ratio_threshold,
                                                      secondary_compression_ratio_threshold,
                                                      secondary_compression_multiplier_threshold,
+                                                     use_cpu_compression,
+                                                     compression_level,
                                                      stream,
                                                      _non_owned_memory_resource,
                                                      _column_names[column_idx],
-                                                     cudf_column.type());
+                                                     cudf_type);
       }
     }
   }
@@ -1874,6 +1894,9 @@ void in_memory_write_task::execute_shared_memory()
         auto const chunk_size =
           get_query_context()->parameters.in_memory_table_compression_chunk_size;
 
+        auto const use_cpu_compression = get_query_context()->parameters.use_cpu_compression;
+        auto const compression_level   = get_query_context()->parameters.compression_level;
+
         auto dtype = input_column.type().id();
 
         if ((comp_format == gqe::compression_format::best_compression_ratio) ||
@@ -1892,6 +1915,8 @@ void in_memory_write_task::execute_shared_memory()
                                                           rmm::mr::get_current_device_resource(),
                                                           chunk_size,
                                                           compression_ratio_threshold,
+                                                          use_cpu_compression,
+                                                          compression_level,
                                                           _column_names[column_idx]);
         segment.construct<gqe::storage::shared_compressed_column_base>(shared_column_name.c_str())(
           std::move(compressed_column), segment, stream, _non_owned_memory_resource);

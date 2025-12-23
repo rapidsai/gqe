@@ -145,6 +145,9 @@ struct optimization_parameters {
           ///< secondary compression ratio is at least secondary_compression_multiplier_threshold
           ///< times better than the primary compression ratio, then the secondary compression
           ///< algorithm will be used.
+  bool use_cpu_compression = false;  ///< Use CPU compression for in-memory table compression.
+  int compression_level    = 10;     ///< LZ4 CPU compression level (1-12). Higher values provide
+                                     ///< better compression but slower compression speed.
 };
 
 }  // namespace gqe

@@ -236,19 +236,23 @@ optimization_parameters::optimization_parameters(bool only_defaults)
     in_memory_table_compression_format = parse_nvcomp_compression_format(
       "GQE_IN_MEMORY_TABLE_COMPRESSION_FORMAT", in_memory_table_compression_format);
 
-    in_memory_table_compression_chunk_size =
-      parse_nvcomp_chunk_size("GQE_COMPRESSION_CHUNK_SIZE", in_memory_table_compression_chunk_size);
+    in_memory_table_compression_chunk_size = parse_nvcomp_chunk_size(
+      "GQE_IN_MEMORY_TABLE_COMPRESSION_CHUNK_SIZE", in_memory_table_compression_chunk_size);
 
     in_memory_table_secondary_compression_format = parse_nvcomp_compression_format(
       "GQE_IN_MEMORY_TABLE_SECONDARY_COMP_FORMAT", in_memory_table_secondary_compression_format);
 
     in_memory_table_secondary_compression_ratio_threshold =
-      parse_env_variable("GQE_SECONDARY_COMPRESSION_RATIO_THRESHOLD",
+      parse_env_variable("GQE_IN_MEMORY_TABLE_SECONDARY_COMPRESSION_RATIO_THRESHOLD",
                          in_memory_table_secondary_compression_ratio_threshold);
 
     in_memory_table_secondary_compression_multiplier_threshold =
-      parse_env_variable("GQE_SECONDARY_COMPRESSION_MULTIPLIER_THRESHOLD",
+      parse_env_variable("GQE_IN_MEMORY_TABLE_SECONDARY_COMPRESSION_MULTIPLIER_THRESHOLD",
                          in_memory_table_secondary_compression_multiplier_threshold);
+
+    use_cpu_compression = parse_env_variable("GQE_USE_CPU_COMPRESSION", use_cpu_compression);
+
+    compression_level = parse_env_variable("GQE_COMPRESSION_LEVEL", compression_level);
   }
 }
 

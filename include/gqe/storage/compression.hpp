@@ -82,7 +82,7 @@ class compression_manager {
    * @param[in] memory_kind Memory kind of the column being compressed
    * @param[out] compressed_ptrs Array of pointers to compressed buffers
    * @param[out] compression_ratio Compression ratio of the compressed column
-   * @param[out] compressed_size Total size of the compressed column
+   * @param[out] total_compressed_size Total size of the compressed column
    * @param[out] compressed_sizes Vector of sizes of the compressed buffers
    * @param[in] stream Stream to use for compression
    * @param[in] mr Memory resource to use for compression
@@ -99,7 +99,7 @@ class compression_manager {
     memory_kind::type memory_kind,
     uint8_t** compressed_ptrs,
     double& compression_ratio,
-    size_t& compressed_size,
+    size_t& total_compressed_size,
     std::vector<cudf::size_type>& compressed_sizes,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr) const;
@@ -208,14 +208,16 @@ class compression_manager {
    * @brief Function to perform compression on a column. Returns a unique pointer to the compressed
    * column
    * @param[in] uncompressed Data buffer to compress
-   * @param[out] compression_ratio Compression ratio of the compressed column
    * @param[out] is_compressed Boolean flag that stores whether compression was viable or not
+   * @param[out] compressed_size Total size of the compressed column in bytes
+   * @param[out] uncompressed_size Total size of the uncompressed column in bytes
    * @param[in] supplied_stream Stream to use for compression
    * @param[in] mr Memory resource to use for compression
    */
   std::unique_ptr<rmm::device_buffer> do_compress(rmm::device_buffer const* uncompressed,
-                                                  double& compression_ratio,
                                                   bool& is_compressed,
+                                                  int64_t& compressed_size,
+                                                  int64_t& uncompressed_size,
                                                   rmm::cuda_stream_view supplied_stream,
                                                   rmm::device_async_resource_ref mr);
 
@@ -257,9 +259,9 @@ class compression_manager {
    * @brief Function to perform compression of a batch of uncompressed buffers
    *
    * @param[in] device_uncompressed Array of pointers to uncompressed buffers
-   * @param[out] compression_ratio Compression ratio of the compressed column
    * @param[out] is_compressed Boolean flag that stores whether compression was viable or not
-   * @param[out] compressed_size Total size of the compressed column
+   * @param[out] compressed_size Total size of the compressed column in bytes
+   * @param[out] uncompressed_size Total size of the uncompressed column in bytes
    * @param[out] compressed_sizes Vector of sizes of the compressed buffers
    * @param[in] cudf_type CUDF data type of the column being compressed
    * @param[in] memory_kind Memory kind of the column being compressed
@@ -272,9 +274,9 @@ class compression_manager {
    */
   std::vector<std::unique_ptr<rmm::device_buffer>> compress_batch(
     std::vector<std::unique_ptr<rmm::device_buffer>>&& device_uncompressed,
-    double& compression_ratio,
     bool& is_compressed,
     size_t& compressed_size,
+    size_t& uncompressed_size,
     std::vector<cudf::size_type>& compressed_sizes,
     cudf::data_type cudf_type,
     memory_kind::type memory_kind,

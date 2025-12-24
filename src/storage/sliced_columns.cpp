@@ -128,10 +128,12 @@ compressed_sliced_column::compressed_sliced_column(
   std::string column_name,
   cudf::data_type cudf_type)
   : column_base(),
+    _compressed_size(0),
+    _uncompressed_size(0),
+    _null_mask_compressed_size(0),
+    _null_mask_uncompressed_size(0),
     _partition_size(partition_size),
     _comp_format(comp_format),
-    _compression_ratio(0.0),
-    _null_mask_compression_ratio(0.0),
     _is_compressed(false),
     _is_secondary_compressed(false),
     _is_null_mask_compressed(false),
@@ -278,6 +280,7 @@ void compressed_sliced_column::do_compress(
   size_t num_partitions,
   bool& is_compressed,
   size_t& compressed_size,
+  size_t& uncompressed_size,
   bool is_null_mask,
   memory_kind::type memory_kind,
   rmm::cuda_stream_view stream,
@@ -315,9 +318,9 @@ void compressed_sliced_column::do_compress(
   compression_manager& manager   = is_null_mask ? _nvcomp_null_manager : _nvcomp_manager;
   bool try_secondary_compression = is_null_mask ? false : true;
   compressed_data_buffers = manager.compress_batch(std::move(device_uncompressed_data_buffers),
-                                                   _compression_ratio,
                                                    is_compressed,
                                                    compressed_size,
+                                                   uncompressed_size,
                                                    compressed_sizes,
                                                    _cudf_type,
                                                    memory_kind,
@@ -346,6 +349,7 @@ void compressed_sliced_column::compress(cudf::column&& cudf_column,
               num_partitions,
               _is_compressed,
               _compressed_size,
+              _uncompressed_size,
               false /*is_null_mask*/,
               memory_kind,
               stream,
@@ -359,6 +363,7 @@ void compressed_sliced_column::compress(cudf::column&& cudf_column,
                 num_partitions,
                 _is_null_mask_compressed,
                 _null_mask_compressed_size,
+                _null_mask_uncompressed_size,
                 true /*is_null_mask*/,
                 memory_kind,
                 stream,
@@ -378,6 +383,18 @@ void compressed_sliced_column::compress(cudf::column&& cudf_column,
 int64_t compressed_sliced_column::size() const { return _size; }
 
 cudf::size_type compressed_sliced_column::null_count() const { return _null_count; }
+
+bool compressed_sliced_column::is_compressed() const { return _is_compressed; }
+
+int64_t compressed_sliced_column::get_compressed_size() const
+{
+  return _compressed_size + _null_mask_compressed_size;
+}
+
+int64_t compressed_sliced_column::get_uncompressed_size() const
+{
+  return _uncompressed_size + _null_mask_uncompressed_size;
+}
 
 template <bool large_string_mode>
 string_compressed_sliced_column<large_string_mode>::string_compressed_sliced_column(
@@ -409,7 +426,10 @@ string_compressed_sliced_column<large_string_mode>::string_compressed_sliced_col
                                          stream,
                                          mr,
                                          column_name,
-                                         cudf::data_type(cudf::type_id::STRING))
+                                         cudf::data_type(cudf::type_id::STRING)),
+    _offsets_are_compressed(false),
+    _offsets_compressed_size(0),
+    _offsets_uncompressed_size(0)
 {
   compress(std::move(cudf_column), memory_kind, stream, mr);
 }
@@ -489,9 +509,9 @@ void string_compressed_sliced_column<large_string_mode>::compress(cudf::column&&
 
   _compressed_data_buffers =
     _nvcomp_manager.compress_batch(std::move(device_uncompressed_data_buffers),
-                                   _compression_ratio,
                                    _is_compressed,
                                    _compressed_size,
+                                   _uncompressed_size,
                                    _compressed_data_sizes,
                                    cudf::data_type(cudf::type_id::STRING),
                                    memory_kind,
@@ -512,6 +532,7 @@ void string_compressed_sliced_column<large_string_mode>::compress(cudf::column&&
                 num_partitions,
                 _is_null_mask_compressed,
                 _null_mask_compressed_size,
+                _null_mask_uncompressed_size,
                 true /*is_null_mask*/,
                 memory_kind,
                 stream,
@@ -527,7 +548,6 @@ void string_compressed_sliced_column<large_string_mode>::compress(cudf::column&&
 
   // Adjust the offset array and compress it. We can do the offset adjustment on the CPU because
   // the write task isn't timed.
-  size_t child_compressed_size;
   input_ptrs.clear();
   input_sizes.clear();
   device_ptrs.clear();
@@ -557,9 +577,9 @@ void string_compressed_sliced_column<large_string_mode>::compress(cudf::column&&
 
   _compressed_offset_partitions =
     _nvcomp_manager.compress_batch(std::move(device_uncompressed_offsets_buffers),
-                                   _offsets_compression_ratio,
                                    _offsets_are_compressed,
-                                   child_compressed_size,
+                                   _offsets_compressed_size,
+                                   _offsets_uncompressed_size,
                                    _compressed_offset_sizes,
                                    offset_element_type,
                                    memory_kind,
@@ -703,6 +723,24 @@ string_compressed_sliced_column<large_string_mode>::fill_partition_offsets(
     ++partition_offset_idx;
   }
   return char_offset;
+}
+
+template <bool large_string_mode>
+int64_t string_compressed_sliced_column<large_string_mode>::get_compressed_size() const
+{
+  return _compressed_size + _offsets_compressed_size + _null_mask_compressed_size;
+}
+
+template <bool large_string_mode>
+int64_t string_compressed_sliced_column<large_string_mode>::get_uncompressed_size() const
+{
+  return _uncompressed_size + _offsets_uncompressed_size + _null_mask_uncompressed_size;
+}
+
+template <bool large_string_mode>
+bool string_compressed_sliced_column<large_string_mode>::is_compressed() const
+{
+  return _is_compressed || _offsets_are_compressed;
 }
 
 template class string_compressed_sliced_column<false>;

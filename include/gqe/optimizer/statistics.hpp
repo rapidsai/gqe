@@ -41,6 +41,19 @@ class table_statistics_manager {
   void add_rows(int rows);
 
   /**
+   * @brief Append a table statistics to the current table statistics in a thread-safe manner.
+   *
+   * # Thread Safety
+   * The updates of the statistics are performed in an atomic way by doing all information updates
+   * to prevent race conditions.
+   *
+   * @copydoc table_statistics::append_table_statistics
+   *
+   * @param table_stats The table statistics to append.
+   */
+  void append_table_statistics(const table_statistics& table_stats);
+
+  /**
    * @brief Retrieves table statistics in a thread-safe manner.
    *
    * @return The current table statistics.

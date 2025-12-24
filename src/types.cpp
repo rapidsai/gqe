@@ -268,4 +268,32 @@ std::size_t memory_kind::type_hash::operator()(memory_kind::type const& type) co
   return h;
 }
 
+table_statistics::table_statistics(int64_t num_rows_, size_t num_columns_)
+{
+  num_rows    = num_rows_;
+  num_columns = num_columns_;
+  compressed_num_row_groups.resize(num_columns);
+  compressed_size_per_column.resize(num_columns);
+  uncompressed_size_per_column.resize(num_columns);
+}
+
+void table_statistics::add_column_statistics(const column_statistics& col_stats)
+{
+  if (col_stats.compressed_size != col_stats.uncompressed_size) {
+    compressed_num_row_groups[col_stats.column_id] += 1;
+  }
+  compressed_size_per_column[col_stats.column_id] += col_stats.compressed_size;
+  uncompressed_size_per_column[col_stats.column_id] += col_stats.uncompressed_size;
+}
+
+void table_statistics::append_table_statistics(const table_statistics& new_stats)
+{
+  num_rows += new_stats.num_rows;
+  for (size_t i = 0; i < num_columns; ++i) {
+    compressed_num_row_groups[i] += new_stats.compressed_num_row_groups[i];
+    compressed_size_per_column[i] += new_stats.compressed_size_per_column[i];
+    uncompressed_size_per_column[i] += new_stats.uncompressed_size_per_column[i];
+  }
+  num_row_groups += 1;
+}
 }  // namespace gqe

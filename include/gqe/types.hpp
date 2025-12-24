@@ -421,10 +421,57 @@ using type = std::variant<partitioning_schema_kind::automatic,
 };  // namespace partitioning_schema_kind
 
 /**
+ * @brief Statistics of a column.
+ */
+struct column_statistics {
+  size_t column_id          = 0;  /// Column ID.
+  int64_t compressed_size   = 0;  /// Compressed size in bytes of the column.
+  int64_t uncompressed_size = 0;  /// Uncompressed size in bytes of the column.
+};
+
+/**
  * @brief Statistics of a table.
  */
 struct table_statistics {
-  int64_t num_rows;
+  int64_t num_rows      = 0;  /// Number of rows in the table.
+  size_t num_row_groups = 0;  /// Number of row groups in the table.
+  size_t num_columns    = 0;  /// Number of columns in the table.
+  std::vector<size_t> compressed_num_row_groups =
+    {};  /// Number of compressed row groups in the table for each column ID.
+  std::vector<int64_t> compressed_size_per_column = {};  /// Compressed size in bytes per column ID.
+  std::vector<int64_t> uncompressed_size_per_column =
+    {};  /// Uncompressed size in bytes per column ID.
+
+  table_statistics() = default;
+
+  /**
+   * @brief Initialize the table statistics with the given number of rows and columns.
+   *
+   * The initialization is performed along with `table_statistics_manager`.
+   * We don't initialize the num_row_groups here because we don't know the number of row groups
+   * during construction. And row groups are atomically updated later via `append_table_statistics`.
+   *
+   * @param num_rows_ number of rows
+   * @param num_columns_ number of columns
+   */
+  table_statistics(int64_t num_rows_, size_t num_columns_);
+
+  /**
+   * @brief Add the column statistics for a given column to the current table statistics.
+   *
+   * @param col_stats column statistics to append
+   */
+  void add_column_statistics(const column_statistics& col_stats);
+
+  /**
+   * @brief Append a table statistics to the current one.
+   *
+   * Accumulate the number of rows, number of row groups, compressed and uncompressed sizes in
+   * bytes, and number of compressed row groups.
+   *
+   * @param new_stats table statistics to append
+   */
+  void append_table_statistics(const table_statistics& new_stats);
 };
 
 class query_context;

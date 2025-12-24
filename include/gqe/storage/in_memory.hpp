@@ -125,6 +125,10 @@ class shared_column {
 
   ~shared_column();
 
+  int64_t get_data_size() const;
+
+  int64_t get_offsets_size() const;
+
  private:
   using SharedColumnAllocator =
     boost::interprocess::allocator<shared_column,
@@ -136,8 +140,9 @@ class shared_column {
   mutable cudf::size_type _null_count{};
   boost::container::vector<shared_column, SharedColumnAllocator> _children;
   rmm::device_async_resource_ref _mr;
-  std::size_t _data_size{};
-  std::size_t _null_mask_size{};
+  int64_t _data_size{};
+  int64_t _offsets_size{};
+  int64_t _null_mask_size{};
 };
 
 /**
@@ -193,6 +198,33 @@ class column_base {
    * @brief Return the null count of the column.
    */
   [[nodiscard]] virtual cudf::size_type null_count() const = 0;
+
+  /**
+   * @brief Return whether the column is compressed or not.
+   */
+  [[nodiscard]] virtual bool is_compressed() const = 0;
+
+  /**
+   * @brief Return the compression ratio of the column if it is compressed, otherwise return 1.0.
+   */
+  [[nodiscard]] virtual double get_compression_ratio() const
+  {
+    // Guard against division by zero.
+    if (get_compressed_size() == 0 || !is_compressed()) { return 1.0; }
+    return static_cast<double>(get_uncompressed_size()) /
+           static_cast<double>(get_compressed_size());
+  }
+
+  /**
+   * @brief Return the compressed size of the column in bytes if it is compressed, otherwise return
+   * the uncompressed size.
+   */
+  [[nodiscard]] virtual int64_t get_compressed_size() const = 0;
+
+  /**
+   * @brief Return the uncompressed size of the column in bytes.
+   */
+  [[nodiscard]] virtual int64_t get_uncompressed_size() const = 0;
 };
 
 /**
@@ -220,6 +252,21 @@ class contiguous_column : public column_base {
    * @copydoc gqe::storage::column_base::null_count()
    */
   [[nodiscard]] virtual cudf::size_type null_count() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::is_compressed()
+   */
+  [[nodiscard]] bool is_compressed() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::get_compressed_size()
+   */
+  [[nodiscard]] int64_t get_compressed_size() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::get_uncompressed_size()
+   */
+  [[nodiscard]] int64_t get_uncompressed_size() const override;
 
   /**
    * @brief Return a cuDF compatible column view.
@@ -262,14 +309,29 @@ class shared_contiguous_column : public column_base {
   int64_t size() const override { return view().size(); }
 
   /**
+   * @brief Return a cuDF compatible column view.
+   */
+  cudf::column_view view() const;
+
+  /*
    * @copydoc gqe::storage::column_base::null_count()
    */
   [[nodiscard]] virtual cudf::size_type null_count() const override;
 
   /**
-   * @brief Return a cuDF compatible column view.
+   * @copydoc gqe::storage::column_base::is_compressed()
    */
-  cudf::column_view view() const;
+  [[nodiscard]] bool is_compressed() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::get_compressed_size()
+   */
+  [[nodiscard]] int64_t get_compressed_size() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::get_uncompressed_size()
+   */
+  [[nodiscard]] int64_t get_uncompressed_size() const override;
 
  private:
   std::string _column_name;
@@ -315,6 +377,21 @@ class compressed_column : public column_base {
   [[nodiscard]] virtual cudf::size_type null_count() const override;
 
   /**
+   * @copydoc gqe::storage::column_base::is_compressed()
+   */
+  [[nodiscard]] bool is_compressed() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::get_compressed_size()
+   */
+  [[nodiscard]] int64_t get_compressed_size() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::get_uncompressed_size()
+   */
+  [[nodiscard]] int64_t get_uncompressed_size() const override;
+
+  /**
    * @brief Compress the column.
    *
    * @param[in] stream CUDA stream used for the decompression.
@@ -339,11 +416,12 @@ class compressed_column : public column_base {
  private:
   int64_t _size;
   int64_t _compressed_size;
+  int64_t _uncompressed_size;
+  int64_t _null_mask_compressed_size;
+  int64_t _null_mask_uncompressed_size;
   cudf::data_type _cudf_type;
   cudf::size_type _null_count;
   compression_format _comp_format;
-  double _compression_ratio;
-  double _null_mask_compression_ratio;
   bool _is_compressed;
   bool _is_null_mask_compressed;
   compression_manager _nvcomp_manager;
@@ -400,6 +478,23 @@ class compressed_sliced_column : public column_base {
   [[nodiscard]] virtual cudf::size_type null_count() const override;
 
   /**
+   * @copydoc gqe::storage::column_base::is_compressed()
+   */
+  [[nodiscard]] bool is_compressed() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::get_compressed_size()
+   * Compute the compressed size for the column, considering the data and null mask.
+   */
+  [[nodiscard]] int64_t get_compressed_size() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::get_uncompressed_size()
+   * Compute the uncompressed size for the column, considering the data and null mask.
+   */
+  [[nodiscard]] int64_t get_uncompressed_size() const override;
+
+  /**
    * @brief Fill the provided pointer and size arrays with the information of the copied buffers as
    * required by cudaMemcpyBatchAsync.
    *
@@ -450,15 +545,15 @@ class compressed_sliced_column : public column_base {
  protected:
   size_t _size;
   size_t _compressed_size;
+  size_t _uncompressed_size;
   size_t _null_mask_compressed_size;
+  size_t _null_mask_uncompressed_size;
   size_t _partition_size;
   cudf::size_type _null_count;
 
   cudf::data_type _cudf_type;
   std::vector<cudf::size_type> _null_counts;
   compression_format _comp_format;
-  double _compression_ratio;
-  double _null_mask_compression_ratio;
   bool _is_compressed;
   bool _is_secondary_compressed;
   bool _is_null_mask_compressed;
@@ -507,7 +602,8 @@ class compressed_sliced_column : public column_base {
    * @param[in] num_rows The number of rows in the column
    * @param[in] num_partitions The number of partitions in the column
    * @param[out] is_compressed Whether the column is compressed
-   * @param[out] compressed_size The compressed size
+   * @param[out] compressed_size The compressed size in bytes
+   * @param[out] uncompressed_size The uncompressed size in bytes
    * @param[in] is_null_mask Whether the column is a null mask
    * @param[in] stream The CUDA stream to use
    * @param[in] mr The memory resource to use
@@ -519,6 +615,7 @@ class compressed_sliced_column : public column_base {
                    size_t num_partitions,
                    bool& is_compressed,
                    size_t& compressed_size,
+                   size_t& uncompressed_size,
                    bool is_null_mask,
                    memory_kind::type memory_kind,
                    rmm::cuda_stream_view stream,
@@ -705,6 +802,23 @@ class string_compressed_sliced_column : public string_compressed_sliced_column_b
                                       const pruning_result_t& pruning_result,
                                       offsets_type start_offset,
                                       size_t partition_offset_idx) const;
+  /**
+   * @copydoc gqe::storage::column_base::get_compressed_size()
+   * Compute the compressed size for the column, considering the data, offsets, and null mask.
+   */
+  [[nodiscard]] int64_t get_compressed_size() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::get_uncompressed_size()
+   * Compute the uncompressed size for the column, considering the data, offsets, and null mask.
+   */
+  [[nodiscard]] int64_t get_uncompressed_size() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::is_compressed()
+   * Return true if either the data or offsets are compressed.
+   */
+  [[nodiscard]] bool is_compressed() const override;
 
  private:
   std::vector<std::unique_ptr<rmm::device_buffer>> _compressed_offset_partitions;
@@ -713,6 +827,8 @@ class string_compressed_sliced_column : public string_compressed_sliced_column_b
   std::vector<cudf::size_type> _partition_row_counts;
 
   bool _offsets_are_compressed;
+  size_t _offsets_compressed_size;
+  size_t _offsets_uncompressed_size;
   bool _offsets_are_secondary_compressed;
   double _offsets_compression_ratio;
 
@@ -750,12 +866,12 @@ class shared_compressed_column_base {
                                    boost::interprocess::managed_shared_memory::segment_manager>;
   int64_t _size;
   int64_t _compressed_size;
-  int64_t _compressed_null_mask_size;
+  int64_t _uncompressed_size;
+  int64_t _null_mask_compressed_size;
+  int64_t _null_mask_uncompressed_size;
   cudf::data_type _cudf_type;
   cudf::size_type _null_count;
   compression_format _comp_format;
-  double _compression_ratio;
-  double _null_mask_compression_ratio;
   bool _is_compressed;
   bool _is_null_mask_compressed;
   compression_manager _nvcomp_manager;
@@ -795,6 +911,21 @@ class shared_compressed_column : public column_base {
    * @copydoc gqe::storage::column_base::null_count()
    */
   [[nodiscard]] virtual cudf::size_type null_count() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::is_compressed()
+   */
+  bool is_compressed() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::get_compressed_size()
+   */
+  int64_t get_compressed_size() const override;
+
+  /**
+   * @copydoc gqe::storage::column_base::get_uncompressed_size()
+   */
+  int64_t get_uncompressed_size() const override;
 
   /**
    * @brief Decompress and construct an uncompressed version of the column.

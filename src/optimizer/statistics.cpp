@@ -27,6 +27,12 @@ void table_statistics_manager::add_rows(int rows)
   _statistics.num_rows += rows;
 }
 
+void table_statistics_manager::append_table_statistics(const table_statistics& table_stats)
+{
+  std::unique_lock latch_guard(_statistics_latch);
+  _statistics.append_table_statistics(table_stats);
+}
+
 table_statistics table_statistics_manager::statistics()
 {
   std::shared_lock latch_guard(_statistics_latch);

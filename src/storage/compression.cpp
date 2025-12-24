@@ -105,8 +105,9 @@ compression_manager::compression_manager(gqe::compression_format comp_format,
 
 std::unique_ptr<rmm::device_buffer> compression_manager::do_compress(
   rmm::device_buffer const* uncompressed,
-  double& compression_ratio,
   bool& is_compressed,
+  int64_t& compressed_size,
+  int64_t& uncompressed_size,
   rmm::cuda_stream_view supplied_stream,
   rmm::device_async_resource_ref mr)
 {
@@ -135,7 +136,7 @@ std::unique_ptr<rmm::device_buffer> compression_manager::do_compress(
   auto const comp_size = compression_manager->get_compressed_output_size(
     static_cast<uint8_t*>(compressed_buffer->data()));
 
-  compression_ratio = static_cast<double>(uncompressed->size()) / comp_size;
+  auto const compression_ratio = static_cast<double>(uncompressed->size()) / comp_size;
 
   compressed_buffer->resize(comp_size, supplied_stream);
   compressed_buffer->shrink_to_fit(supplied_stream);
@@ -152,6 +153,9 @@ std::unique_ptr<rmm::device_buffer> compression_manager::do_compress(
       compression_ratio);
     return std::make_unique<rmm::device_buffer>(*uncompressed, supplied_stream, mr);
   }
+
+  compressed_size   = comp_size;
+  uncompressed_size = uncompressed->size();
 
   GQE_LOG_TRACE(
     "Compression successful for column '{}' using compression algorithm {}: uncompressed_size={}, "
@@ -278,7 +282,7 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::try_compre
   memory_kind::type memory_kind,
   uint8_t** compressed_ptrs,
   double& compression_ratio,
-  size_t& compressed_size,
+  size_t& total_compressed_size,
   std::vector<cudf::size_type>& compressed_sizes,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr) const
@@ -298,7 +302,7 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::try_compre
                                memory_kind,
                                compressed_ptrs,
                                compression_ratio,
-                               compressed_size,
+                               total_compressed_size,
                                compressed_sizes,
                                stream,
                                mr);
@@ -324,7 +328,7 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::try_compre
     GQE_CUDA_TRY(cudaStreamSynchronize(stream));
   }
 
-  size_t total_compressed_size = 0;
+  total_compressed_size = 0;
   for (size_t ix = 0; ix < num_buffers; ix++) {
     size_t comp_size = 0;
     if (compression_mr_is_host_accessible) {
@@ -505,9 +509,9 @@ std::pair<bool, bool> compression_manager::determine_best_compression(
 
 std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_batch(
   std::vector<std::unique_ptr<rmm::device_buffer>>&& device_uncompressed,
-  double& compression_ratio,
   bool& is_compressed,
   size_t& compressed_size,
+  size_t& uncompressed_size,
   std::vector<cudf::size_type>& compressed_sizes,
   cudf::data_type cudf_type,
   memory_kind::type memory_kind,
@@ -524,6 +528,7 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_b
   for (size_t ix = 0; ix < num_buffers; ix++) {
     total_uncompressed_size += device_uncompressed[ix]->size();
   }
+  uncompressed_size = total_uncompressed_size;
 
   size_t pinned_mem_size = num_buffers * sizeof(uint8_t*) +  // uncompressed ptrs
                            num_buffers * sizeof(uint8_t*);   // compressed ptrs
@@ -600,13 +605,11 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_b
       compressed_data_buffers = std::move(secondary_compressed_data_buffers);
       compressed_sizes        = std::move(secondary_compressed_sizes);
       compressed_size         = secondary_compressed_size;
-      compression_ratio       = secondary_compression_ratio;
       primary_compressed_data_buffers.clear();
     } else {
       compressed_data_buffers = std::move(primary_compressed_data_buffers);
       compressed_sizes        = std::move(primary_compressed_sizes);
       compressed_size         = primary_compressed_size;
-      compression_ratio       = primary_compression_ratio;
       secondary_compressed_data_buffers.clear();
     }
   }
@@ -615,7 +618,7 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_b
   GQE_LOG_TRACE(
     "Compression {} for column '{}' using compression algorithm {}: "
     "uncompressed_size={}, "
-    "compressed_size={}, compression_ratio={:.2f}, "
+    "compressed_size={}, "
     "use_secondary_compression={}, "
     "try secondary compression={}, "
     "compression ratio threshold={}, "
@@ -630,7 +633,6 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_b
     compression_format_to_string(_comp_format),
     total_uncompressed_size,
     compressed_size,
-    compression_ratio,
     is_secondary_compressed,
     try_secondary_compression,
     _compression_ratio_threshold,
@@ -651,8 +653,7 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_b
     for (size_t ix = 0; ix < num_buffers; ix++) {
       compressed_sizes.push_back(compressed_data_buffers[ix]->size());
     }
-    compression_ratio = 1.0;
-    compressed_size   = total_uncompressed_size;
+    compressed_size = total_uncompressed_size;
   }
 
   return compressed_data_buffers;

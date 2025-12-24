@@ -1113,42 +1113,10 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompressedSlicedColumnSmallWithoutCompre
   CUDF_TEST_EXPECT_TABLES_EQUAL(expected->view(), *task.result());
 }
 
-TEST_F(InMemoryReadTaskTest, PartialIneffectiveCompression)
-{
-  SetUp(true, 2 * 64 * 1024, 64 * 1024);
-  // Compress input data.
-  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
-  // Column with compression ratio ~1.41 would not take effect, fall back to uncompressed.
-  _query_ctx->parameters.in_memory_table_compression_ratio_threshold = 2.0f;
-  // Create a zone map filter 148 <= col0 < 157, which returns 1 partition.
-  std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
-  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
-  // one row groups.
-  std::vector<const storage::row_group*> row_groups =
-    create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
-    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
-
-  // Execute the read task
-  task.execute();
-
-  // The result only contains the qualifying partitions of the row group and is passed as an owned
-  // result
-  ASSERT_TRUE(task.result().has_value());
-  ASSERT_TRUE(*task.is_result_owned());
-
-  constexpr cudf::size_type num_rows_in_result     = 64 * 1024;
-  constexpr cudf::size_type start_offset_in_result = 0;
-  auto expected = create_input_table(num_rows_in_result, start_offset_in_result);
-  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
-}
-
 TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnAndCascaded)
 {
   SetUp(true, 4 * 64 * 1024, 64 * 1024, true);
-  // SetUp(true, 1024, 512, true);
-  // Compress input dat
+  // Compress input data.
   _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
   _query_ctx->parameters.in_memory_table_secondary_compression_format =
     gqe::compression_format::cascaded;
@@ -1173,5 +1141,90 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnAndCasc
 
   constexpr cudf::size_type num_rows_in_result = 128 * 1024;
   auto expected = create_input_table(num_rows_in_result, 0 /*offset*/, true /*add_string_column*/);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
+}
+
+TEST_F(InMemoryReadTaskTest, IneffectiveCompressionStats)
+{
+  auto const num_rows = 2 * 64 * 1024;
+  SetUp(true, num_rows, 64 * 1024);
+  // Compress input data.
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+  // Column with compression ratio ~1.41 would not take effect, fall back to uncompressed.
+  _query_ctx->parameters.in_memory_table_compression_ratio_threshold = 2.0;
+  // Create a zone map filter 148 <= col0 < 157, which returns 1 partition.
+  std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
+  // one row groups.
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end());
+  // All of the row groups should be uncompressed due to ineffective compression ratio.
+  for (const auto& row_group : row_groups) {
+    for (int64_t i = 0; i < row_group->num_columns(); ++i) {
+      ASSERT_FALSE(row_group->get_column(i).is_compressed());
+      ASSERT_TRUE(row_group->get_column(i).get_uncompressed_size() == num_rows * sizeof(int32_t));
+      ASSERT_TRUE(row_group->get_column(i).get_compressed_size() ==
+                  row_group->get_column(i).get_uncompressed_size());
+      ASSERT_TRUE(row_group->get_column(i).get_compression_ratio() == 1.0);
+    }
+  }
+  storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+
+  constexpr cudf::size_type num_rows_in_result     = 64 * 1024;
+  constexpr cudf::size_type start_offset_in_result = 0;
+  auto expected = create_input_table(num_rows_in_result, start_offset_in_result);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
+}
+
+TEST_F(InMemoryReadTaskTest, EffectiveCompressionStats)
+{
+  auto const num_rows = 2 * 64 * 1024;
+  SetUp(true, num_rows, 64 * 1024);
+  // Compress input data.
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+  // Column with compression ratio ~1.41 would take effect.
+  _query_ctx->parameters.in_memory_table_compression_ratio_threshold = 1.0;
+  // Create a zone map filter 148 <= col0 < 157, which returns 1 partition.
+  std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
+  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
+  // one row groups.
+  std::vector<const storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.end());
+  // All of the row groups should be compressed due to effective compression ratio.
+  for (const auto& row_group : row_groups) {
+    for (int64_t i = 0; i < row_group->num_columns(); ++i) {
+      ASSERT_TRUE(row_group->get_column(i).is_compressed());
+      ASSERT_TRUE(row_group->get_column(i).get_uncompressed_size() == num_rows * sizeof(int32_t));
+      ASSERT_TRUE(row_group->get_column(i).get_compressed_size() <
+                  row_group->get_column(i).get_uncompressed_size());
+      ASSERT_TRUE(row_group->get_column(i).get_compression_ratio() > 1.0);
+    }
+  }
+
+  storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
+
+  // Execute the read task
+  task.execute();
+
+  // The result only contains the qualifying partitions of the row group and is passed as an owned
+  // result
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+
+  constexpr cudf::size_type num_rows_in_result     = 64 * 1024;
+  constexpr cudf::size_type start_offset_in_result = 0;
+  auto expected = create_input_table(num_rows_in_result, start_offset_in_result);
   CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
 }

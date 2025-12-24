@@ -78,6 +78,22 @@ namespace gqe {
 
 namespace storage {
 
+// Get the size of a column in bytes, string column includes both chars and offsets.
+int64_t get_column_size(cudf::column const& cudf_column)
+{
+  auto const num_rows = cudf_column.size();
+  auto const type     = cudf_column.type();
+  if (type.id() == cudf::type_id::STRING) {
+    cudf::strings_column_view string_col(cudf_column);
+    int64_t chars_size = static_cast<int64_t>(string_col.chars_size(cudf::get_default_stream()));
+    cudf::column_view offsets = string_col.offsets();
+    int64_t offsets_size      = (offsets.size() - 1) * cudf::size_of(offsets.type());
+    return chars_size + offsets_size;
+  } else {
+    return static_cast<int64_t>(num_rows * cudf::size_of(type));
+  }
+}
+
 // Support logging of in_memory_column_type
 constexpr auto format_as(const in_memory_column_type type)
 {
@@ -176,7 +192,11 @@ shared_column::shared_column(cudf::column_view col,
   // Calculate size of data
   if (col.type().id() == cudf::type_id::STRING) {
     cudf::strings_column_view string_device_view(col);
-    _data_size = sizeof(char) * string_device_view.chars_size(stream);
+    _data_size                = sizeof(char) * string_device_view.chars_size(stream);
+    cudf::column_view offsets = string_device_view.offsets();
+    _offsets_size =
+      (offsets.size() - 1) *
+      (offsets.type().id() == cudf::type_id::INT64 ? sizeof(int64_t) : sizeof(int32_t));
   } else {
     _data_size = cudf::size_of(col.type()) * col.size();
   }
@@ -202,6 +222,10 @@ shared_column::shared_column(cudf::column_view col,
     _children.emplace_back(col.child(idx), segment, stream, mr);
   }
 }
+
+int64_t shared_column::get_data_size() const { return _data_size; }
+
+int64_t shared_column::get_offsets_size() const { return _offsets_size; }
 
 cudf::column_view shared_column::view() const
 {
@@ -247,6 +271,16 @@ shared_column::~shared_column()
 }
 
 cudf::size_type shared_contiguous_column::null_count() const { return view().null_count(); }
+
+bool shared_contiguous_column::is_compressed() const { return false; }
+
+int64_t shared_contiguous_column::get_compressed_size() const { return get_uncompressed_size(); }
+
+int64_t shared_contiguous_column::get_uncompressed_size() const
+{
+  auto found = gqe::utility::find_object<gqe::storage::shared_column>(&_segment, _column_name);
+  return found->get_data_size() + found->get_offsets_size();
+}
 
 cudf::column_view shared_contiguous_column::view() const
 {
@@ -307,6 +341,12 @@ int64_t contiguous_column::size() const
 
 cudf::size_type contiguous_column::null_count() const { return view().null_count(); }
 
+bool contiguous_column::is_compressed() const { return false; }
+
+int64_t contiguous_column::get_compressed_size() const { return get_uncompressed_size(); }
+
+int64_t contiguous_column::get_uncompressed_size() const { return get_column_size(_data); }
+
 cudf::column_view contiguous_column::view() const { return _data.view(); }
 
 cudf::mutable_column_view contiguous_column::mutable_view() { return _data.mutable_view(); }
@@ -318,10 +358,15 @@ std::unique_ptr<rmm::device_buffer> compressed_column::compress(rmm::device_buff
 {
   std::unique_ptr<rmm::device_buffer> output;
   if (is_null_mask) {
-    output = _nvcomp_manager.do_compress(
-      input, _null_mask_compression_ratio, _is_null_mask_compressed, stream, mr);
+    output = _nvcomp_manager.do_compress(input,
+                                         _is_null_mask_compressed,
+                                         _null_mask_compressed_size,
+                                         _null_mask_uncompressed_size,
+                                         stream,
+                                         mr);
   } else {
-    output = _nvcomp_manager.do_compress(input, _compression_ratio, _is_compressed, stream, mr);
+    output = _nvcomp_manager.do_compress(
+      input, _is_compressed, _compressed_size, _uncompressed_size, stream, mr);
   }
   return output;
 }
@@ -338,8 +383,6 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
                                      cudf::data_type cudf_type)
   : column_base(),
     _comp_format(comp_format),
-    _compression_ratio(0.0),
-    _null_mask_compression_ratio(0.0),
     _is_compressed(false),
     _is_null_mask_compressed(false),
     _nvcomp_manager(comp_format,
@@ -359,11 +402,14 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
   _cudf_type  = cudf_column.type();
   _null_count = cudf_column.null_count();
 
-  auto column_content = cudf_column.release();
-  _compressed_data    = compress(column_content.data.get(), stream, mr, false);
-  _compressed_size    = _compressed_data->size();
+  auto column_content        = cudf_column.release();
+  _uncompressed_size         = column_content.data->size();
+  _compressed_data           = compress(column_content.data.get(), stream, mr, false);
+  _compressed_size           = _compressed_data->size();
+  _null_mask_compressed_size = 0;
   if (_null_count > 0) {
-    _compressed_null_mask = compress(column_content.null_mask.get(), stream, mr, true);
+    _compressed_null_mask      = compress(column_content.null_mask.get(), stream, mr, true);
+    _null_mask_compressed_size = _compressed_null_mask->size();
   }
 
   _compressed_children.reserve(column_content.children.size());
@@ -392,6 +438,18 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
   }
 }
 
+bool compressed_column::is_compressed() const { return _is_compressed; }
+
+int64_t compressed_column::get_compressed_size() const
+{
+  return _compressed_size + _null_mask_compressed_size;
+}
+
+int64_t compressed_column::get_uncompressed_size() const
+{
+  return _uncompressed_size + _null_mask_uncompressed_size;
+}
+
 shared_compressed_column_base::shared_compressed_column_base(
   gqe::storage::compressed_column&& compressed_column,
   boost::interprocess::managed_shared_memory& segment,
@@ -399,14 +457,11 @@ shared_compressed_column_base::shared_compressed_column_base(
   rmm::device_async_resource_ref mr)
   : _size(compressed_column._size),
     _compressed_size(compressed_column._compressed_data->size()),
-    _compressed_null_mask_size(
+    _null_mask_compressed_size(
       compressed_column._null_count > 0 ? compressed_column._compressed_null_mask->size() : 0),
     _cudf_type(compressed_column._cudf_type),
     _null_count(compressed_column._null_count),
     _comp_format(compressed_column._comp_format),
-    _compression_ratio(compressed_column._compression_ratio),
-    _null_mask_compression_ratio(
-      compressed_column._null_count > 0 ? compressed_column._null_mask_compression_ratio : 0.0),
     _is_compressed(compressed_column._is_compressed),
     _is_null_mask_compressed(compressed_column._is_null_mask_compressed),
     _nvcomp_manager(compressed_column._nvcomp_manager.get_comp_format(),
@@ -472,11 +527,11 @@ std::unique_ptr<cudf::column> shared_compressed_column_base::decompress(
   if (_null_count > 0) {
     if (_is_null_mask_compressed) {
       decompressed_null_mask = _nvcomp_manager.do_decompress(
-        _compressed_null_mask.get(), _compressed_null_mask_size, stream, mr);
+        _compressed_null_mask.get(), _null_mask_compressed_size, stream, mr);
     } else {
       decompressed_null_mask =
         std::make_unique<rmm::device_buffer>(static_cast<const void*>(_compressed_null_mask.get()),
-                                             _compressed_null_mask_size,
+                                             _null_mask_compressed_size,
                                              stream,
                                              mr);
     }
@@ -500,9 +555,9 @@ shared_compressed_column_base::~shared_compressed_column_base()
     _compressed_size = 0;
   }
   if (_compressed_null_mask) {
-    _mr.deallocate(_compressed_null_mask.get(), _compressed_null_mask_size);
+    _mr.deallocate(_compressed_null_mask.get(), _null_mask_compressed_size);
     _compressed_null_mask      = nullptr;
-    _compressed_null_mask_size = 0;
+    _null_mask_compressed_size = 0;
   }
   // Children will be destroyed recursively
 }
@@ -535,6 +590,32 @@ int64_t shared_compressed_column::size() const
     gqe::utility::find_object<gqe::storage::shared_compressed_column_base>(&_segment, _name);
 
   return shared_compressed_column_base->_size;
+}
+
+bool shared_compressed_column::is_compressed() const
+{
+  auto shared_compressed_column_base =
+    gqe::utility::find_object<gqe::storage::shared_compressed_column_base>(&_segment, _name);
+
+  return shared_compressed_column_base->_is_compressed;
+}
+
+int64_t shared_compressed_column::get_compressed_size() const
+{
+  auto shared_compressed_column_base =
+    gqe::utility::find_object<gqe::storage::shared_compressed_column_base>(&_segment, _name);
+
+  return shared_compressed_column_base->_compressed_size +
+         shared_compressed_column_base->_null_mask_compressed_size;
+}
+
+int64_t shared_compressed_column::get_uncompressed_size() const
+{
+  auto shared_compressed_column_base =
+    gqe::utility::find_object<gqe::storage::shared_compressed_column_base>(&_segment, _name);
+
+  return shared_compressed_column_base->_uncompressed_size +
+         shared_compressed_column_base->_null_mask_uncompressed_size;
 }
 
 cudf::size_type shared_compressed_column::null_count() const
@@ -1682,6 +1763,10 @@ void in_memory_write_task::execute_default()
   // This would require us to destroy the result cache here, but that should be
   // ok because `write` is the root task.
   std::vector<std::unique_ptr<column_base>> new_columns(_column_indexes.size());
+
+  // Local table statistics for the current row group.
+  table_statistics row_group_table_stats(input_table.num_rows(), input_table.num_columns());
+
   for (decltype(input_table.num_columns()) column_idx = 0; column_idx < input_table.num_columns();
        ++column_idx) {
     auto const& input_column = input_table.column(column_idx);
@@ -1791,6 +1876,11 @@ void in_memory_write_task::execute_default()
                                                      cudf_type);
       }
     }
+    column_statistics col_stats = {
+      .column_id         = static_cast<size_t>(_column_indexes[column_idx]),
+      .compressed_size   = new_columns[_column_indexes[column_idx]]->get_compressed_size(),
+      .uncompressed_size = new_columns[_column_indexes[column_idx]]->get_uncompressed_size()};
+    row_group_table_stats.add_column_statistics(col_stats);
   }
 
   // Create zone map
@@ -1804,7 +1894,7 @@ void in_memory_write_task::execute_default()
 
   // Append row group to table
   _appender(std::move(row_group));
-  _statistics->add_rows(input_table.num_rows());
+  _statistics->append_table_statistics(row_group_table_stats);
 
   GQE_LOG_TRACE("Execute in-memory write task: task_id={}, stage_id={}, input_size={}.",
                 task_id(),

@@ -81,7 +81,8 @@ void catalog::register_table(std::string const& table_name,
     num_rows = default_num_rows_per_file * file->file_paths.size();
   }
 
-  table_info._statistics = std::make_unique<table_statistics_manager>(table_statistics{num_rows});
+  table_info._statistics =
+    std::make_unique<table_statistics_manager>(table_statistics(num_rows, columns.size()));
 
   std::unique_ptr<storage::table> table = std::visit(
     utility::overloaded{

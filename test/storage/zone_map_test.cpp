@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,13 +22,12 @@
 #include <gqe/expression/json_formatter.hpp>
 #include <gqe/expression/literal.hpp>
 #include <gqe/expression/scalar_function.hpp>
-
-#include <gtest/gtest.h>
+#include <gqe/expression/unary_op.hpp>
 
 #include <cudf_test/column_wrapper.hpp>
+#include <gtest/gtest.h>
 
 #include <absl/strings/str_format.h>
-#include <gqe/expression/unary_op.hpp>
 
 static constexpr cudf::size_type INPUT_COLUMN        = 1;
 static constexpr cudf::size_type ZONE_MAP_MIN_COLUMN = INPUT_COLUMN * 2;

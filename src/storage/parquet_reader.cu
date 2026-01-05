@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,28 +17,29 @@
 
 #ifdef ENABLE_CUSTOMIZED_PARQUET
 
+#include <gqe/storage/parquet_reader.hpp>
+
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/query_context.hpp>
-#include <gqe/storage/parquet_reader.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
 
+#include <cub/cub.cuh>
+#include <cudf/column/column_factories.hpp>
 #include <nvcomp/snappy.h>
-
 #include <parquet/parquet_types.h>
-
+#include <rmm/device_uvector.hpp>
 #include <thrift/protocol/TCompactProtocol.h>
 #include <thrift/transport/TBufferTransports.h>
 
-#include <cudf/column/column_factories.hpp>
-
-#include <rmm/device_uvector.hpp>
-
-#include <cub/cub.cuh>
-
 #include <cooperative_groups.h>
+
+#include <fcntl.h>
+#include <liburing.h>
+#include <sched.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cassert>
@@ -48,12 +49,6 @@
 #include <map>
 #include <optional>
 #include <thread>
-
-#include <fcntl.h>
-#include <unistd.h>
-
-#include <liburing.h>
-#include <sched.h>
 
 namespace cg = cooperative_groups;
 

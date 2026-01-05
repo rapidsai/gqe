@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,17 +39,14 @@
 #include <gqe/utility/helpers.hpp>
 
 #include <cuco/static_map.cuh>
-
+#include <cudf/column/column_device_view.cuh>
+#include <cudf/copying.hpp>
+#include <cudf/io/parquet.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/mr/device/polymorphic_allocator.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
-
-#include <cudf/column/column_device_view.cuh>
-#include <cudf/copying.hpp>
-#include <cudf/io/parquet.hpp>
-
 #include <thrust/for_each.h>
 #include <thrust/pair.h>
 

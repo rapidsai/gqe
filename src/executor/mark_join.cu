@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,15 @@
  * limitations under the License.
  */
 
-#include "mark_join.cuh"
 #include <gqe/executor/mark_join.hpp>
 
+#include "mark_join.cuh"
+
+#include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/kernel_fusion_helpers.hpp>
 #include <gqe/utility/logger.hpp>
-
-#include <cooperative_groups.h>
-#include <cooperative_groups/reduce.h>
-#include <cuda/atomic>
 
 #include <cuco/detail/equal_wrapper.cuh>
 #include <cuco/detail/open_addressing/functors.cuh>  // slot_is_filled
@@ -35,7 +33,7 @@
 #include <cuco/static_multiset.cuh>
 #include <cuco/types.cuh>
 #include <cuco/utility/cuda_thread_scope.cuh>
-
+#include <cuda/atomic>
 #include <cudf/ast/detail/expression_evaluator.cuh>
 #include <cudf/ast/detail/expression_parser.hpp>
 #include <cudf/column/column_device_view.cuh>
@@ -47,14 +45,14 @@
 #include <cudf/table/table_device_view.cuh>
 #include <cudf/table/table_view.hpp>
 #include <cudf/types.hpp>
-
-#include <gqe/utility/cuda.hpp>
-
 #include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/mr/device/polymorphic_allocator.hpp>
+
+#include <cooperative_groups.h>
+#include <cooperative_groups/reduce.h>
 
 #include <cstddef>
 #include <cstdint>

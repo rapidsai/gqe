@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,11 @@
  * limitations under the License.
  */
 
-#include <gqe/executor/eval.hpp>
 #include <gqe/executor/join.hpp>
+
+#include "../libperfect/masked_join.hpp"
+
+#include <gqe/executor/eval.hpp>
 #include <gqe/executor/mark_join.hpp>
 #include <gqe/executor/unique_key_inner_join.hpp>
 #include <gqe/expression/binary_op.hpp>
@@ -47,8 +50,6 @@
 #include <cudf/table/table.hpp>
 #include <cudf/utilities/traits.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
-
-#include "../libperfect/masked_join.hpp"
 
 #include <stdexcept>
 #include <string>

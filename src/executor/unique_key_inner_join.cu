@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,22 +15,21 @@
  * limitations under the License.
  */
 
+#include <gqe/executor/unique_key_inner_join.hpp>
+
 #include "unique_key_inner_join.cuh"
 
 #include <gqe/catalog.hpp>
-#include <gqe/executor/unique_key_inner_join.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/kernel_fusion_helpers.hpp>
 
 #include <cuco/probing_scheme.cuh>
 #include <cuco/static_set.cuh>
-
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/copying.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/join/distinct_hash_join.hpp>
-
 #include <thrust/equal.h>
 #include <thrust/execution_policy.h>
 #include <thrust/for_each.h>

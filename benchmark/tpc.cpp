@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 
 #include "utility.hpp"
 
-#include <gqe/optimizer/logical_optimization.hpp>
-
 #include <gqe/catalog.hpp>
 #include <gqe/context_reference.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
@@ -27,6 +25,7 @@
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/relation.hpp>
 #include <gqe/logical/write.hpp>
+#include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>

@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
+#include <gqe/storage/parquet.hpp>
+
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/query_context.hpp>
-#include <gqe/storage/parquet.hpp>
 #include <gqe/storage/parquet_reader.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/writeable_view.hpp>
@@ -35,7 +36,7 @@
 #include <cudf/io/types.hpp>
 #include <cudf/stream_compaction.hpp>
 #include <cudf/table/table.hpp>
-
+#include <mpi.h>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
@@ -48,8 +49,6 @@
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
-
-#include <mpi.h>
 
 namespace gqe {
 

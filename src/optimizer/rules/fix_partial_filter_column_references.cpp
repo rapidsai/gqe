@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
+#include <gqe/optimizer/rules/fix_partial_filter_column_references.hpp>
+
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/relation.hpp>
-#include <gqe/optimizer/rules/fix_partial_filter_column_references.hpp>
 
 std::shared_ptr<gqe::logical::relation>
 gqe::optimizer::fix_partial_filter_column_references::try_optimize(

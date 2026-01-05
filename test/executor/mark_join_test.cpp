@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,24 +17,22 @@
 
 #include <gqe/executor/mark_join.hpp>
 
-#include <cudf/ast/expressions.hpp>
-#include <cudf/scalar/scalar.hpp>
-#include <cudf/utilities/default_stream.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
+#include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
+#include <cudf_test/column_wrapper.hpp>
+#include <gtest/gtest.h>
 
+#include <cudf/ast/expressions.hpp>
 #include <cudf/column/column_view.hpp>
+#include <cudf/scalar/scalar.hpp>
 #include <cudf/sorting.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf/types.hpp>
-#include <cudf_test/base_fixture.hpp>
-#include <cudf_test/column_wrapper.hpp>
-
+#include <cudf/utilities/default_stream.hpp>
+#include <cudf/utilities/type_dispatcher.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
-
-#include <gtest/gtest.h>
 
 #include <cstdint>
 #include <memory>

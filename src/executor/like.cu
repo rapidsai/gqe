@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,20 +24,19 @@
 #include <cuco/probing_scheme.cuh>
 #include <cuco/static_map.cuh>
 #include <cuco/storage.cuh>
-
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/strings/contains.hpp>
-
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/mr/device/polymorphic_allocator.hpp>
-
 #include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
+
+#include <cooperative_groups.h>
 
 #include <type_traits>
 #include <unordered_map>

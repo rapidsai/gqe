@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,20 +16,22 @@
  */
 
 #include <gqe/memory_resource/numa_memory_resource.hpp>
+
 #include <gqe/types.hpp>
 #include <gqe/utility/logger.hpp>
 
 #include <rmm/mr/device/device_memory_resource.hpp>
 
-#include <new>  // std::bad_alloc
-#include <stdexcept>
-#include <string>
-
 #include <cuda_runtime_api.h>
+
 #include <linux/mman.h>
 #include <numa.h>
 #include <numaif.h>
 #include <sys/mman.h>
+
+#include <new>  // std::bad_alloc
+#include <stdexcept>
+#include <string>
 
 namespace {
 

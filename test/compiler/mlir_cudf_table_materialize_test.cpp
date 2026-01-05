@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,19 @@
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/kernel_arguments_builder.hpp>
 
+#include <cudf_test/column_wrapper.hpp>
+#include <gtest/gtest.h>
+
+#include <cudf/column/column.hpp>
+#include <cudf/column/column_factories.hpp>
+#include <cudf/io/parquet.hpp>
+#include <cudf/io/types.hpp>
+#include <cudf/table/table.hpp>
+#include <cudf/types.hpp>
+#include <cudf/unary.hpp>
+#include <cudf/utilities/error.hpp>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/Support/raw_ostream.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
@@ -42,24 +55,8 @@
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Support/LLVM.h>
-
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/Support/raw_ostream.h>
-
-#include <cudf/column/column.hpp>
-#include <cudf/column/column_factories.hpp>
-#include <cudf/io/parquet.hpp>
-#include <cudf/io/types.hpp>
-#include <cudf/table/table.hpp>
-#include <cudf/types.hpp>
-#include <cudf/unary.hpp>
-#include <cudf/utilities/error.hpp>
-#include <cudf_test/column_wrapper.hpp>
-
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_scalar.hpp>
-
-#include <gtest/gtest.h>
 
 #include <cuda_runtime_api.h>
 #include <driver_types.h>

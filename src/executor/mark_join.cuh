@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,24 +17,21 @@
 
 #pragma once
 
-#include <cooperative_groups.h>
-
-#include <cudf/hashing.hpp>
-#include <cudf/table/experimental/row_operators.cuh>
-#include <cudf/types.hpp>
-
 #include <cuco/bloom_filter.cuh>
 #include <cuco/static_multiset.cuh>
 #include <cuco/utility/cuda_thread_scope.cuh>
-
 #include <cudf/ast/detail/expression_evaluator.cuh>
 #include <cudf/ast/detail/expression_parser.hpp>
-
+#include <cudf/hashing.hpp>
+#include <cudf/table/experimental/row_operators.cuh>
+#include <cudf/types.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/mr/device/polymorphic_allocator.hpp>
+
+#include <cooperative_groups.h>
 
 #include <memory>
 

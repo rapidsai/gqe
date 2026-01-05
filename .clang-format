@@ -71,8 +71,34 @@ ForEachMacros:
   - foreach
   - Q_FOREACH
   - BOOST_FOREACH
-IncludeBlocks: Preserve
+IncludeBlocks: Regroup
+MainIncludeChar: Any
+SortIncludes: true
 IncludeIsMainRegex: '([-_](test|unittest))?$'
+IncludeIsMainSourceRegex: '(\.cu)$'
+IncludeCategories:
+  # Main header is auto-detected via IncludeIsMainRegex (Priority 0)
+  # Quoted headers
+  - Regex: '^"'
+    Priority: 1
+  # GQE project headers
+  - Regex: '^<gqe/'
+    Priority: 2
+  # External test headers
+  - Regex: '^<(gtest|cudf_test|gmock)/'
+    Priority: 3
+  # External libraries
+  - Regex: '^<((cudf|cuco|rmm|thrust|cub|cuda|mlir|llvm|nvcomp|thrift|parquet|boost|proto|grpcpp|grpc)/|mpi\.h|nvshmem\.h|nvshmemx\.h)'
+    Priority: 4
+  # CUDA includes (cuda_runtime.h, driver_types.h, etc.)
+  - Regex: '^<(cooperative_groups|cuda\.h|cuda_runtime|driver_types|math_constants|nvtx3)'
+    Priority: 5
+  # Other system includes (with a '.')
+  - Regex: '^<.*\..*'
+    Priority: 6
+  # STL includes (no '.')
+  - Regex: '^<[^.]+>'
+    Priority: 7
 IndentCaseLabels: true
 IndentPPDirectives: None
 IndentWidth:     2
@@ -127,7 +153,6 @@ RawStringFormats:
     BasedOnStyle: google
 # Enabling comment reflow causes doxygen comments to be messed up in their formats!
 ReflowComments: true
-SortIncludes: true
 SortUsingDeclarations: true
 SpaceAfterCStyleCast: false
 SpaceAfterTemplateKeyword: true

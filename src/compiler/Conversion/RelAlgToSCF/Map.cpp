@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,13 +20,12 @@
 #include <gqe/compiler/Conversion/RelAlgToSCF/DeclarativeConversion.hpp>
 #include <gqe/compiler/Dialect/RelAlg/IR/RelAlgOps.hpp>
 
+#include <llvm/ADT/SmallVectorExtras.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/UB/IR/UBOps.h>
 #include <mlir/IR/Types.h>
 #include <mlir/IR/Value.h>
 #include <mlir/Support/LLVM.h>
-
-#include <llvm/ADT/SmallVectorExtras.h>
 
 namespace gqe {
 namespace compiler {

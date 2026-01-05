@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,16 @@
  * limitations under the License.
  */
 
-#include <cstdio>
-#include <cuda.h>
-#include <cudf/utilities/pinned_memory.hpp>
 #include <gqe/storage/compression.hpp>
+
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
+
+#include <cudf/utilities/pinned_memory.hpp>
+
+#include <cuda.h>
+
+#include <cstdio>
 #include <mutex>
 
 // Helper function to convert compression format enum to string for logging

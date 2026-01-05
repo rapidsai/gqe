@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,9 @@
 
 #include <mlir/IR/Dialect.h>
 #include <mlir/IR/OpDefinition.h>
-
+// clang-format off
 #include <gqe/compiler/Dialect/RelAlg/IR/RelAlgOpsEnums.h.inc>
 
 #define GET_ATTRDEF_CLASSES
 #include <gqe/compiler/Dialect/RelAlg/IR/RelAlgOpsAttrs.h.inc>
+// clang-format on

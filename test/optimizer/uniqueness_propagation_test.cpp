@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+#include <gqe/optimizer/rules/uniqueness_propagation.hpp>
 
 #include "../utility.hpp"
 
@@ -36,15 +38,14 @@
 #include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/relation_properties.hpp>
 #include <gqe/optimizer/relation_traits.hpp>
-#include <gqe/optimizer/rules/uniqueness_propagation.hpp>
 #include <gqe/task_manager_context.hpp>
+
+#include <cudf_test/base_fixture.hpp>
+#include <gtest/gtest.h>
 
 #include <cudf/column/column.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
-#include <cudf_test/base_fixture.hpp>
-
-#include <gtest/gtest.h>
 
 #include <cassert>
 #include <memory>

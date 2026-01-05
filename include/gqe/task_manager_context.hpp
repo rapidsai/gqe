@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,10 @@
 #include <gqe/utility/helpers.hpp>
 
 #include <cudf/table/table.hpp>
-
+#include <grpc/grpc.h>
+#include <grpcpp/server.h>
+#include <mpi.h>
+#include <nvshmem.h>
 #include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
@@ -36,13 +39,6 @@
 #include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
-
-#include <grpc/grpc.h>
-#include <grpcpp/server.h>
-
-#include <mpi.h>
-
-#include <nvshmem.h>
 
 #include <memory>
 #include <mutex>

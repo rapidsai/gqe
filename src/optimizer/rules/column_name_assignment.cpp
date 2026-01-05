@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-#include <algorithm>
-#include <cudf/aggregation.hpp>
+#include <gqe/optimizer/rules/column_name_assignment.hpp>
+
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/cast.hpp>
 #include <gqe/expression/column_reference.hpp>
@@ -32,7 +32,10 @@
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/sort.hpp>
 #include <gqe/logical/window.hpp>
-#include <gqe/optimizer/rules/column_name_assignment.hpp>
+
+#include <cudf/aggregation.hpp>
+
+#include <algorithm>
 #include <regex>
 #include <sstream>
 

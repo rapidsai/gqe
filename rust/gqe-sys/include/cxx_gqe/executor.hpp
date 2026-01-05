@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,14 +17,14 @@
 
 #pragma once
 
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/task_graph.hpp>
+
 #include <cxx_gqe/api.hpp>
 #include <cxx_gqe/physical.hpp>
 #include <cxx_gqe/query_context.hpp>
 #include <cxx_gqe/task_manager_context.hpp>
 #include <cxx_gqe/types.hpp>
-
-#include <gqe/executor/optimization_parameters.hpp>
-#include <gqe/executor/task_graph.hpp>
 
 #include <memory>
 #include <utility>

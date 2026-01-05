@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include <cuda_runtime.h>
-#include <driver_types.h>
-
 #include <gqe/utility/cuda.hpp>
 
 #include <rmm/cuda_device.hpp>
+
+#include <cuda_runtime.h>
+#include <driver_types.h>
 
 #include <stdexcept>
 #include <type_traits>

@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#include <gqe/logical/from_substrait.hpp>
+
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/cast.hpp>
 #include <gqe/expression/column_reference.hpp>
@@ -27,7 +29,6 @@
 #include <gqe/logical/aggregate.hpp>
 #include <gqe/logical/fetch.hpp>
 #include <gqe/logical/filter.hpp>
-#include <gqe/logical/from_substrait.hpp>
 #include <gqe/logical/join.hpp>
 #include <gqe/logical/project.hpp>
 #include <gqe/logical/read.hpp>
@@ -36,9 +37,9 @@
 #include <gqe/logical/window.hpp>
 #include <gqe/utility/logger.hpp>
 
-#include <substrait/algebra.pb.h>
-
 #include <cudf/fixed_point/conv.hpp>
+
+#include <substrait/algebra.pb.h>
 
 #include <cassert>
 #include <cstdint>

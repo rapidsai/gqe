@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#include <gqe/optimizer/logical_optimization.hpp>
+
 #include <gqe/logical/aggregate.hpp>
 #include <gqe/logical/filter.hpp>
 #include <gqe/logical/join.hpp>
@@ -23,7 +25,6 @@
 #include <gqe/logical/relation.hpp>
 #include <gqe/logical/sort.hpp>
 #include <gqe/logical/window.hpp>
-#include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/rules/column_name_assignment.hpp>
 #include <gqe/optimizer/rules/fix_partial_filter_column_references.hpp>
 #include <gqe/optimizer/rules/join_children_swap.hpp>
@@ -34,10 +35,11 @@
 #include <gqe/optimizer/rules/uniqueness_propagation.hpp>
 #include <gqe/physical/join.hpp>
 
+#include <sys/types.h>
+
 #include <cstddef>
 #include <memory>
 #include <string>
-#include <sys/types.h>
 #include <unordered_map>
 #include <utility>
 #include <vector>

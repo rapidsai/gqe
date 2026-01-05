@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,28 +17,27 @@
 
 #include <gqe/context_reference.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/expression/column_reference.hpp>
+#include <gqe/expression/literal.hpp>
 #include <gqe/memory_resource/memory_utilities.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/storage/in_memory.hpp>
 #include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
 
-#include <cudf/column/column.hpp>
-#include <cudf/strings/detail/utilities.hpp>
-#include <cudf/types.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
+#include <gtest/gtest.h>
 
+#include <cudf/column/column.hpp>
+#include <cudf/strings/detail/utilities.hpp>
+#include <cudf/types.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
-#include <gqe/expression/column_reference.hpp>
-#include <gqe/expression/literal.hpp>
 #include <iterator>
 #include <memory>
 

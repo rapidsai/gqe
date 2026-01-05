@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,16 @@
  * limitations under the License.
  */
 
+#include <gqe/storage/in_memory.hpp>
+
 #include <gqe/context_reference.hpp>
 #include <gqe/executor/task.hpp>
+#include <gqe/expression/json_formatter.hpp>
 #include <gqe/memory_resource/boost_shared_memory_resource.hpp>
 #include <gqe/memory_resource/numa_memory_resource.hpp>
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
 #include <gqe/memory_resource/system_memory_resource.hpp>
 #include <gqe/query_context.hpp>
-#include <gqe/storage/in_memory.hpp>
 #include <gqe/storage/readable_view.hpp>
 #include <gqe/storage/writeable_view.hpp>
 #include <gqe/task_manager_context.hpp>
@@ -34,6 +36,9 @@
 #include <gqe/utility/logger.hpp>
 #include <gqe/utility/mpi_helpers.hpp>
 
+#include <cudf_test/default_stream.hpp>
+
+#include <cuda/__barrier/barrier_arrive_tx.h>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/concatenate.hpp>
@@ -43,7 +48,8 @@
 #include <cudf/types.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/span.hpp>
-
+#include <nvcomp/ans.hpp>
+#include <nvcomp/nvcompManagerFactory.hpp>
 #include <rmm/device_scalar.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
@@ -52,18 +58,12 @@
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
 
-#include <nvcomp.hpp>
-#include <nvcomp/ans.hpp>
-#include <nvcomp/nvcompManagerFactory.hpp>
-
 #include <fmt/format.h>
+#include <nvcomp.hpp>
 
 #include <algorithm>
 #include <cstddef>
-#include <cuda/__barrier/barrier_arrive_tx.h>
-#include <cudf_test/default_stream.hpp>
 #include <deque>
-#include <gqe/expression/json_formatter.hpp>
 #include <iterator>
 #include <limits>
 #include <memory>

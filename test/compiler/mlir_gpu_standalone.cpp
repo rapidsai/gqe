@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,13 @@
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/kernel_arguments_builder.hpp>
 
+#include <gtest/gtest.h>
+
+#include <cudf/column/column.hpp>
+#include <cudf/types.hpp>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/ADT/StringRef.h>
+#include <llvm/Support/raw_ostream.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
 #include <mlir/Dialect/Index/IR/IndexDialect.h>
 #include <mlir/Dialect/Index/IR/IndexOps.h>
@@ -36,21 +43,11 @@
 #include <mlir/IR/ValueRange.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Support/LLVM.h>
-
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/raw_ostream.h>
-
-#include <cudf/column/column.hpp>
-#include <cudf/types.hpp>
-
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_scalar.hpp>
 #include <rmm/device_uvector.hpp>
 
 #include <cuda_runtime_api.h>
-
-#include <gtest/gtest.h>
 
 #include <cassert>
 #include <chrono>
@@ -59,7 +56,6 @@
 #include <iterator>
 #include <memory>
 #include <optional>
-#include <rmm/device_scalar.hpp>
 #include <string>
 
 /**

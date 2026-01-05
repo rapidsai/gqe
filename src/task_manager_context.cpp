@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-#include <cudf/types.hpp>
-#include <cudf/utilities/traits.hpp>
+#include <gqe/task_manager_context.hpp>
+
 #include <gqe/executor/task.hpp>
 #include <gqe/memory_resource/boost_shared_memory_resource.hpp>
 #include <gqe/memory_resource/memory_utilities.hpp>
@@ -25,11 +25,13 @@
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
 #include <gqe/memory_resource/system_memory_resource.hpp>
 #include <gqe/rpc/task_migration.hpp>
-#include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
+
+#include <cudf/types.hpp>
+#include <cudf/utilities/traits.hpp>
 #include <grpc/grpc.h>
 #include <grpcpp/security/server_credentials.h>
 #include <grpcpp/server.h>

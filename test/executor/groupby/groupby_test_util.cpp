@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,9 @@
 
 #include "groupby_test_util.hpp"
 
+#include <gqe/device_properties.hpp>
+#include <gqe/executor/groupby.hpp>
+
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
@@ -28,9 +31,6 @@
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 #include <cudf/unary.hpp>
-
-#include <gqe/device_properties.hpp>
-#include <gqe/executor/groupby.hpp>
 
 #include <memory>
 #include <utility>

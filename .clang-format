@@ -82,7 +82,7 @@ IncludeCategories:
   - Regex: '^"'
     Priority: 1
   # GQE project headers
-  - Regex: '^<gqe/'
+  - Regex: '^<(gqe|gqe_test)/'
     Priority: 2
   # External test headers
   - Regex: '^<(gtest|cudf_test|gmock)/'

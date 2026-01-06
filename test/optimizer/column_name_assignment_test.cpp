@@ -30,6 +30,7 @@
 #include <gqe/storage/compression.hpp>
 #include <gqe/task_manager_context.hpp>
 #include <gqe/utility/tpch.hpp>
+#include <gqe_test/base_fixture.hpp>
 
 #include <gtest/gtest.h>
 
@@ -42,7 +43,7 @@
 
 using namespace std::string_literals;
 
-class ColumnNameAssignmentTest : public ::testing::Test {
+class ColumnNameAssignmentTest : public gqe::test::BaseFixture {
  protected:
   ColumnNameAssignmentTest()
   {
@@ -56,8 +57,7 @@ class ColumnNameAssignmentTest : public ::testing::Test {
     }
   }
   std::string test_resource_dir = std::string(TEST_RESOURCE_DIR);
-  gqe::task_manager_context task_manager_ctx;
-  gqe::catalog catalog{&task_manager_ctx};
+  gqe::catalog catalog{get_task_manager_ctx()};
 };
 
 TEST_F(ColumnNameAssignmentTest, SimpleFilterWithSubstrait)

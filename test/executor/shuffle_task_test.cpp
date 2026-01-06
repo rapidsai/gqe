@@ -23,6 +23,7 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
+#include <gqe_test/base_fixture.hpp>
 
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
@@ -37,15 +38,9 @@
 
 using int64_column_wrapper = cudf::test::fixed_width_column_wrapper<int64_t>;
 
-class ShuffleTaskTest : public ::testing::Test {
+class ShuffleTaskTest : public gqe::test::BaseFixture {
  protected:
-  ShuffleTaskTest()
-    : params(true),
-      task_manager_ctx(params),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  ShuffleTaskTest() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
 
   void construct_input_task(int32_t const stage_id, gqe::context_reference& ctx_ref)
   {
@@ -64,9 +59,6 @@ class ShuffleTaskTest : public ::testing::Test {
       ctx_ref, input_task_id, stage_id, std::make_unique<cudf::table>(std::move(input_columns)));
   }
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
   std::shared_ptr<gqe::test::executed_task> input_task;
 };

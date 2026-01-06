@@ -29,6 +29,7 @@
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
 #include <gqe/utility/kernel_fusion_helpers.hpp>
+#include <gqe_test/base_fixture.hpp>
 
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
@@ -59,16 +60,10 @@ struct join_test_data {
  * table have 2 columns, 1 key column and 1 payload column.
  */
 class SingleKeyColumnJoinTest
-  : public ::testing::TestWithParam<
+  : public gqe::test::BaseFixtureWithParam<
       std::tuple<gqe::join_type_type, cache_strategy, join_test_data, bool, bool>> {
  protected:
-  SingleKeyColumnJoinTest()
-    : params(true),
-      task_manager_ctx(params, gqe::memory_resource::create_static_memory_pool()),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  SingleKeyColumnJoinTest() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
 
   gqe::join_type_type get_join_type() const { return std::get<0>(GetParam()); }
   cache_strategy get_cache_strategy() const { return std::get<1>(GetParam()); }
@@ -300,9 +295,6 @@ class SingleKeyColumnJoinTest
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table_sorted->view());
   }
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
   std::shared_ptr<gqe::join_task> join_task;
   std::shared_ptr<gqe::materialize_join_from_position_lists_task> late_materialization;
@@ -371,15 +363,9 @@ INSTANTIATE_TEST_SUITE_P(
            late_mat_name + "_" + mark_join_name;
   });
 
-class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {
+class SingleKeyColumnNullsEqualJoinTest : public gqe::test::BaseFixture {
  protected:
-  SingleKeyColumnNullsEqualJoinTest()
-    : params(true),
-      task_manager_ctx(params, gqe::memory_resource::create_static_memory_pool()),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  SingleKeyColumnNullsEqualJoinTest() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
 
   void construct_join_task(gqe::join_type_type join_type,
                            std::vector<cudf::size_type> projection_indices,
@@ -430,9 +416,6 @@ class SingleKeyColumnNullsEqualJoinTest : public ::testing::Test {
                                                  std::move(projection_indices));
   }
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::join_task> join_task;
 };
@@ -669,15 +652,9 @@ TEST(HashMapCache, UniqueKeyJoinWithFilter)
   EXPECT_EQ(right_num_matches[3], 1);
 }
 
-class NonEqualityJoinConditionTest : public ::testing::Test {
+class NonEqualityJoinConditionTest : public gqe::test::BaseFixture {
  protected:
-  NonEqualityJoinConditionTest()
-    : params(true),
-      task_manager_ctx(params, gqe::memory_resource::create_static_memory_pool()),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  NonEqualityJoinConditionTest() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
 
   void construct_join_task(gqe::join_type_type join_type,
                            std::vector<cudf::size_type> projection_indices,
@@ -749,9 +726,6 @@ class NonEqualityJoinConditionTest : public ::testing::Test {
     }
   }
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
   std::shared_ptr<gqe::join_task> join_task;
   std::shared_ptr<gqe::materialize_join_from_position_lists_task> late_materialization;
@@ -1133,15 +1107,9 @@ TEST_F(NonEqualityJoinConditionTest, NoEqualityConditionsFullJoin)
   CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
 }
 
-class MaterializeJoinFromPositionListsTest : public ::testing::Test {
+class MaterializeJoinFromPositionListsTest : public gqe::test::BaseFixture {
  protected:
-  MaterializeJoinFromPositionListsTest()
-    : params(true),
-      task_manager_ctx(params, gqe::memory_resource::create_static_memory_pool()),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  MaterializeJoinFromPositionListsTest() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
 
   void construct_materialize_task(gqe::join_type_type join_type)
   {
@@ -1191,9 +1159,6 @@ class MaterializeJoinFromPositionListsTest : public ::testing::Test {
                                                                        projection_indices);
   }
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::materialize_join_from_position_lists_task> materialize_task;
 };
@@ -1236,15 +1201,9 @@ TEST_F(MaterializeJoinFromPositionListsTest, LeftAnti)
  * This test suite constructs the input tables with handpicked values. Both the left and the right
  * table have 2 columns, 1 key column and 1 payload column.
  */
-class SingleKeyColumnJoinWithFilterTest : public ::testing::Test {
+class SingleKeyColumnJoinWithFilterTest : public gqe::test::BaseFixture {
  protected:
-  SingleKeyColumnJoinWithFilterTest()
-    : params(true),
-      task_manager_ctx(params),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  SingleKeyColumnJoinWithFilterTest() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
   void construct_join_task(gqe::join_type_type join_type,
                            std::vector<cudf::size_type> projection_indices,
                            cache_strategy strategy,
@@ -1385,9 +1344,6 @@ class SingleKeyColumnJoinWithFilterTest : public ::testing::Test {
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(join_result_sorted->view(), ref_result_table->view());
   }
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
   std::shared_ptr<gqe::join_task> join_task;
   std::shared_ptr<gqe::materialize_join_from_position_lists_task> late_materialization;

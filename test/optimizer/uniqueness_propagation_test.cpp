@@ -39,6 +39,7 @@
 #include <gqe/optimizer/relation_properties.hpp>
 #include <gqe/optimizer/relation_traits.hpp>
 #include <gqe/task_manager_context.hpp>
+#include <gqe_test/base_fixture.hpp>
 
 #include <cudf_test/base_fixture.hpp>
 #include <gtest/gtest.h>
@@ -55,7 +56,7 @@
 auto const temp_env = static_cast<cudf::test::TempDirTestEnvironment*>(
   ::testing::AddGlobalTestEnvironment(new cudf::test::TempDirTestEnvironment));
 
-class UniquenessPropagationTest : public ::testing::Test {
+class UniquenessPropagationTest : public gqe::test::BaseFixture {
  protected:
   void initialize_optimizer()
   {
@@ -397,8 +398,7 @@ class UniquenessPropagationTest : public ::testing::Test {
     return fetch_rel;
   }
 
-  gqe::task_manager_context task_manager_ctx;
-  gqe::catalog catalog{&task_manager_ctx};
+  gqe::catalog catalog{get_task_manager_ctx()};
   std::unique_ptr<gqe::optimizer::logical_optimizer> optimizer;
   std::shared_ptr<gqe::logical::relation> test_plan;
   std::unique_ptr<gqe::logical::relation> ref_plan;

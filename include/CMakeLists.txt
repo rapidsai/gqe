@@ -15,4 +15,5 @@
 
 if(GQE_ENABLE_QUERY_COMPILER)
   add_subdirectory(gqe)
+  add_subdirectory(gqe_test)
 endif()

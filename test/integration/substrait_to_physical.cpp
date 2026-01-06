@@ -24,6 +24,7 @@
 #include <gqe/physical/read.hpp>
 #include <gqe/task_manager_context.hpp>
 #include <gqe/utility/tpch.hpp>
+#include <gqe_test/base_fixture.hpp>
 
 #include <gtest/gtest.h>
 
@@ -33,7 +34,7 @@
 
 static std::string const test_resource_dir = std::string(TEST_RESOURCE_DIR);
 
-class SubstraitToPhysical : public ::testing::Test {
+class SubstraitToPhysical : public gqe::test::BaseFixture {
  protected:
   SubstraitToPhysical()
   {
@@ -48,8 +49,7 @@ class SubstraitToPhysical : public ::testing::Test {
   }
 
   std::string const test_resource_dir = std::string(TEST_RESOURCE_DIR);
-  gqe::task_manager_context task_manager_ctx;
-  gqe::catalog catalog{&task_manager_ctx};
+  gqe::catalog catalog{get_task_manager_ctx()};
 };
 
 TEST_F(SubstraitToPhysical, SubstraitFilterToPhysicalReadRelationPartialFilter)

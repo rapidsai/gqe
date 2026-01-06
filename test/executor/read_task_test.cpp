@@ -22,6 +22,7 @@
 #include <gqe/query_context.hpp>
 #include <gqe/storage/parquet.hpp>
 #include <gqe/task_manager_context.hpp>
+#include <gqe_test/base_fixture.hpp>
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
@@ -41,19 +42,10 @@
 auto const temp_env = static_cast<cudf::test::TempDirTestEnvironment*>(
   ::testing::AddGlobalTestEnvironment(new cudf::test::TempDirTestEnvironment));
 
-class ReadTest : public ::testing::Test {
+class ReadTest : public gqe::test::BaseFixture {
  protected:
-  ReadTest()
-    : params(true),
-      task_manager_ctx(params),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  ReadTest() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
 };
 

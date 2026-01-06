@@ -29,6 +29,7 @@
 #include <gqe/logical/relation.hpp>
 #include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/task_manager_context.hpp>
+#include <gqe_test/base_fixture.hpp>
 
 #include <cudf_test/base_fixture.hpp>
 #include <gtest/gtest.h>
@@ -47,7 +48,7 @@ auto const temp_env = static_cast<cudf::test::TempDirTestEnvironment*>(
 typedef ::testing::Types<gqe::logical::filter_relation, gqe::logical::join_relation> ChildTypes;
 
 template <typename T>
-class ProjectionPushdown : public ::testing::Test {
+class ProjectionPushdown : public gqe::test::BaseFixture {
  protected:
   enum class test_type {
     no_opt,
@@ -130,8 +131,7 @@ class ProjectionPushdown : public ::testing::Test {
     }
   }
 
-  gqe::task_manager_context task_manager_ctx;
-  gqe::catalog catalog{&task_manager_ctx};
+  gqe::catalog catalog{get_task_manager_ctx()};
   std::unique_ptr<gqe::optimizer::logical_optimizer> optimizer;
 
  private:

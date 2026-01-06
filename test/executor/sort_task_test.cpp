@@ -23,6 +23,7 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
+#include <gqe_test/base_fixture.hpp>
 
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
@@ -37,15 +38,9 @@
 
 using int64_column_wrapper = cudf::test::fixed_width_column_wrapper<int64_t>;
 
-class SingleKeyColumnSortTest : public ::testing::Test {
+class SingleKeyColumnSortTest : public gqe::test::BaseFixture {
  protected:
-  SingleKeyColumnSortTest()
-    : params(true),
-      task_manager_ctx(params),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  SingleKeyColumnSortTest() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
   void construct_sort_task(cudf::order column_order, cudf::null_order null_precedence)
   {
     constexpr int32_t stage_id      = 0;
@@ -75,9 +70,6 @@ class SingleKeyColumnSortTest : public ::testing::Test {
                                                  std::vector<cudf::null_order>({null_precedence}));
   }
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::sort_task> sort_task;
 };

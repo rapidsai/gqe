@@ -23,6 +23,7 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
+#include <gqe_test/base_fixture.hpp>
 
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
@@ -39,15 +40,9 @@ using int32_column_wrapper = cudf::test::fixed_width_column_wrapper<int32_t>;
 using int64_column_wrapper = cudf::test::fixed_width_column_wrapper<int64_t>;
 using bool_column_wrapper  = cudf::test::fixed_width_column_wrapper<bool>;
 
-class WindowOrderByPartitionBy : public ::testing::Test {
+class WindowOrderByPartitionBy : public gqe::test::BaseFixture {
  protected:
-  WindowOrderByPartitionBy()
-    : params(true),
-      task_manager_ctx(params),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  WindowOrderByPartitionBy() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
 
   void construct_window_task()
   {
@@ -109,22 +104,13 @@ class WindowOrderByPartitionBy : public ::testing::Test {
                                                      window_upper_bound);
   }
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::window_task> window_task;
 };
 
-class WindowOrderBy : public ::testing::Test {
+class WindowOrderBy : public gqe::test::BaseFixture {
  protected:
-  WindowOrderBy()
-    : params(true),
-      task_manager_ctx(params),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  WindowOrderBy() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
 
   void construct_window_task()
   {
@@ -181,22 +167,13 @@ class WindowOrderBy : public ::testing::Test {
                                                      window_upper_bound);
   }
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::window_task> window_task;
 };
 
-class WindowOrderByPartitionByRank : public ::testing::Test {
+class WindowOrderByPartitionByRank : public gqe::test::BaseFixture {
  protected:
-  WindowOrderByPartitionByRank()
-    : params(true),
-      task_manager_ctx(params),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  WindowOrderByPartitionByRank() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
 
   void construct_window_task()
   {
@@ -253,22 +230,13 @@ class WindowOrderByPartitionByRank : public ::testing::Test {
                                                      window_upper_bound);
   }
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::window_task> window_task;
 };
 
-class WindowOrderByRank : public ::testing::Test {
+class WindowOrderByRank : public gqe::test::BaseFixture {
  protected:
-  WindowOrderByRank()
-    : params(true),
-      task_manager_ctx(params),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  WindowOrderByRank() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
 
   void construct_window_task()
   {
@@ -320,9 +288,6 @@ class WindowOrderByRank : public ::testing::Test {
                                                      window_upper_bound);
   }
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::window_task> window_task;
 };

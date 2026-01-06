@@ -287,17 +287,21 @@ int main(int argc, char* argv[])
     std::exit(EXIT_FAILURE);
   }
 
+  gqe::optimization_parameters read_opms(false);
+  read_opms.max_num_partitions = parse_num_row_groups();
+
   // Configure the memory pool
   // FIXME: For multi-GPU, we need to construct a memory pool for each device
-  auto const pool_size = gqe::benchmark::get_memory_pool_size();
-  rmm::mr::cuda_memory_resource cuda_mr;
-  rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource> pool_mr{
-    &cuda_mr, pool_size, pool_size};
-  rmm::mr::set_current_device_resource(&pool_mr);
+  using upstream_mr = rmm::mr::cuda_memory_resource;
+  using pool_mr     = rmm::mr::pool_memory_resource<upstream_mr>;
+  using wrapper_mr  = rmm::mr::owning_wrapper<pool_mr, upstream_mr>;
 
-  gqe::optimization_parameters read_opms{};
-  read_opms.max_num_partitions = parse_num_row_groups();
-  gqe::task_manager_context task_manager_ctx{read_opms};
+  auto upstream = std::make_unique<upstream_mr>();
+  auto mr       = std::make_unique<wrapper_mr>(std::move(upstream),
+                                         read_opms.initial_query_memory,
+                                         std::make_optional(read_opms.max_query_memory));
+
+  gqe::task_manager_context task_manager_ctx{read_opms, std::move(mr)};
   gqe::query_context query_ctx(read_opms);
   gqe::context_reference ctx_ref{&task_manager_ctx, &query_ctx};
   gqe::catalog catalog{&task_manager_ctx};

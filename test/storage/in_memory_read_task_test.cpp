@@ -24,6 +24,7 @@
 #include <gqe/storage/in_memory.hpp>
 #include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
+#include <gqe_test/base_fixture.hpp>
 
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
@@ -56,20 +57,20 @@ struct test_parameters {
   bool use_overlap_mtx;
 };
 
-class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
+class InMemoryReadTest : public gqe::test::BaseFixtureWithParam<test_parameters> {
  public:
   InMemoryReadTest()
 
   {
     auto const params = GetParam();
 
-    gqe::optimization_parameters opms(true);
+    gqe::optimization_parameters opms(false);
     opms.read_zero_copy_enable              = params.read_zero_copy_enable;
     opms.in_memory_table_compression_format = params.comp_format;
     opms.use_overlap_mtx                    = params.use_overlap_mtx;
 
-    task_manager_ctx = std::make_unique<gqe::task_manager_context>(opms);
-    query_ctx        = std::make_unique<gqe::query_context>(opms);
+    initialize_contexts(opms);
+    query_ctx = get_query_ctx();
   }
 
   void SetUp() override
@@ -130,7 +131,7 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
       gqe::memory_kind::device{rmm::cuda_device_id(0)},
       col_names,
       col_types,
-      task_manager_ctx.get());
+      get_task_manager_ctx());
 
     // Add row groups to table
     table->get_row_group_appender()(std::move(row_group));
@@ -138,10 +139,9 @@ class InMemoryReadTest : public testing::TestWithParam<test_parameters> {
 
   void TearDown() override { table = nullptr; }
 
-  std::unique_ptr<gqe::task_manager_context> task_manager_ctx;
-  std::unique_ptr<gqe::query_context> query_ctx;
   std::unique_ptr<gqe::storage::in_memory_table> table;
   std::unique_ptr<cudf::table> test_table;
+  query_context* query_ctx;
 };
 
 TEST_P(InMemoryReadTest, ReadFirstCol)
@@ -158,7 +158,7 @@ TEST_P(InMemoryReadTest, ReadFirstCol)
     std::back_inserter(task_parameters),
     [](auto id) -> gqe::storage::in_memory_readable_view::task_parameters { return {id}; });
 
-  gqe::context_reference ctx_ref{task_manager_ctx.get(), query_ctx.get()};
+  gqe::context_reference ctx_ref{get_task_manager_ctx(), get_query_ctx()};
   auto tasks = table->readable_view()->get_read_tasks(
     std::move(task_parameters), ctx_ref, stage_id, col_names, col_types);
 
@@ -188,7 +188,7 @@ TEST_P(InMemoryReadTest, ReadSecondCol)
     std::back_inserter(task_parameters),
     [](auto id) -> gqe::storage::in_memory_readable_view::task_parameters { return {id}; });
 
-  gqe::context_reference ctx_ref{task_manager_ctx.get(), query_ctx.get()};
+  gqe::context_reference ctx_ref{get_task_manager_ctx(), get_query_ctx()};
   auto tasks = table->readable_view()->get_read_tasks(
     std::move(task_parameters), ctx_ref, stage_id, col_names, col_types);
 
@@ -219,7 +219,7 @@ TEST_P(InMemoryReadTest, ReadAll)
     std::back_inserter(task_parameters),
     [](auto id) -> gqe::storage::in_memory_readable_view::task_parameters { return {id}; });
 
-  gqe::context_reference ctx_ref{task_manager_ctx.get(), query_ctx.get()};
+  gqe::context_reference ctx_ref{get_task_manager_ctx(), get_query_ctx()};
   auto tasks = table->readable_view()->get_read_tasks(
     std::move(task_parameters), ctx_ref, stage_id, col_names, col_types);
 
@@ -266,13 +266,11 @@ INSTANTIATE_TEST_SUITE_P(
 // before creating the read task, e.g., to compress the row group columns.
 static constexpr cudf::size_type DEFAULT_NUM_ROWS       = 100;
 static constexpr cudf::size_type DEFAULT_PARTITION_SIZE = 5;
-class InMemoryReadTaskTest : public ::testing::Test {
+class InMemoryReadTaskTest : public gqe::test::BaseFixture {
  protected:
   InMemoryReadTaskTest()
-    : _task_manager_ctx(
-        std::make_unique<gqe::task_manager_context>(gqe::optimization_parameters{true})),
-      _query_ctx(std::make_unique<gqe::query_context>(gqe::optimization_parameters{true})),
-      _ctx_ref(gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}),
+    : _query_ctx(get_query_ctx()),
+      _ctx_ref(gqe::context_reference{get_task_manager_ctx(), _query_ctx}),
       _task_id(0),
       _stage_id(0),
       _memory_kind(gqe::memory_kind::device{rmm::cuda_device_id(0)}),
@@ -548,8 +546,7 @@ class InMemoryReadTaskTest : public ::testing::Test {
   // Parameters that are required by the constructor of in_memory_read_task but don't really change
   // across the tests. The only exception is _query_ctx.parameters, which can be manipulated to
   // enable/disable zero-copy reads and compression.
-  const std::unique_ptr<gqe::task_manager_context> _task_manager_ctx;
-  const std::unique_ptr<gqe::query_context> _query_ctx;
+  gqe::query_context* _query_ctx;
   const context_reference _ctx_ref;
   const int32_t _task_id;
   const int32_t _stage_id;

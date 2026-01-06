@@ -34,6 +34,7 @@
 #include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/logger.hpp>
+#include <gqe_test/base_fixture.hpp>
 
 #include <gtest/gtest.h>
 
@@ -47,12 +48,12 @@
 #include <vector>
 
 using relation_t = gqe::logical::relation::relation_type;
-class StringToIntLiteralTest : public testing::TestWithParam<relation_t> {
+class StringToIntLiteralTest : public gqe::test::BaseFixtureWithParam<relation_t> {
  protected:
   StringToIntLiteralTest()
   {
     // Register the test table in the catalog
-    _catalog                    = std::make_unique<gqe::catalog>(&_task_manager_ctx);
+    _catalog                    = std::make_unique<gqe::catalog>(get_task_manager_ctx());
     _test_table_name            = "test_table";
     std::string column_name     = "a";
     cudf::data_type column_type = cudf::data_type(cudf::type_id::INT8);
@@ -181,7 +182,6 @@ class StringToIntLiteralTest : public testing::TestWithParam<relation_t> {
     }
   }
 
-  gqe::task_manager_context _task_manager_ctx;
   std::string _test_table_name;
   std::unique_ptr<gqe::catalog> _catalog;
 };
@@ -218,12 +218,11 @@ INSTANTIATE_TEST_SUITE_P(Relations,
 // - The partial filter is evaluated on column 2 (counting from zero).
 // This ensures that the column index of the partial filter is bigger than the number of
 // projected columns (2 > 1).
-TEST(StringToIntLiteralTest, transformPartialFilterInReadRelation)
+TEST_F(StringToIntLiteralTest, transformPartialFilterInReadRelation)
 {
   gqe::optimizer::optimization_configuration logical_rule_config(
     {gqe::optimizer::logical_optimization_rule_type::string_to_int_literal}, {});
-  gqe::task_manager_context task_manager_ctx;
-  gqe::catalog catalog{&task_manager_ctx};
+  gqe::catalog catalog{get_task_manager_ctx()};
   auto optimizer =
     std::make_unique<gqe::optimizer::logical_optimizer>(&logical_rule_config, &catalog);
 

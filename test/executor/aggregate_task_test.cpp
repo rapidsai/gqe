@@ -23,6 +23,7 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
+#include <gqe_test/base_fixture.hpp>
 
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
@@ -35,15 +36,9 @@
 #include <memory>
 #include <vector>
 
-class HandCodedValuesAggregationTest : public ::testing::Test {
+class HandCodedValuesAggregationTest : public gqe::test::BaseFixture {
  protected:
-  HandCodedValuesAggregationTest()
-    : params(true),
-      task_manager_ctx(params),
-      query_ctx(params),
-      ctx_ref{&task_manager_ctx, &query_ctx}
-  {
-  }
+  HandCodedValuesAggregationTest() : ctx_ref{get_task_manager_ctx(), get_query_ctx()} {}
 
   void construct_aggregate_task(
     std::vector<std::unique_ptr<gqe::expression>> keys,
@@ -80,9 +75,6 @@ class HandCodedValuesAggregationTest : public ::testing::Test {
                                                            std::move(condition));
   }
 
-  gqe::optimization_parameters params;
-  gqe::task_manager_context task_manager_ctx;
-  gqe::query_context query_ctx;
   gqe::context_reference ctx_ref;
   std::unique_ptr<gqe::aggregate_task> aggregate_task;
 };

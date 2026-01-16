@@ -99,6 +99,8 @@ void* numa_memory_resource::do_allocate(std::size_t bytes, rmm::cuda_stream_view
 
   auto aligned_bytes = round_to_next_page(bytes, _page_kind.size());
 
+  GQE_LOG_TRACE("mbind on NUMA nodes: {}", _numa_node_set.pretty_print());
+
   if (::mbind(ptr,
               aligned_bytes,
               MPOL_BIND,

@@ -26,6 +26,14 @@ target_link_libraries(cupti_test PUBLIC cudf::cudftestutil
                                         cudf::cudftestutil_impl)
 add_test(NAME cupti_test COMMAND cupti_test)
 
+add_executable(device_properties_test utility/device_properties_test.cpp)
+target_link_libraries(device_properties_test PUBLIC gqe GTest::gtest_main)
+add_test(NAME device_properties_test COMMAND device_properties_test)
+
+add_executable(linux_test utility/linux_test.cpp)
+target_link_libraries(linux_test PUBLIC gqe GTest::gtest_main)
+add_test(NAME linux_test COMMAND linux_test)
+
 add_library(logical_test_common logical/common.cpp)
 set_property(TARGET logical_test_common PROPERTY CUDA_ARCHITECTURES
                                                  ${GPU_ARCHS})

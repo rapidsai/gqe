@@ -19,6 +19,8 @@
 
 #include <cuda_runtime_api.h>
 
+#include <nvml.h>
+
 #include <stdexcept>
 #include <string>
 
@@ -61,6 +63,25 @@ struct mpi_error : public std::runtime_error {
   mpi_error(std::string const& message) : mpi_error{message.c_str()} {}
 };
 
+/**
+ * @brief Exception thrown when a NVML error is encountered.
+ */
+struct nvml_error : public std::runtime_error {
+  /**
+   * @brief Constructs a `nvml_error` object with the given `message`.
+   *
+   * @param message The error char array used to construct `nvml_error`
+   */
+  nvml_error(const char* message) : std::runtime_error(message) {}
+
+  /**
+   * @brief Constructs a `nvml_error` object with the given `message` string.
+   *
+   * @param message The `std::string` used to construct `nvml_error`
+   */
+  nvml_error(std::string const& message) : nvml_error{message.c_str()} {}
+};
+
 }  // namespace gqe
 
 #define GQE_STRINGIFY_DETAIL(x) #x
@@ -97,6 +118,20 @@ struct mpi_error : public std::runtime_error {
     }                                                                                            \
   } while (0);
 #define GQE_MPI_TRY_1(_call) GQE_MPI_TRY_2(_call, gqe::mpi_error)
+
+#define GQE_NVML_TRY(...)                                             \
+  GET_GQE_NVML_TRY_MACRO(__VA_ARGS__, GQE_NVML_TRY_2, GQE_NVML_TRY_1) \
+  (__VA_ARGS__)
+#define GET_GQE_NVML_TRY_MACRO(_1, _2, NAME, ...) NAME
+#define GQE_NVML_TRY_2(_call, _exception_type)                                                    \
+  do {                                                                                            \
+    nvmlReturn_t const status = (_call);                                                          \
+    if (NVML_SUCCESS != status) {                                                                 \
+      throw _exception_type{std::string{"NVML error at: "} + __FILE__ + GQE_STRINGIFY(__LINE__) + \
+                            ": " + nvmlErrorString(status)};                                      \
+    }                                                                                             \
+  } while (0);
+#define GQE_NVML_TRY_1(_call) GQE_NVML_TRY_2(_call, gqe::nvml_error)
 
 // Adapted from cudf/utilities/error.hpp
 /**

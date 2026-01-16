@@ -18,6 +18,7 @@
 #include <gqe/executor/task_graph.hpp>
 
 #include <gqe/context_reference.hpp>
+#include <gqe/device_properties.hpp>
 #include <gqe/executor/aggregate.hpp>
 #include <gqe/executor/concatenate.hpp>
 #include <gqe/executor/fetch.hpp>
@@ -54,6 +55,7 @@
 #include <gqe/task_manager_context.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/helpers.hpp>
+#include <gqe/utility/linux.hpp>
 #include <gqe/utility/logger.hpp>
 
 #include <algorithm>
@@ -138,6 +140,14 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
   assert(ctx_ref._query_context != nullptr);
   assert(task_graph_to_execute != nullptr);
 
+  // Bind the main thread to the CPU affinity of the current CUDA device, for the case when it is
+  // used as a worker thread.
+  utility::set_thread_affinity(
+    device_properties::instance().get<device_properties::property::cpuAffinity>());
+
+  // Get the current CUDA device to propagate to worker threads
+  auto current_device = rmm::get_current_cuda_device();
+
   for (auto const& tasks_current_stage : task_graph_to_execute->stage_root_tasks) {
     auto const num_tasks_current_stage = tasks_current_stage.size();
 
@@ -176,6 +186,17 @@ void execute_task_graph_single_gpu(context_reference ctx_ref,
         auto& worker_exception = worker_exceptions[worker_idx];
 
         workers.emplace_back([=, &tasks_current_stage, &worker_exception]() {
+          // This is a sanity check to ensure that workers set the same CUDA device as the main
+          // thread. The default is 0, but it can be changed elsewhere in the program (e.g.,
+          // gqe-python).
+          //
+          // Reference:
+          // https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/environment-variables.html#cuda-visible-devices
+          // https://developer.nvidia.com/blog/cuda-pro-tip-always-set-current-device-avoid-multithreading-bugs
+          GQE_CUDA_TRY(cudaSetDevice(current_device.value()));
+          // Bind the worker thread to the CPU affinity of the current CUDA device.
+          utility::set_thread_affinity(
+            device_properties::instance().get<device_properties::property::cpuAffinity>());
           try {
             for (std::size_t task_idx = worker_idx; task_idx < num_tasks_current_stage;
                  task_idx += num_workers) {
@@ -289,6 +310,9 @@ void execute_task_graph_multi_process(context_reference ctx_ref, task_graph cons
 
     if (num_workers == 1) {
       GQE_CUDA_TRY(cudaSetDevice(task_manager_context->comm->device_id().value()));
+      // Bind the main thread to the CPU affinity of the current CUDA device.
+      utility::set_thread_affinity(
+        device_properties::instance().get<device_properties::property::cpuAffinity>());
       // If the number of worker threads is 1, we could avoid the thread spawning cost by using the
       // main thread.
       std::exception_ptr stage_exception = nullptr;
@@ -339,6 +363,9 @@ void execute_task_graph_multi_process(context_reference ctx_ref, task_graph cons
 
         workers.emplace_back([=, &tasks_to_execute, &worker_exception]() {
           GQE_CUDA_TRY(cudaSetDevice(task_manager_context->comm->device_id().value()));
+          // Bind the worker thread to the CPU affinity of the current CUDA device.
+          utility::set_thread_affinity(
+            device_properties::instance().get<device_properties::property::cpuAffinity>());
           try {
             for (std::size_t task_idx = worker_idx; task_idx < tasks_to_execute.size();
                  task_idx += num_workers) {

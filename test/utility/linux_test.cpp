@@ -15,36 +15,39 @@
  * limitations under the License.
  */
 
-#pragma once
+#include <gqe/utility/linux.hpp>
 
 #include <gqe/types.hpp>
 
-#include <cstddef>
-#include <string>
-#include <unordered_map>
+#include <gtest/gtest.h>
+
+#include <atomic>
+#include <thread>
 
 namespace gqe {
-
-namespace utility {
-
-/**
- * @brief Bind the current thread to the specified CPU affinity.
- *
- * @param affinity The CPU set specifying which CPUs the thread can run on.
- */
-void set_thread_affinity(cpu_set const& affinity);
+namespace {
 
 /**
- * @brief Return the Linux meminfo map.
- *
- * @throw std::logic_error if the meminfo file cannot be parsed.
- *
- * Linux provides meminfo for the system in `/proc/meminfo` and per NUMA node in
- * `/sys/devices/system/node/NODE_ID/meminfo`. This function parses a meminfo file and returns the
- * contents as a name-to-value map.
+ * @brief Test that set_thread_affinity works.
  */
-std::unordered_map<std::string, std::size_t> get_meminfo(const std::string& meminfo_path);
+TEST(LinuxUtilityTest, SetThreadAffinity)
+{
+  // Use CPU 0, which should always exist
+  cpu_set affinity(0);
 
-}  // namespace utility
+  std::atomic<bool> success{false};
+  std::thread worker([&]() {
+    try {
+      utility::set_thread_affinity(affinity);
+      success = true;
+    } catch (...) {
+      success = false;
+    }
+  });
+  worker.join();
 
+  EXPECT_TRUE(success.load());
+}
+
+}  // namespace
 }  // namespace gqe

@@ -100,6 +100,8 @@ rmm::mr::device_memory_resource* task_manager_context::create_table_memory_resou
       [initial_pool_bytes, max_pool_bytes](
         const memory_kind::numa& numa) -> std::unique_ptr<rmm::mr::device_memory_resource> {
         std::size_t max_pool_bytes_set = 0;
+        GQE_LOG_DEBUG("Task manager creating `numa` memory resource on NUMA nodes: {}",
+                      numa.numa_node_set.pretty_print());
         if (!max_pool_bytes) {
           auto numa_memory_capacity =
             memory_resource::available_numa_node_memory(numa.numa_node_set).second;
@@ -125,6 +127,8 @@ rmm::mr::device_memory_resource* task_manager_context::create_table_memory_resou
       [initial_pool_bytes, max_pool_bytes](const memory_kind::numa_pinned& numa_pinned)
         -> std::unique_ptr<rmm::mr::device_memory_resource> {
         std::size_t max_pool_bytes_set = 0;
+        GQE_LOG_DEBUG("Task manager creating `numa_pinned` memory resource on NUMA nodes: {}",
+                      numa_pinned.numa_node_set.pretty_print());
         if (!max_pool_bytes) {
           auto numa_memory_capacity =
             memory_resource::available_numa_node_memory(numa_pinned.numa_node_set).second;

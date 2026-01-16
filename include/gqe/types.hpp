@@ -22,6 +22,7 @@
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 
+#include <climits>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -64,6 +65,8 @@ enum class unique_keys_policy : int {
 class cpu_set {
  public:
   static constexpr int max_count = 1024; /**< Maximum CPU ID. Can be increased if required. */
+  static constexpr unsigned int qword_count = utility::divide_round_up(
+    max_count, sizeof(unsigned long) * CHAR_BIT); /**< Number of unsigned longs in the cpu_set. */
 
   /**
    * @brief Create an empty CPU set.
@@ -111,9 +114,33 @@ class cpu_set {
   [[nodiscard]] int count() const noexcept;
 
   /**
+   * @brief Return whether the set is empty.
+   */
+  [[nodiscard]] bool empty() const noexcept;
+
+  /**
+   * @brief Return the first (lowest) CPU ID in the set.
+   *
+   * @throws std::logic_error if the set is empty.
+   */
+  [[nodiscard]] int front() const;
+
+  /**
+   * @brief Return the last (highest) CPU ID in the set.
+   *
+   * @throws std::logic_error if the set is empty.
+   */
+  [[nodiscard]] int back() const;
+
+  /**
    * @brief Return the raw bits of the set.
    */
   [[nodiscard]] const unsigned long* bits() const noexcept;
+
+  /**
+   * @brief Return the raw bits of the set.
+   */
+  [[nodiscard]] unsigned long* bits() noexcept;
 
   /**
    * @brief Visualize the bits of the CPU set.
@@ -243,6 +270,16 @@ struct numa {
   cpu_set numa_node_set;                                           /**< NUMA node set hint. */
   gqe::page_kind::type page_kind = gqe::page_kind::system_default; /**< Page kind hint */
 
+  /**
+   * @brief Construct numa with explicit numa_node_set.
+   */
+  numa(cpu_set node_set, gqe::page_kind::type pk = gqe::page_kind::system_default);
+
+  /**
+   * @brief Construct numa using the memory affinity of the current CUDA device.
+   */
+  explicit numa(gqe::page_kind::type pk = gqe::page_kind::system_default);
+
   bool operator==(numa const& other) const;
 };
 
@@ -262,6 +299,16 @@ struct pinned {
 struct numa_pinned {
   cpu_set numa_node_set;                                           /**< NUMA node set hint. */
   gqe::page_kind::type page_kind = gqe::page_kind::system_default; /**< Page kind hint */
+
+  /**
+   * @brief Construct numa_pinned with explicit numa_node_set.
+   */
+  numa_pinned(cpu_set node_set, gqe::page_kind::type pk = gqe::page_kind::system_default);
+
+  /**
+   * @brief Construct numa_pinned using the memory affinity of the current CUDA device.
+   */
+  explicit numa_pinned(gqe::page_kind::type pk = gqe::page_kind::system_default);
 
   bool operator==(numa_pinned const& other) const;
 };

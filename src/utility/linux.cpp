@@ -17,7 +17,13 @@
 
 #include <gqe/utility/linux.hpp>
 
+#include <gqe/utility/logger.hpp>
+
+#include <sched.h>
+
+#include <cerrno>
 #include <cstddef>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -27,6 +33,15 @@
 namespace gqe {
 
 namespace utility {
+
+void set_thread_affinity(cpu_set const& affinity)
+{
+  auto result = sched_setaffinity(
+    0, CPU_ALLOC_SIZE(cpu_set::max_count), reinterpret_cast<cpu_set_t const*>(affinity.bits()));
+  if (result != 0) {
+    GQE_LOG_WARN("Failed to set CPU affinity for worker thread: {}", strerror(errno));
+  }
+}
 
 template <typename CharT, typename Traits>
 void check_stream(const std::basic_istream<CharT, Traits>& istream)

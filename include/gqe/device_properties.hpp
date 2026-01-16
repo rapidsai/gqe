@@ -17,23 +17,34 @@
 
 #pragma once
 
+#include <gqe/types.hpp>
 #include <gqe/utility/cuda.hpp>
 
 #include <rmm/cuda_device.hpp>
 
-#include <cuda_runtime.h>
-#include <driver_types.h>
-
-#include <stdexcept>
 #include <type_traits>
 #include <unordered_map>
-#include <vector>
 
 namespace gqe {
 
 /**
  * @brief Singleton wrapper class for caching and accessing device properties.
  *
+ * Caches properties of all visible devices.
+ *
+ * @invariant The set of visible devices does not change during execution.
+ *
+ * # Design Rationale
+ *
+ * Calling `cudaGetDeviceProperties` and `cuDeviceGetAttribute` is expensive (several milliseconds).
+ * Therefore, we cache properties of all visible devices to avoid repeated calls to these functions.
+ *
+ * Properties have different data types. Therefore, `get()` takes care to return the correct data
+ * type for each property.
+ *
+ * `get()` returns a single property to hide the implementation details of the properties cache.
+ *
+ * As the header is used in many files, we avoid including C headers in this C++ header.
  */
 class device_properties {
  public:
@@ -42,17 +53,17 @@ class device_properties {
    *
    */
   enum property {
+    cpuAffinity,
+    managedMemory,
+    memDecompressSupport,
+    memoryAffinity,
     multiProcessorCount,
     pageableMemoryAccess,
-    unifiedAddressing,
-    managedMemory,
-    memDecompressSupport
+    unifiedAddressing
   };
 
   /**
-   * @brief Get the singleton instance of device_properties.  Properties of all visible devices are
-   * cached.
-   * @warning We assume that set of visible devices does not change during execution.
+   * @brief Get the singleton instance of device_properties.
    *
    * @return device_properties& Reference to the singleton instance
    */
@@ -80,12 +91,41 @@ class device_properties {
    */
   explicit device_properties();
 
+  /**
+   * @brief CUDA driver-derived properties cache for a device.
+   */
   struct driver_properties {
-    int memDecompressSupport;
+    bool mem_decompress_support;
   };
 
-  std::unordered_map<int, cudaDeviceProp> _device_properties_cache;
+  /**
+   * @brief NVML-derived properties cache for a device.
+   */
+  struct nvml_properties {
+    cpu_set cpu_affinity;    /**< CPU set for GPU CPU affinity */
+    cpu_set memory_affinity; /**< NUMA node set for GPU memory affinity */
+  };
+
+  /**
+   * @brief CUDA runtime-derived properties cache for a device.
+   *
+   * @note The properties are cached as bools and ints to avoid unnecessary conversions.
+   * @note Don't use cudaDeviceProp directly to avoid including C headers in a C++ header.
+   */
+  struct runtime_properties {
+    bool managed_memory;
+    int multi_processor_count;
+    bool pageable_memory_access;
+    bool unified_addressing;
+  };
+
   std::unordered_map<int, driver_properties> _driver_properties_cache;
+  std::unordered_map<int, nvml_properties> _nvml_properties_cache;
+  std::unordered_map<int, runtime_properties> _runtime_properties_cache;
+
+  [[nodiscard]] driver_properties const& get_driver_properties(rmm::cuda_device_id device) const;
+  [[nodiscard]] nvml_properties const& get_nvml_properties(rmm::cuda_device_id device) const;
+  [[nodiscard]] runtime_properties const& get_runtime_properties(rmm::cuda_device_id device) const;
 
   template <property p>
   struct dependent_false : std::false_type {};
@@ -94,28 +134,20 @@ class device_properties {
 template <device_properties::property p>
 auto device_properties::get(rmm::cuda_device_id device) const
 {
-  auto cuda_match = _device_properties_cache.find(device.value());
-  if (cuda_match == _device_properties_cache.end()) {
-    throw std::runtime_error("Device not found");
-  }
-  auto& cuda_properties = cuda_match->second;
-
-  auto driver_match = _driver_properties_cache.find(device.value());
-  if (driver_match == _driver_properties_cache.end()) {
-    throw std::runtime_error("Driver properties not found");
-  }
-  auto& driver_properties = driver_match->second;
-
-  if constexpr (p == property::multiProcessorCount) {
-    return static_cast<int>(cuda_properties.multiProcessorCount);
-  } else if constexpr (p == property::pageableMemoryAccess) {
-    return static_cast<bool>(cuda_properties.pageableMemoryAccess);
-  } else if constexpr (p == property::unifiedAddressing) {
-    return static_cast<bool>(cuda_properties.unifiedAddressing);
+  if constexpr (p == property::cpuAffinity) {
+    return get_nvml_properties(device).cpu_affinity;
   } else if constexpr (p == property::managedMemory) {
-    return static_cast<bool>(cuda_properties.managedMemory);
+    return get_runtime_properties(device).managed_memory;
   } else if constexpr (p == property::memDecompressSupport) {
-    return static_cast<bool>(driver_properties.memDecompressSupport);
+    return get_driver_properties(device).mem_decompress_support;
+  } else if constexpr (p == property::memoryAffinity) {
+    return get_nvml_properties(device).memory_affinity;
+  } else if constexpr (p == property::multiProcessorCount) {
+    return get_runtime_properties(device).multi_processor_count;
+  } else if constexpr (p == property::pageableMemoryAccess) {
+    return get_runtime_properties(device).pageable_memory_access;
+  } else if constexpr (p == property::unifiedAddressing) {
+    return get_runtime_properties(device).unified_addressing;
   } else {
     static_assert(dependent_false<p>::value, "The requested device property is not implemented.");
   }

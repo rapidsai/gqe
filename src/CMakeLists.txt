@@ -160,6 +160,7 @@ target_link_libraries(gqe PUBLIC MPI::MPI_CXX)
 target_link_libraries(gqe PUBLIC nvshmem::nvshmem_host)
 target_link_libraries(gqe PRIVATE libperfect)
 target_link_libraries(gqe PUBLIC CUDA::cuda_driver)
+target_link_libraries(gqe PUBLIC CUDA::nvml)
 
 # Download and configure Parquet format
 if(GQE_ENABLE_CUSTOMIZED_PARQUET)

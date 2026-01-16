@@ -121,6 +121,12 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 
 Note that in order to achieve overlapping, libcudf has to be compiled with per-thread default stream, which can be enabled by passing `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-25.10/CONTRIBUTING.md#build-cudf-from-source).
 
+### CUDA Device and NUMA Affinity
+
+The CUDA device to execute on can be selected by setting [the `CUDA_VISIBLE_DEVICES` environment variable](https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/environment-variables.html#cuda-visible-devices). This variable remaps the device ordinals. GQE selects device 0.
+
+The NUMA affinity of a device depends on the system topology. When memory kind is specified as `numa` or `numa_pinned`, GQE allocates tables on the NUMA node affine to the device used for table registration. In multi-process execution, NUMA node selection occurs per process.
+
 ### Partition pruning
 
 If a table is split into multiple Parquet files, the lexicographical sort order of the file names has to correspond to the sort oder of the rows in the table, for pruning to be effective. This means that numbers in the file names have to be padded with leading zeros.

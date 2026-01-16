@@ -133,6 +133,24 @@ bool cpu_set::contains(int cpu_id) const noexcept
 
 int cpu_set::count() const noexcept { return CPU_COUNT_S(CPU_ALLOC_SIZE(max_count), _cpu_set); }
 
+bool cpu_set::empty() const noexcept { return count() == 0; }
+
+int cpu_set::front() const
+{
+  for (int i = 0; i < max_count; ++i) {
+    if (contains(i)) { return i; }
+  }
+  throw std::logic_error("Undefined behavior: cpu_set::front() called on empty set");
+}
+
+int cpu_set::back() const
+{
+  for (int i = max_count - 1; i >= 0; --i) {
+    if (contains(i)) { return i; }
+  }
+  throw std::logic_error("Undefined behavior: cpu_set::back() called on empty set");
+}
+
 const unsigned long* cpu_set::bits() const noexcept
 {
   // "man 3 CPU_SET" says that the allocation is rounded up to the next
@@ -140,17 +158,23 @@ const unsigned long* cpu_set::bits() const noexcept
   return reinterpret_cast<const unsigned long*>(_cpu_set);
 }
 
+unsigned long* cpu_set::bits() noexcept
+{
+  // "man 3 CPU_SET" says that the allocation is rounded up to the next
+  // multiple of sizeof(unsigned long).
+  return reinterpret_cast<unsigned long*>(_cpu_set);
+}
+
 std::string cpu_set::pretty_print() const
 {
   // "man 3 CPU_SET" says that the allocation is rounded up to the next
   // multiple of sizeof(unsigned long).
-  std::size_t dwords = CPU_ALLOC_SIZE(max_count) / sizeof(unsigned long);
-  auto bits          = this->bits();
+  auto bits = this->bits();
 
   std::stringstream ss;
-  std::size_t i = dwords - 1;
+  std::size_t i = qword_count - 1;
   do {
-    ss << std::bitset<sizeof(unsigned long)>(bits[i]);
+    ss << std::bitset<sizeof(unsigned long) * CHAR_BIT>(bits[i]);
   } while (i-- > 0);
 
   return ss.str();
@@ -223,12 +247,34 @@ bool memory_kind::is_cpu_accessible(memory_kind::type type)
 
 bool memory_kind::system::operator==(system const&) const = default;
 
+memory_kind::numa::numa(cpu_set node_set, gqe::page_kind::type pk)
+  : numa_node_set(std::move(node_set)), page_kind(pk)
+{
+}
+
+memory_kind::numa::numa(gqe::page_kind::type pk)
+  : numa_node_set(device_properties::instance().get<device_properties::property::memoryAffinity>()),
+    page_kind(pk)
+{
+}
+
 bool memory_kind::numa::operator==(numa const& other) const
 {
   return numa_node_set == other.numa_node_set && page_kind == other.page_kind;
 }
 
 bool memory_kind::pinned::operator==(pinned const& other) const = default;
+
+memory_kind::numa_pinned::numa_pinned(cpu_set node_set, gqe::page_kind::type pk)
+  : numa_node_set(std::move(node_set)), page_kind(pk)
+{
+}
+
+memory_kind::numa_pinned::numa_pinned(gqe::page_kind::type pk)
+  : numa_node_set(device_properties::instance().get<device_properties::property::memoryAffinity>()),
+    page_kind(pk)
+{
+}
 
 bool memory_kind::numa_pinned::operator==(numa_pinned const& other) const
 {

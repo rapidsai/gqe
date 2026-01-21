@@ -17,6 +17,7 @@
 
 #include <gqe/task_manager_context.hpp>
 
+#include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/task.hpp>
 #include <gqe/memory_resource/boost_shared_memory_resource.hpp>
 #include <gqe/memory_resource/memory_utilities.hpp>
@@ -46,6 +47,8 @@
 #include <rmm/mr/device/managed_memory_resource.hpp>
 #include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/statistics_resource_adaptor.hpp>
+
+#include <optional>
 
 namespace gqe {
 task_manager_context::task_manager_context(optimization_parameters params,
@@ -209,7 +212,9 @@ multi_process_task_manager_context::default_init(MPI_Comm mpi_comm,
   auto comm = std::make_unique<nvshmem_communicator>(mpi_comm);
   comm->init();
 
-  auto pool_size = params.initial_task_manager_memory;
+  // When running in multi-GPU mode we cannot grow the pool since symmetric memory allocation has to
+  // be upfront. Therefore we ignore the GQE_INITIAL_QUERY_MEMORY parameter.
+  auto pool_size = params.max_query_memory.value_or(detail::default_device_memory_pool_size());
   if (comm->num_ranks_per_device() > 1) {
     GQE_LOG_WARN("Node process count {} >= number of GPUs {}. Using MPG mode for NVSHMEM",
                  comm->world_size(),

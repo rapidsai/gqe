@@ -123,6 +123,22 @@ double parse_env_variable<double>(std::string const& env_variable, const double 
   return value;
 }
 
+/**
+ * @brief Parse an optional value from an environment variable.
+ *
+ * Delegates to the existing parse_env_variable<T> specialization for actual parsing.
+ * Returns the parsed value if the env var is set, otherwise returns the default_value.
+ */
+template <typename T>
+std::optional<T> parse_env_variable(std::string const& env_variable,
+                                    const std::optional<T> default_value)
+{
+  auto const val_str = std::getenv(env_variable.c_str());
+
+  if (val_str != nullptr) { return parse_env_variable<T>(env_variable, T{}); }
+  return default_value;
+}
+
 gqe::compression_format parse_nvcomp_compression_format(std::string const& env_variable,
                                                         gqe::compression_format const default_value)
 {

@@ -297,9 +297,10 @@ int main(int argc, char* argv[])
   using wrapper_mr  = rmm::mr::owning_wrapper<pool_mr, upstream_mr>;
 
   auto upstream = std::make_unique<upstream_mr>();
-  auto mr       = std::make_unique<wrapper_mr>(std::move(upstream),
-                                         read_opms.initial_query_memory,
-                                         std::make_optional(read_opms.max_query_memory));
+  auto mr       = std::make_unique<wrapper_mr>(
+    std::move(upstream),
+    read_opms.initial_query_memory,
+    read_opms.max_query_memory.value_or(gqe::detail::default_device_memory_pool_size()));
 
   gqe::task_manager_context task_manager_ctx{read_opms, std::move(mr)};
   gqe::query_context query_ctx(read_opms);

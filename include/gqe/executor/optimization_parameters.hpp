@@ -25,6 +25,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 
 namespace gqe {
@@ -61,12 +62,13 @@ struct optimization_parameters {
     8;  ///< The maximum number of read tasks that can be generated for a single table.
   std::string log_level = "info";  ///< Enable log messages for this level or higher.
   std::size_t initial_query_memory =
-    10UL * 1024 * 1024 *
-    1024;  ///< Initial memory pool size for queries (in bytes). This memory is used only for a
-           ///< query, and is not shared between queries. Defaults to 10GB.
-  std::size_t max_query_memory =
-    detail::default_device_memory_pool_size();  ///< Maximum memory pool size for queries (in
-                                                ///< bytes). Defaults to 90% of free device memory.
+    10UL * 1024 * 1024 * 1024;  ///< Initial memory pool size for running queries (in bytes).
+                                ///< Defaults to 10GB. In multi-GPU mode this parameter is ignored
+                                ///< as symmetric memory region is not growable.
+  std::optional<std::size_t> max_query_memory =
+    std::nullopt;  ///< Maximum memory pool size for queries (in bytes). When nullopt, resolved to
+                   ///< 90% of free device memory at allocation time. Can be set explicitly via
+                   ///< GQE_MAX_QUERY_MEMORY env var.
   std::size_t initial_task_manager_memory =
     10UL * 1024 * 1024 *
     1024;  ///< Initial memory pool size for task manager memory resources (in bytes). This memory

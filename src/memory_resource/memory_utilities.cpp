@@ -21,6 +21,8 @@
 
 #include <rmm/aligned.hpp>
 
+#include <optional>
+
 namespace gqe {
 
 namespace memory_resource {
@@ -35,8 +37,10 @@ std::unique_ptr<rmm::mr::device_memory_resource> create_static_memory_pool()
   using upstream_mr_type        = rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>;
   using mr_type                 = rmm::mr::pool_memory_resource<upstream_mr_type>;
   static auto upstream_cuda_mr  = rmm::mr::cuda_memory_resource();
-  static auto initial_pool_size = optimization_parameters{}.initial_query_memory;
-  static auto max_pool_size     = optimization_parameters{}.max_query_memory;
+  static auto params            = optimization_parameters{};
+  static auto initial_pool_size = params.initial_query_memory;
+  static auto max_pool_size =
+    params.max_query_memory.value_or(detail::default_device_memory_pool_size());
   static auto upstream_mr =
     std::make_shared<upstream_mr_type>(upstream_cuda_mr, initial_pool_size, max_pool_size);
   return std::make_unique<rmm::mr::owning_wrapper<mr_type, upstream_mr_type>>(

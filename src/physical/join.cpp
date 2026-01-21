@@ -44,8 +44,18 @@ std::vector<cudf::data_type> join_relation_base::output_data_types() const
 
   std::vector<cudf::data_type> data_types;
   data_types.reserve(_projection_indices.size());
-  for (auto const& column_idx : _projection_indices)
-    data_types.push_back(full_data_types[column_idx]);
+  for (auto const& column_idx : _projection_indices) {
+    // this is possible when one input of the join is from a user_defined relation
+    // which doesn't have any output data types
+    if (column_idx >= static_cast<cudf::size_type>(full_data_types.size())) {
+      // we cannot simply ignore it since it causes cudf::detail::target_type to throw an exception
+      // here
+      throw std::runtime_error("Join relation: input data types is missing for column index " +
+                               std::to_string(column_idx));
+    } else {
+      data_types.push_back(full_data_types[column_idx]);
+    }
+  }
   return data_types;
 }
 

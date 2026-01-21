@@ -39,15 +39,18 @@ class user_defined_relation : public relation {
    * @param[in] children Input relations.
    * @param[in] task_functor Functor which takes the input tasks and returns the output tasks.
    * @param[in] last_child_break_pipeline Whether the last child relation is a pipeline breaker. If
+   * @param[in] data_types The data types for each column in the output relation.
    * `false`, *task_functor* starts at the same stage as the tasks of the last child relation. If
    * `true`, *task_functor* starts at a new stage.
    */
   user_defined_relation(std::vector<std::shared_ptr<relation>> children,
                         user_defined_task_functor task_functor,
-                        bool last_child_break_pipeline)
+                        bool last_child_break_pipeline,
+                        std::vector<cudf::data_type> data_types = {})
     : relation(std::move(children), {}),
       _task_functor(std::move(task_functor)),
-      _last_child_break_pipeline(last_child_break_pipeline)
+      _last_child_break_pipeline(last_child_break_pipeline),
+      _data_types(std::move(data_types))
   {
   }
 
@@ -72,7 +75,10 @@ class user_defined_relation : public relation {
   /**
    * @copydoc relation::output_data_types()
    */
-  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override { return {}; }
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override
+  {
+    return _data_types;
+  }
 
   /**
    * @copydoc relation::to_string()
@@ -82,6 +88,7 @@ class user_defined_relation : public relation {
  private:
   user_defined_task_functor _task_functor;
   bool _last_child_break_pipeline;
+  std::vector<cudf::data_type> _data_types;
 };
 
 }  // namespace physical

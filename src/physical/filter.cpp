@@ -30,8 +30,16 @@ std::vector<cudf::data_type> filter_relation::output_data_types() const
   // It's possible for some handcoded query, they don't pass the column types
   // we need to deal with such case
   if (!input_data_types.empty()) {
-    for (auto const& column_idx : _projection_indices)
-      data_types.push_back(input_data_types[column_idx]);
+    for (auto const& column_idx : _projection_indices) {
+      // this is possible when the input is from a user_defined relation
+      // which doesn't have any output data types, we have to throw exception here
+      if (column_idx >= static_cast<cudf::size_type>(input_data_types.size())) {
+        throw std::runtime_error("Filter relation: input data types is missing for column index " +
+                                 std::to_string(column_idx));
+      } else {
+        data_types.push_back(input_data_types[column_idx]);
+      }
+    }
   }
   return data_types;
 }

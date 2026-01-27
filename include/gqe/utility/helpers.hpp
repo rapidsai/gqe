@@ -31,6 +31,7 @@
 #include <cassert>
 #include <chrono>
 #include <filesystem>
+#include <semaphore>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -172,5 +173,52 @@ struct make_unsigned<double> {
 
 template <typename T>
 using make_unsigned_t = typename make_unsigned<T>::type;
+
+/**
+ * @brief RAII guard for std::counting_semaphore.
+ *
+ * Acquires the semaphore on construction and releases it on destruction.
+ */
+template <std::ptrdiff_t LeastMaxValue = std::counting_semaphore<>::max()>
+class semaphore_acquire_guard {
+  semaphore_acquire_guard()                                          = delete;
+  semaphore_acquire_guard(const semaphore_acquire_guard&)            = delete;
+  semaphore_acquire_guard& operator=(const semaphore_acquire_guard&) = delete;
+
+ public:
+  explicit semaphore_acquire_guard(std::counting_semaphore<LeastMaxValue>& semaphore)
+    : _semaphore(&semaphore)
+  {
+    _semaphore->acquire();
+  }
+
+  ~semaphore_acquire_guard()
+  {
+    if (_semaphore) { _semaphore->release(); }
+  }
+
+  semaphore_acquire_guard(semaphore_acquire_guard&& other) noexcept : _semaphore(other._semaphore)
+  {
+    other._semaphore = nullptr;
+  }
+
+  semaphore_acquire_guard& operator=(semaphore_acquire_guard&& other) noexcept
+  {
+    if (this != &other) { std::swap(_semaphore, other._semaphore); }
+    return *this;
+  }
+
+  /**
+   * @brief Check if the guard is holding the semaphore.
+   *
+   * Note: Used for testing.
+   *
+   * @return true if the semaphore is held, false otherwise
+   */
+  [[nodiscard]] bool is_valid() const noexcept { return _semaphore != nullptr; }
+
+ private:
+  std::counting_semaphore<LeastMaxValue>* _semaphore;
+};
 
 }  // namespace gqe::utility

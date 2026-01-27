@@ -42,6 +42,7 @@
 
 #include <memory>
 #include <mutex>
+#include <semaphore>
 #include <unordered_map>
 
 namespace gqe {
@@ -168,6 +169,40 @@ struct task_manager_context {
 
  public:
   shared_stream copy_engine_stream;
+
+  /**
+   * @brief Semaphore to limit concurrent batched memcpy API calls.
+   *
+   * # Problem Description
+   *
+   * This is a heuristical performance optimization for the batched memcpy API.
+   * It is based on the empirical observation that there are two competing
+   * factors:
+   *
+   * - The CUDA driver (appears to) schedules batch copy requests in round-robin fashion. This can
+   *   lead to head-of-queue blocking for kernels, as these wait on dependencies to become ready. In
+   *   some cases, a single batch copy is broken up into multiple smaller copies.
+   * - Scheduling a batch copy has high overhead on the host.
+   *
+   * These factors must be balanced. The overhead means that multiple host
+   * threads must schedule and copy concurrently to hide the overhead. However,
+   * the round-robin scheduling means that fewer concurrent copies result in
+   * less head-of-queue blocking.
+   *
+   * # Solution
+   *
+   * The semaphore limits the number of copy requests participating in
+   * round-robin scheduling at any given time. The semaphore value `2` is the
+   * smallest possible value that overlaps host overhead with a copy.
+   */
+  std::counting_semaphore<2> batched_memcpy_semaphore{2};
+
+  /**
+   * @brief Semaphore to limit concurrent decompress API calls.
+   *
+   * See `batched_memcpy_semaphore` for more details.
+   */
+  std::counting_semaphore<2> decompress_semaphore{2};
 };
 
 struct multi_process_task_manager_context : public task_manager_context {

@@ -30,6 +30,10 @@ add_executable(device_properties_test utility/device_properties_test.cpp)
 target_link_libraries(device_properties_test PUBLIC gqe GTest::gtest_main)
 add_test(NAME device_properties_test COMMAND device_properties_test)
 
+add_executable(helpers_test utility/helpers.cpp)
+target_link_libraries(helpers_test PUBLIC gqe GTest::gtest_main)
+add_test(NAME helpers_test COMMAND helpers_test)
+
 add_executable(linux_test utility/linux_test.cpp)
 target_link_libraries(linux_test PUBLIC gqe GTest::gtest_main)
 add_test(NAME linux_test COMMAND linux_test)

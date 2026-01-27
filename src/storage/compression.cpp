@@ -619,7 +619,7 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_b
   }
 
   const char* success_msg = is_compressed ? "successful" : "unsuccessful";
-  GQE_LOG_TRACE(
+  GQE_LOG_DEBUG(
     "Compression {} for column '{}' using compression algorithm {}: "
     "uncompressed_size={}, "
     "compressed_size={}, "

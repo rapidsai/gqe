@@ -1611,18 +1611,30 @@ void in_memory_read_task::emit_copied_result(std::unique_ptr<pruning_results_t> 
     }
 
     GQE_LOG_DEBUG("Batched memcpy");
-    gqe::utility::do_batched_memcpy(
-      (void**)dst_ptrs, (void**)src_ptrs, sizes, num_copied_buffers, stream);
+    stream.synchronize();
+    {
+      utility::semaphore_acquire_guard guard(
+        get_context_reference()._task_manager_context->batched_memcpy_semaphore);
+      gqe::utility::do_batched_memcpy(
+        (void**)dst_ptrs, (void**)src_ptrs, sizes, num_copied_buffers, stream);
+      stream.synchronize();
+    }  // Release the semaphore.
   }
 
   GQE_LOG_DEBUG("Decompressing columns");
   bool has_compressed_columns = false;
   {
     utility::nvtx_scoped_range nvtx_range("Decompressing columns");
-    for (auto& column_creator : output_columns) {
-      bool was_compressed = column_creator->decompress_row_group_columns(decompression_stream);
-      has_compressed_columns |= was_compressed;
-    }
+    decompression_stream.synchronize();
+    {
+      utility::semaphore_acquire_guard guard(
+        get_context_reference()._task_manager_context->decompress_semaphore);
+      for (auto& column_creator : output_columns) {
+        bool was_compressed = column_creator->decompress_row_group_columns(decompression_stream);
+        has_compressed_columns |= was_compressed;
+      }
+      decompression_stream.synchronize();
+    }  // Release the semaphore.
     GQE_LOG_DEBUG("Decompressed columns; has_compressed_columns = {}", has_compressed_columns);
   }
 

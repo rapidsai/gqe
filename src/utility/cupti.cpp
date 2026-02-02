@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -124,9 +124,8 @@ class user_range_profiler_impl {
 
     _profiler_host->SetUp(chip_name, _counter_availability_image);
 
-    std::vector<uint8_t> config_image;
     size_t num_passes = 0;
-    GQE_CUPTI_TRY(_profiler_host->CreateConfigImage(_char_metrics, config_image, num_passes));
+    GQE_CUPTI_TRY(_profiler_host->CreateConfigImage(_char_metrics, _config_image, num_passes));
 
     // Ensure that only a single pass is needed.
     if (num_passes > 1) {
@@ -136,11 +135,6 @@ class user_range_profiler_impl {
     }
 
     GQE_CUPTI_TRY(_profiler_target->EnableRangeProfiler());
-
-    GQE_CUPTI_TRY(_profiler_target->CreateCounterDataImage(_char_metrics, _counter_data_image));
-
-    GQE_CUPTI_TRY(_profiler_target->SetConfig(
-      CUPTI_UserRange, CUPTI_UserReplay, config_image, _counter_data_image));
 
     _is_setup = true;
   }
@@ -171,6 +165,14 @@ class user_range_profiler_impl {
     if (_is_running) {
       throw std::logic_error("Start called on profiler that is already running.");
     }
+
+    // Initialize counter data image and configure profiler for this run.
+    // Clear the counter data image first because CreateCounterDataImage uses resize(),
+    // which doesn't reset existing elements if the size is unchanged.
+    _counter_data_image.clear();
+    GQE_CUPTI_TRY(_profiler_target->CreateCounterDataImage(_char_metrics, _counter_data_image));
+    GQE_CUPTI_TRY(_profiler_target->SetConfig(
+      CUPTI_UserRange, CUPTI_UserReplay, _config_image, _counter_data_image));
 
     // Start the profiler.
     GQE_CUPTI_TRY(_profiler_target->StartRangeProfiler());
@@ -211,6 +213,9 @@ class user_range_profiler_impl {
 
     // Decode the profile returned by the hardware.
     GQE_CUPTI_TRY(_profiler_target->DecodeCounterData());
+
+    // Clear any previous profiler ranges before evaluating new data.
+    _profiler_host->GetProfilerRange().clear();
 
     // Ensure that one range was profiled.
     size_t num_ranges = 0;
@@ -272,6 +277,7 @@ class user_range_profiler_impl {
   std::unique_ptr<CuptiProfilerHost> _profiler_host;
   std::unique_ptr<RangeProfilerTarget> _profiler_target;
   std::vector<uint8_t> _counter_availability_image;
+  std::vector<uint8_t> _config_image;
   std::vector<uint8_t> _counter_data_image;
 };
 

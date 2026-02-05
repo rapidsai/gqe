@@ -3,11 +3,11 @@
 Contributions to GQE fall into the following categories:
 
 1. To report a bug, request a new feature, or report a problem with documentation, please file an
-   [issue](placeholder_url) describing the problem or new feature in detail. The GQE team
+   [issue](https://github.com/rapidsai/gqe/issues/new/choose) describing the problem or new feature in detail. The GQE team
    evaluates and triages issues, and schedules them for a release. If you believe the issue needs
    priority attention, please comment on the issue to notify the team.
 2. To propose and implement a new feature, please file a new feature request
-   [issue](placeholder_url). Describe the intended feature and
+   [issue](https://github.com/rapidsai/gqe/issues/new/choose). Describe the intended feature and
    discuss the design and implementation with the team and community. Once the team agrees that the
    plan looks good, go ahead and implement it, using the [code contributions](#code-contributions)
    guide below.
@@ -17,21 +17,25 @@ Contributions to GQE fall into the following categories:
 
 ## Code contributions
 
+### Initiating contribution
+
+Currently, GQE development is internally driven. Public contributions to GQE should be initiated as exploratory discussions with the team to evaluate the proposed improvement or fix. Should public code contributions be deemed advisable through these discussions, the following guidelines are recommended.
+
 ### Your first issue
 
 1. Follow the guide at the bottom of this page for
    [Setting up your build environment](#setting-up-your-build-environment).
 2. Find an issue to work on. The best way is to look for the
-   [good first issue](placeholder_url)
-   or [help wanted](placeholder_url)
+   [good first issue](https://github.com/rapidsai/gqe/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+   or [help wanted](https://github.com/rapidsai/gqe/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22)
    labels.
 3. Comment on the issue stating that you are going to work on it.
 4. Create a fork of the GQE repository and check out a branch with a name that
    describes your planned work. For example, `fix-documentation`.
 5. Write code to address the issue or implement the feature.
 6. Add unit tests and unit benchmarks.
-7. [Create your pull request](placeholder_url). To run continuous integration (CI) tests without requesting review, open a draft pull request.
-8. Verify that CI passes all [status checks](placeholder_url).
+7. [Create your pull request](https://github.com/rapidsai/gqe/compare). To run continuous integration (CI) tests without requesting review, open a draft pull request.
+8. Verify that CI passes all [status checks](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/about-status-checks).
    Fix if needed.
 9. Wait for other developers to review your code and update code as needed.
    Changes require approval from GQE maintainers before merging.
@@ -43,7 +47,7 @@ If you are unsure about anything, don't hesitate to comment on issues and ask fo
 
 Once you have gotten your feet wet and are more comfortable with the code, you can look at the
 prioritized issues for our next release in our
-[project boards](placeholder_url).
+[project boards](https://github.com/rapidsai/gqe/projects).
 
 Look at the unassigned issues, and find an issue to which you are comfortable contributing. Start
 with _Step 3_ above, commenting on the issue to let others know you are working on it. If you have
@@ -54,7 +58,7 @@ any questions related to the implementation of the issue, ask them in the issue 
    ```bash
    git clone <GQE_REPO>
    ```
-2. The easiest way to set up the GQE build environment is by running the [Docker image](placeholder_url) which has all dependencies installed. Follow the [Docker Engine install instructions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository) if you need to install Docker. If needed, [install](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#installing-with-apt) and [configure](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#configuring-docker) the NVIDIA container toolkit. With Docker set up, launch the GQE container:
+2. The easiest way to set up the GQE build environment is by running the appropirate [Docker image](https://github.com/orgs/rapidsai/packages?repo_name=gqe) which has all dependencies installed. Follow the [Docker Engine install instructions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository) if you need to install Docker. If needed, [install](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#installing-with-apt) and [configure](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#configuring-docker) the NVIDIA container toolkit. With Docker set up, launch the GQE container:
    ```bash
    docker run -it --rm --gpus all \
             -v gqe:</gqe> \

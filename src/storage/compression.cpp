@@ -433,6 +433,8 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::try_cpu_co
   {
     static std::mutex cpu_batch_compress_mutex;
     std::lock_guard<std::mutex> cpu_lock(cpu_batch_compress_mutex);
+    // This object resets affinity to full-mask, enabling all threads to compress.
+    scoped_cpu_affinity affinity_guard;
 
     utility::nvtx_scoped_range nvtx_cpu_compress("CPU_Compress");
     const int num_threads = std::thread::hardware_concurrency();

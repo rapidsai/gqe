@@ -21,6 +21,7 @@
 #include <gqe/query_context.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/helpers.hpp>
+#include <gqe/utility/linux.hpp>
 
 #include <boost/container_hash/hash.hpp>
 
@@ -124,6 +125,13 @@ cpu_set& cpu_set::add(int cpu_id) noexcept
   return *this;
 }
 
+cpu_set& cpu_set::zero() noexcept
+{
+  CPU_ZERO(_cpu_set);
+
+  return *this;
+}
+
 bool cpu_set::contains(int cpu_id) const noexcept
 {
   assert(cpu_id >= 0 && cpu_id < max_count);
@@ -184,6 +192,14 @@ bool cpu_set::operator==(cpu_set const& other) const noexcept
 {
   return CPU_EQUAL_S(CPU_ALLOC_SIZE(max_count), _cpu_set, other._cpu_set);
 }
+
+scoped_cpu_affinity::scoped_cpu_affinity()
+{
+  utility::get_thread_affinity(_prev_mask);
+  utility::set_thread_affinity_fullmask();
+}
+
+scoped_cpu_affinity::~scoped_cpu_affinity() { utility::set_thread_affinity(_prev_mask); }
 
 page_kind::page_kind() {}
 

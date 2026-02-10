@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -104,6 +104,11 @@ class cpu_set {
   cpu_set& add(int cpu_id) noexcept;
 
   /**
+   * @brief Zero the set.
+   */
+  cpu_set& zero() noexcept;
+
+  /**
    * @brief Return whether CPU ID is a member of the set.
    */
   [[nodiscard]] bool contains(int cpu_id) const noexcept;
@@ -156,6 +161,37 @@ class cpu_set {
 
  private:
   cpu_set_t* _cpu_set;
+};
+
+/**
+ * @brief Context manager class for caching CPU mask and setting to full CPU mask.
+ *
+ * This is a linux-compatible thread guard that (1) caches the current CPU affinity mask,
+ * (2) sets the affinity mask to all-CPUs, then (3) on destruction, restores the cached mask.
+ *
+ * Due to Linux thread inheritance semantics, threads inheret their parent's CPU mask.
+ * nvCOMP, for example, creates threads for host compression. This limits their affinity to
+ * the parent's thread affinity, which may be insufficient. This object allows us to
+ * temporarily reset the thread affinity so the child task can utilize all threads.
+ */
+class scoped_cpu_affinity {
+ public:
+  /**
+   * @brief Creates the affinity guard, caches the mask, and sets affinity to full mask.
+   */
+  scoped_cpu_affinity();
+  /**
+   * @brief Resets the CPU affinity mask to the cached mask, and destructs self.
+   */
+  ~scoped_cpu_affinity();
+  scoped_cpu_affinity(const scoped_cpu_affinity&)            = delete;
+  scoped_cpu_affinity& operator=(const scoped_cpu_affinity&) = delete;
+
+  scoped_cpu_affinity(scoped_cpu_affinity&&) noexcept   = default;
+  scoped_cpu_affinity& operator=(scoped_cpu_affinity&&) = default;
+
+ private:
+  cpu_set _prev_mask;
 };
 
 /**

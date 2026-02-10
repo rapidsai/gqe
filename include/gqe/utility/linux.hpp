@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,19 @@ namespace utility {
  * @param affinity The CPU set specifying which CPUs the thread can run on.
  */
 void set_thread_affinity(cpu_set const& affinity);
+
+/**
+ * @brief Convenience function for calling set_thread_affinity() to apply full CPU mask.
+ *
+ */
+void set_thread_affinity_fullmask();
+
+/**
+ * @brief Get the current thread cpu affinity mask.
+ *
+ * @param affinity Output parameter set to the current cpu affinity mask.
+ */
+void get_thread_affinity(cpu_set& affinity);
 
 /**
  * @brief Return the Linux meminfo map.

@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,6 +40,32 @@ void set_thread_affinity(cpu_set const& affinity)
     0, CPU_ALLOC_SIZE(cpu_set::max_count), reinterpret_cast<cpu_set_t const*>(affinity.bits()));
   if (result != 0) {
     GQE_LOG_WARN("Failed to set CPU affinity for worker thread: {}", strerror(errno));
+  }
+}
+
+void set_thread_affinity_fullmask()
+{
+  // Guaranteed thread-safe in C++11 Standard section 6.7
+  // See section on Static block variables:
+  // https://en.cppreference.com/w/cpp/language/storage_duration.html
+  static cpu_set full_mask = []() {
+    cpu_set mask;
+    mask.zero();
+    long num_processors = sysconf(_SC_NPROCESSORS_CONF);
+    for (long i = 0; i < num_processors; ++i) {
+      mask.add(i);
+    }
+    return mask;
+  }();
+  set_thread_affinity(full_mask);
+}
+
+void get_thread_affinity(cpu_set& affinity)
+{
+  auto result = sched_getaffinity(
+    0, CPU_ALLOC_SIZE(cpu_set::max_count), reinterpret_cast<cpu_set_t*>(affinity.bits()));
+  if (result != 0) {
+    GQE_LOG_WARN("Failed to get CPU affinity for worker thread: {}", strerror(errno));
   }
 }
 

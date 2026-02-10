@@ -26,6 +26,7 @@
 
 #include <cstdio>
 #include <mutex>
+#include <stdexcept>
 
 // Helper function to convert compression format enum to string for logging
 std::string compression_format_to_string(gqe::compression_format comp_format)
@@ -367,56 +368,67 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::try_cpu_co
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr) const
 {
+  assert(device_uncompressed.size() == num_buffers);
+
   bool compression_mr_is_host_accessible = memory_kind::is_cpu_accessible(memory_kind);
 
   std::unique_ptr<CPUHLIFManager> cpu_compression_manager;
-  std::vector<std::vector<uint8_t>> cpu_comp_buffers;
-
   cpu_compression_manager = create_cpu_manager(_compression_level);
 
-  std::vector<size_t> max_comp_sizes;
-  std::vector<std::vector<uint8_t>> cpu_uncomp_buffers;
-  std::vector<std::unique_ptr<rmm::device_buffer>> compressed_data_buffers;
+  std::vector<size_t> max_compressed_sizes;
+  std::vector<size_t> uncompressed_sizes;
+  std::vector<uint8_t*>
+    host_compressed_ptrs;  // Points to the compressed data buffers in host-accessible memory
+  std::vector<std::unique_ptr<rmm::device_buffer>>
+    output_compressed_buffers;  // Points to the compressed data buffers in device memory (may be
+                                // host-accessible or device-only)
+  std::vector<std::vector<uint8_t>>
+    host_uncompressed_buffers;  // Used only when mr is not host-accessible
+  std::vector<std::vector<uint8_t>>
+    host_compressed_buffers;  // Used only when mr is not host-accessible
 
   for (size_t ix = 0; ix < device_uncompressed.size(); ix++) {
     auto& uncompressed = device_uncompressed[ix];
     size_t max_compressed_size =
       cpu_compression_manager->get_max_compressed_output_size(uncompressed->size());
-    max_comp_sizes.push_back(max_compressed_size);
-    cpu_comp_buffers.push_back(std::vector<uint8_t>(max_compressed_size));
+    max_compressed_sizes.push_back(max_compressed_size);
+    uncompressed_sizes.push_back(uncompressed->size());
 
-    compressed_data_buffers.push_back(
+    output_compressed_buffers.push_back(
       std::make_unique<rmm::device_buffer>(max_compressed_size, stream, mr));
-    compressed_ptrs[ix] = static_cast<uint8_t*>(compressed_data_buffers.back()->data());
+    compressed_ptrs[ix] = static_cast<uint8_t*>(output_compressed_buffers.back()->data());
 
     // Check if uncompressed data is host-accessible
     if (compression_mr_is_host_accessible) {
-      const uint8_t* host_ptr = static_cast<const uint8_t*>(uncompressed->data());
-      cpu_uncomp_buffers.push_back(std::vector<uint8_t>(host_ptr, host_ptr + uncompressed->size()));
-      // cpu_batch_compress expects const std::vector<std::vector<uint8_t>>&, so we cannot
-      // directly use the host pointer
-      GQE_LOG_TRACE("compress_batch: Buffer {} is host-accessible, avoiding cudaMemcpy D2H", ix);
+      // uncompressed_ptrs[ix] already points to host-accessible memory
+      host_compressed_ptrs.push_back(compressed_ptrs[ix]);
+      GQE_LOG_TRACE("compress_batch: Buffer is host-accessible, using pointer directly");
     } else {
-      GQE_LOG_TRACE("compress_batch: Buffer {} is device-only memory, copying via cudaMemcpy D2H",
-                    ix);
+      GQE_LOG_TRACE("compress_batch: Buffer is device-only memory, copying via cudaMemcpy D2H");
       // Data is device-only memory, need to copy via cudaMemcpy
       utility::nvtx_scoped_range nvtx_cpu_compress_dtoh("CPU_Compress_DtoH");
-      cpu_uncomp_buffers.push_back(std::vector<uint8_t>(uncompressed->size()));
-      GQE_CUDA_TRY(cudaMemcpyAsync(cpu_uncomp_buffers.back().data(),
+      host_uncompressed_buffers.push_back(std::vector<uint8_t>(uncompressed->size()));
+      host_compressed_buffers.push_back(std::vector<uint8_t>(max_compressed_sizes[ix]));
+      GQE_CUDA_TRY(cudaMemcpyAsync(host_uncompressed_buffers.back().data(),
                                    uncompressed->data(),
                                    uncompressed->size(),
                                    cudaMemcpyDeviceToHost,
                                    stream));
+      // Update the uncompressed pointer to point to the host-accessible memory
+      uncompressed_ptrs[ix] = host_uncompressed_buffers.back().data();
+      host_compressed_ptrs.push_back(host_compressed_buffers.back().data());
     }
   }
 
-  if (compression_mr_is_host_accessible) {
+  if (!compression_mr_is_host_accessible) {
     // Synchronize the stream to ensure the data is copied before we launch CPU compression (which
     // does not use CUDA stream).
     GQE_CUDA_TRY(cudaStreamSynchronize(stream));
   }
 
   size_t total_compressed_size = 0;
+  std::vector<size_t> batch_compressed_sizes(num_buffers);
+
   // Use lock_guard in a scope to serialize CPU batch compression
   {
     static std::mutex cpu_batch_compress_mutex;
@@ -430,27 +442,40 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::try_cpu_co
       _column_name,
       _compression_level);
 
-    cpu_compression_manager->cpu_batch_compress(
-      cpu_comp_buffers, cpu_uncomp_buffers, num_threads, max_comp_sizes);
+    cpu_compression_manager->cpu_batch_compress(host_compressed_ptrs.data(),
+                                                uncompressed_ptrs,
+                                                uncompressed_sizes.data(),
+                                                batch_compressed_sizes.data(),
+                                                num_buffers,
+                                                num_threads,
+                                                max_compressed_sizes.data(),
+                                                true,
+                                                0);
   }
 
-  for (size_t ix = 0; ix < cpu_comp_buffers.size(); ix++) {
-    size_t batch_comp_size =
-      cpu_compression_manager->get_compressed_output_size(cpu_comp_buffers[ix].data());
-    assert(batch_comp_size <= max_comp_sizes[ix]);
+  if (!compression_mr_is_host_accessible) {
+    // Copy the compressed data buffers back to the device memory
+    utility::nvtx_scoped_range nvtx_cpu_compress_htod("CPU_Compress_HtoD");
+    for (size_t ix = 0; ix < num_buffers; ix++) {
+      GQE_CUDA_TRY(cudaMemcpyAsync(compressed_ptrs[ix],
+                                   host_compressed_buffers[ix].data(),
+                                   batch_compressed_sizes[ix],
+                                   cudaMemcpyHostToDevice,
+                                   stream));
+    }
+    GQE_CUDA_TRY(cudaStreamSynchronize(stream));
+  }
+
+  for (size_t ix = 0; ix < num_buffers; ix++) {
+    size_t batch_comp_size = batch_compressed_sizes[ix];
+    assert(batch_comp_size <= max_compressed_sizes[ix]);
     compressed_sizes.push_back(batch_comp_size);
     total_compressed_size += batch_comp_size;
-
-    GQE_CUDA_TRY(cudaMemcpyAsync(compressed_ptrs[ix],
-                                 cpu_comp_buffers[ix].data(),
-                                 batch_comp_size,
-                                 cudaMemcpyHostToDevice,
-                                 stream));
   }
 
   compressed_size   = total_compressed_size;
   compression_ratio = static_cast<double>(total_uncompressed_size) / total_compressed_size;
-  return compressed_data_buffers;
+  return output_compressed_buffers;
 }
 
 std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compact_compressed_buffers(

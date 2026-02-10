@@ -444,6 +444,9 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::try_cpu_co
       _column_name,
       _compression_level);
 
+    constexpr bool benchmark_mode = false;  // Disable benchmark mode for production
+    constexpr int iteration_count = 1;      // Used only when benchmark_mode is true
+
     cpu_compression_manager->cpu_batch_compress(host_compressed_ptrs.data(),
                                                 uncompressed_ptrs,
                                                 uncompressed_sizes.data(),
@@ -451,8 +454,8 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::try_cpu_co
                                                 num_buffers,
                                                 num_threads,
                                                 max_compressed_sizes.data(),
-                                                true,
-                                                0);
+                                                benchmark_mode,
+                                                iteration_count);
   }
 
   if (!compression_mr_is_host_accessible) {

@@ -102,7 +102,7 @@ class InMemoryReadTest : public gqe::test::BaseFixtureWithParam<test_parameters>
           auto dtype    = cudf_col.type().id();
           if ((comp_format == gqe::compression_format::best_compression_ratio) or
               (comp_format == gqe::compression_format::best_decompression_speed)) {
-            best_compression_config(
+            gqe::storage::best_compression_config(
               dtype,
               comp_format,
               (comp_format == gqe::compression_format::best_compression_ratio ? 0 : 1));
@@ -141,7 +141,7 @@ class InMemoryReadTest : public gqe::test::BaseFixtureWithParam<test_parameters>
 
   std::unique_ptr<gqe::storage::in_memory_table> table;
   std::unique_ptr<cudf::table> test_table;
-  query_context* query_ctx;
+  gqe::query_context* query_ctx;
 };
 
 TEST_P(InMemoryReadTest, ReadFirstCol)
@@ -298,7 +298,7 @@ class InMemoryReadTaskTest : public gqe::test::BaseFixture {
     _query_ctx->parameters.zone_map_partition_size = partition_size;
 
     if (use_host_allocator) {
-      _memory_resource = std::make_unique<memory_resource::pinned_memory_resource>();
+      _memory_resource = std::make_unique<gqe::memory_resource::pinned_memory_resource>();
       rmm::mr::set_current_device_resource(_memory_resource.get());
     }
 
@@ -522,22 +522,22 @@ class InMemoryReadTaskTest : public gqe::test::BaseFixture {
 
   // Convenience method to create an in_memory_read_task, so that the tests don't have to pass
   // parameters that do not affect the test result, e.g., the task_id.
-  storage::in_memory_read_task create_read_task(
-    std::vector<const storage::row_group*> row_groups,
+  gqe::storage::in_memory_read_task create_read_task(
+    std::vector<const gqe::storage::row_group*> row_groups,
     std::vector<cudf::size_type> column_indexes,
     std::vector<cudf::data_type> data_types,
     std::unique_ptr<gqe::expression> zone_map_filter = nullptr)
   {
     // TODO Why is this here?
     auto partial_filter = zone_map_filter ? zone_map_filter->clone() : nullptr;
-    return storage::in_memory_read_task(_ctx_ref,
-                                        _task_id,
-                                        _stage_id,
-                                        row_groups,
-                                        column_indexes,
-                                        data_types,
-                                        _memory_kind,
-                                        std::move(partial_filter));
+    return gqe::storage::in_memory_read_task(_ctx_ref,
+                                             _task_id,
+                                             _stage_id,
+                                             row_groups,
+                                             column_indexes,
+                                             data_types,
+                                             _memory_kind,
+                                             std::move(partial_filter));
   }
 
   // Number of input tables
@@ -547,10 +547,10 @@ class InMemoryReadTaskTest : public gqe::test::BaseFixture {
   // across the tests. The only exception is _query_ctx.parameters, which can be manipulated to
   // enable/disable zero-copy reads and compression.
   gqe::query_context* _query_ctx;
-  const context_reference _ctx_ref;
+  const gqe::context_reference _ctx_ref;
   const int32_t _task_id;
   const int32_t _stage_id;
-  const memory_kind::type _memory_kind;
+  const gqe::memory_kind::type _memory_kind;
 
   // The input tables need be accessible on the GPU, otherwise cudf::concatenate does not process
   // null counts correctly. The constructor sets this to CUDA device memory.
@@ -583,9 +583,10 @@ TEST_F(InMemoryReadTaskTest, returnSingleRowGroupDirectly)
 {
   SetUp();
   // Create a task with a single (!) row group
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.begin() + 1);
-  storage::in_memory_read_task task = create_read_task(row_groups, _column_indexes, _data_types);
+  gqe::storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types);
 
   // Execute the read task
   task.execute();
@@ -603,9 +604,10 @@ TEST_F(InMemoryReadTaskTest, copySingleRowGroupIfZeroCopyIsDisabled)
   // Disable zero-copying
   _query_ctx->parameters.read_zero_copy_enable = false;
   // Create a task with a single row group
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.begin() + 1);
-  storage::in_memory_read_task task = create_read_task(row_groups, _column_indexes, _data_types);
+  gqe::storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types);
 
   // Execute the read task
   task.execute();
@@ -621,9 +623,10 @@ TEST_F(InMemoryReadTaskTest, concatenateMultipleRowGroups)
 {
   SetUp();
   // Create a task with multiple row groups
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task = create_read_task(row_groups, _column_indexes, _data_types);
+  gqe::storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types);
 
   // Execute the read task
   task.execute();
@@ -643,11 +646,11 @@ TEST_F(InMemoryReadTaskTest, returnEmptyTableIfEntireInputIsPruned)
   std::unique_ptr<gqe::expression> partial_filter = std::make_unique<gqe::greater_expression>(
     std::make_unique<gqe::column_reference_expression>(0),
     std::make_unique<gqe::literal_expression<int32_t>>(_input_tables.size() * _num_rows));
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with row groups (actual number should not matter), and pass the filter
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -665,12 +668,12 @@ TEST_F(InMemoryReadTaskTest, returnSingleRowGroupAfterPruningDirectly)
   // (inclusive) to 160 (exclusive), i.e., 15 rows in total. The rows are contained in the second
   // input table row group.
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter<int32_t>(0, 148, 157);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -693,12 +696,12 @@ TEST_F(InMemoryReadTaskTest, concatenatePartitionsInMultipleRowGroups)
   // (inclusive) to 210 (exclusive), i.e., 15 rows in total. The first partition is contained in the
   // second row group and the other partitions in the third row group.
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter<int32_t>(0, 198, 207);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple row groups, and pass the filter. The filter will prune all but
   // two consecutive row groups.
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -723,12 +726,12 @@ TEST_F(InMemoryReadTaskTest, concatenateDiscontiguousPartitionsInSingleRowGroup)
   // row group.
   std::unique_ptr<gqe::expression> partial_filter = std::make_unique<gqe::logical_or_expression>(
     create_range_filter<int32_t>(0, 118, 127), create_range_filter<double>(2, 165, 180));
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple row groups, and pass the filter. The filter will prune all but
   // one row group.
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -755,17 +758,15 @@ TEST_F(InMemoryReadTaskTest, concatenateSingleRowGroupIfCompressed)
   _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
   // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
-
   // Execute the read task
   task.execute();
-
   // The result only contains the qualifying partitions of the row group and is passed as an owned
   // result
   ASSERT_TRUE(task.result().has_value());
@@ -783,12 +784,12 @@ TEST_F(InMemoryReadTaskTest, PruningWithoutCompression)
   // _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
   // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -811,12 +812,12 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompression)
   _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
   // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -841,12 +842,12 @@ TEST_F(InMemoryReadTaskTest, DecompressionNoKernelAPI)
   _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
   // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -871,12 +872,12 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompressionAndTwoFilters)
   // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
   std::unique_ptr<gqe::expression> partial_filter =
     create_two_range_filters(0, 100, 157, 3 * 64 * 1024, 3 * 64 * 1024 + 100);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -902,12 +903,12 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlap)
   _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
   // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 100, 65 * 1024);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -931,13 +932,13 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumn)
   _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
   // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 100, 65 * 1024);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
 
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -963,7 +964,7 @@ TEST_F(InMemoryReadTaskTest,
   // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
   std::unique_ptr<gqe::expression> partial_filter =
     create_two_range_filters(0, 100, 157, 3 * 64 * 1024, 3 * 64 * 1024 + 100);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
 
@@ -975,9 +976,9 @@ TEST_F(InMemoryReadTaskTest,
              sizeof(int32_t),
              cudaMemcpyDefault);
 
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -1016,7 +1017,7 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnWithGap
   constexpr auto start_offset2 = num_rows_per_row_group + partition_size;
   std::unique_ptr<gqe::expression> partial_filter =
     create_two_range_filters(0, 100, 157, start_offset2, start_offset2 + 100);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
 
@@ -1028,9 +1029,9 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnWithGap
              sizeof(int32_t),
              cudaMemcpyDefault);
 
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -1059,9 +1060,10 @@ TEST_F(InMemoryReadTaskTest, SlicedCompressionOverlapAndStringColumnWithNoFilter
   // Compress input dat
   _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
 
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task = create_read_task(row_groups, _column_indexes, _data_types);
+  gqe::storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types);
 
   // Execute the read task
   task.execute();
@@ -1084,13 +1086,13 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompressedSlicedColumnSmallWithoutCompre
   _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::ans;
   // Create a zone map filter which removes all partitions
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 0, 3);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
 
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -1118,13 +1120,13 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnAndCasc
     gqe::compression_format::cascaded;
   // Create a zone map filter 148 <= col0 < 157, which returns 3 partitions with 15 rows.
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 100, 65 * 1024);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
 
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end(), true /*try cascaded*/);
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -1150,10 +1152,10 @@ TEST_F(InMemoryReadTaskTest, IneffectiveCompressionStats)
   _query_ctx->parameters.in_memory_table_compression_ratio_threshold = 2.0;
   // Create a zone map filter 148 <= col0 < 157, which returns 1 partition.
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
   // All of the row groups should be uncompressed due to ineffective compression ratio.
   for (const auto& row_group : row_groups) {
@@ -1165,7 +1167,7 @@ TEST_F(InMemoryReadTaskTest, IneffectiveCompressionStats)
       ASSERT_TRUE(row_group->get_column(i).get_compression_ratio() == 1.0);
     }
   }
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task
@@ -1192,10 +1194,10 @@ TEST_F(InMemoryReadTaskTest, EffectiveCompressionStats)
   _query_ctx->parameters.in_memory_table_compression_ratio_threshold = 1.0;
   // Create a zone map filter 148 <= col0 < 157, which returns 1 partition.
   std::unique_ptr<gqe::expression> partial_filter = create_range_filter(0, 148, 157);
-  auto zone_map_filter = zone_map_expression_transformer::transform(*partial_filter);
+  auto zone_map_filter = gqe::zone_map_expression_transformer::transform(*partial_filter);
   // Create a task with multiple (!) row groups, and pass the filter. The filter will prune all but
   // one row groups.
-  std::vector<const storage::row_group*> row_groups =
+  std::vector<const gqe::storage::row_group*> row_groups =
     create_row_groups(_input_tables.begin(), _input_tables.end());
   // All of the row groups should be compressed due to effective compression ratio.
   for (const auto& row_group : row_groups) {
@@ -1208,7 +1210,7 @@ TEST_F(InMemoryReadTaskTest, EffectiveCompressionStats)
     }
   }
 
-  storage::in_memory_read_task task =
+  gqe::storage::in_memory_read_task task =
     create_read_task(row_groups, _column_indexes, _data_types, std::move(zone_map_filter));
 
   // Execute the read task

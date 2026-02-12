@@ -15,14 +15,6 @@
 
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
-find_program(CCACHE_FOUND ccache)
-if(CCACHE_FOUND)
-  set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
-  set(CMAKE_C_COMPILER_LAUNCHER ccache)
-  set(CMAKE_CUDA_COMPILER_LAUNCHER ccache)
-  set(env{CCACHE_BASEDIR} ${CMAKE_CURRENT_LIST_DIR})
-endif()
-
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   set(CMAKE_CUDA_ARCHITECTURES "80-real" "90-real" "100-real" "120")
 endif()
@@ -53,6 +45,8 @@ project(gqe LANGUAGES CXX CUDA)
 option(GQE_ENABLE_CUSTOMIZED_PARQUET "Enable the customized Parquet reader" OFF)
 option(GQE_ENABLE_QUERY_COMPILER "Enable the query compiler" OFF)
 option(GQE_ENABLE_SUBSTRAIT_PRODUCER "Enable the Substrait producer" OFF)
+# TODO: Update default to ON when GQE is ready for public release
+option(GQE_ENABLE_PUBLIC_BUILD "Enable building for external user" OFF)
 
 # ##############################################################################
 # * shared dependencies
@@ -84,51 +78,54 @@ cpmaddpackage(
 # * nvcomp setup
 # ----------------------------------------------------------------------------------
 
-# CMake variable for gqe-nvcomp tag
-set(GQE_NVCOMP_TAG
-    "a7ff787194cb0eb948b4d0443d5f16ba4da714a9"
-    CACHE STRING "Git tag for gqe-nvcomp")
-set(GQE_NVCOMP_SOURCE_DIR
-    ""
-    CACHE PATH
-          "Local source directory for gqe-nvcomp (overrides GIT_TAG if set)")
+if(NOT GQE_ENABLE_PUBLIC_BUILD)
+  # CMake variable for gqe-nvcomp tag
+  set(GQE_NVCOMP_TAG
+      "a7ff787194cb0eb948b4d0443d5f16ba4da714a9"
+      CACHE STRING "Git tag for gqe-nvcomp")
+  set(GQE_NVCOMP_SOURCE_DIR
+      ""
+      CACHE PATH
+            "Local source directory for gqe-nvcomp (overrides GIT_TAG if set)")
 
-# Fetch nvcomp from source using CPM
-if(GQE_NVCOMP_SOURCE_DIR)
-  message(
-    STATUS "Using nvcomp from local source directory: ${GQE_NVCOMP_SOURCE_DIR}")
-  cpmaddpackage(
-    NAME
-    nvcomp
-    SOURCE_DIR
-    ${GQE_NVCOMP_SOURCE_DIR}
-    OPTIONS
-    "BUILD_TESTS OFF"
-    "BUILD_BENCHMARKS OFF"
-    "BUILD_EXAMPLES OFF"
-    "BUILD_NVCOMP ON"
-    "BUILD_NVCOMPDX OFF"
-    "CMAKE_CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES}"
-    "BUILD_CPU_COMPRESSORS ON")
-else()
-  message(STATUS "Using nvcomp from git with tag: ${GQE_NVCOMP_TAG}")
-  cpmaddpackage(
-    NAME
-    nvcomp
-    GIT_REPOSITORY
-    https://gitlab-master.nvidia.com/Devtech-Compute/gqe-nvcomp.git
-    GIT_TAG
-    ${GQE_NVCOMP_TAG}
-    GIT_SUBMODULES_RECURSE
-    TRUE
-    OPTIONS
-    "BUILD_TESTS OFF"
-    "BUILD_BENCHMARKS OFF"
-    "BUILD_EXAMPLES OFF"
-    "BUILD_NVCOMP ON"
-    "BUILD_NVCOMPDX OFF"
-    "CMAKE_CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES}"
-    "BUILD_CPU_COMPRESSORS ON")
+  # Fetch nvcomp from source using CPM
+  if(GQE_NVCOMP_SOURCE_DIR)
+    message(
+      STATUS
+        "Using nvcomp from local source directory: ${GQE_NVCOMP_SOURCE_DIR}")
+    cpmaddpackage(
+      NAME
+      nvcomp
+      SOURCE_DIR
+      ${GQE_NVCOMP_SOURCE_DIR}
+      OPTIONS
+      "BUILD_TESTS OFF"
+      "BUILD_BENCHMARKS OFF"
+      "BUILD_EXAMPLES OFF"
+      "BUILD_NVCOMP ON"
+      "BUILD_NVCOMPDX OFF"
+      "CMAKE_CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES}"
+      "BUILD_CPU_COMPRESSORS ON")
+  else()
+    message(STATUS "Using nvcomp from git with tag: ${GQE_NVCOMP_TAG}")
+    cpmaddpackage(
+      NAME
+      nvcomp
+      GIT_REPOSITORY
+      https://gitlab-master.nvidia.com/Devtech-Compute/gqe-nvcomp.git
+      GIT_TAG
+      ${GQE_NVCOMP_TAG}
+      GIT_SUBMODULES_RECURSE
+      TRUE
+      OPTIONS
+      "BUILD_TESTS OFF"
+      "BUILD_BENCHMARKS OFF"
+      "BUILD_EXAMPLES OFF"
+      "BUILD_NVCOMP ON"
+      "BUILD_NVCOMPDX OFF"
+      "CMAKE_CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES}"
+      "BUILD_CPU_COMPRESSORS ON")
+  endif()
 endif()
 
 find_program(CCACHE_FOUND ccache)
@@ -143,13 +140,16 @@ endif()
 # * nvcomp CPU setup
 # ----------------------------------------------------------------------------------
 
-# Create an alias 'deflate' for 'libdeflate_static' to satisfy linking
-# requirements nvcomp's cpu_compression tests expect a 'deflate' target
-if(TARGET libdeflate_static AND NOT TARGET deflate)
-  add_library(deflate ALIAS libdeflate_static)
+if(NOT GQE_ENABLE_PUBLIC_BUILD)
+  # Create an alias 'deflate' for 'libdeflate_static' to satisfy linking
+  # requirements nvcomp's cpu_compression tests expect a 'deflate' target
+  if(TARGET libdeflate_static AND NOT TARGET deflate)
+    add_library(deflate ALIAS libdeflate_static)
+  endif()
+
+  find_package(lz4 REQUIRED)
 endif()
 
-find_package(lz4 REQUIRED)
 # ##############################################################################
 # * compiler options
 # ------------------------------------------------------------------------------

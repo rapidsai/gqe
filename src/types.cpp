@@ -65,6 +65,24 @@ compression_format compression_format_from_string(std::string const& format_str)
   }
 }
 
+std::string compression_format_to_string(compression_format comp_format) noexcept
+{
+  switch (comp_format) {
+    case compression_format::none: return "NONE";
+    case compression_format::lz4: return "LZ4";
+    case compression_format::snappy: return "SNAPPY";
+    case compression_format::ans: return "ANS";
+    case compression_format::cascaded: return "CASCADED";
+    case compression_format::gdeflate: return "GDEFLATE";
+    case compression_format::deflate: return "DEFLATE";
+    case compression_format::zstd: return "ZSTD";
+    case compression_format::bitcomp: return "BITCOMP";
+    case compression_format::best_compression_ratio: return "BEST_COMPRESSION_RATIO";
+    case compression_format::best_decompression_speed: return "BEST_DECOMPRESSION_SPEED";
+    default: return "UNKNOWN";
+  }
+}
+
 cpu_set::cpu_set()
 {
   auto cpu_set = CPU_ALLOC(max_count);

@@ -644,4 +644,13 @@ enum class compression_format : int8_t {
  */
 compression_format compression_format_from_string(std::string const& format_str);
 
+/**
+ * @brief Convert compression_format to string representation
+ *
+ * @param comp_format compression_format to convert to string representation
+ *
+ * @return string representation of compression_format
+ */
+std::string compression_format_to_string(compression_format comp_format) noexcept;
+
 }  // namespace gqe

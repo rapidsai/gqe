@@ -22,20 +22,21 @@
 
 #include <cudf/column/column.hpp>
 #include <cudf/types.hpp>
-#include <nvcomp/nvcompManagerFactory.hpp>
+#include <nvcomp/shared_types.h>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
-
-#include <CPUManager.hpp>
-#include <LZ4CPUHLIFManager.hpp>
 
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
-using namespace nvcomp;
-using namespace gqe;
+namespace gqe {
+namespace storage {
+
+// Forward declaration
+class nvcomp_manager_adapter;
+class nvcomp_cpu_manager_adapter;
 
 /**
  * @brief Class that contains functions for compression and decompression of columns in GQE.
@@ -56,85 +57,16 @@ class compression_manager {
 
   void print_usage() const;
   /**
-   * @brief Factory method to create a nvcompManagerBase object based on the compression format.
+   * @brief Factory method to create a nvcomp_manager_adapter object based on the compression
+   * format.
    *
    * @param[in] supplied_stream Stream to use for compression/decompression
    * @param[in] mr Memory resource to use for allocator and deallocating scratch memory required for
    * nvcomp
    */
-  std::unique_ptr<nvcompManagerBase> create_manager(gqe::compression_format comp_format,
-                                                    nvcompType_t data_type,
-                                                    rmm::cuda_stream_view stream,
-                                                    rmm::device_async_resource_ref mr) const;
-
-  /**
-   * @brief Helper function to try a single compression algorithm
-   *
-   * @param[in] device_uncompressed Array of pointers to uncompressed buffers
-
-   * @param[in] total_uncompressed_size Total size of the uncompressed column
-   * @param[in] uncompressed_ptrs Array of pointers to uncompressed buffers
-   * @param[in] comp_format Compression format to use
-   * @param[in] data_type Data type to use for compression
-   * @param[in] cudf_type CUDF data type of the column being compressed
-   * @param[in] num_buffers Number of buffers to compress
-   * @param[in] memory_kind Memory kind of the column being compressed
-   * @param[out] compressed_ptrs Array of pointers to compressed buffers
-   * @param[out] compression_ratio Compression ratio of the compressed column
-   * @param[out] total_compressed_size Total size of the compressed column
-   * @param[out] compressed_sizes Vector of sizes of the compressed buffers
-   * @param[in] stream Stream to use for compression
-   * @param[in] mr Memory resource to use for compression
-   * @return Vector of pointers to compressed buffers
-   */
-  std::vector<std::unique_ptr<rmm::device_buffer>> try_compression_algorithm(
-    const std::vector<std::unique_ptr<rmm::device_buffer>>& device_uncompressed,
-    const size_t total_uncompressed_size,
-    uint8_t** uncompressed_ptrs,
+  std::unique_ptr<gqe::storage::nvcomp_manager_adapter> create_manager(
     gqe::compression_format comp_format,
     nvcompType_t data_type,
-    cudf::data_type cudf_type,
-    size_t num_buffers,
-    memory_kind::type memory_kind,
-    uint8_t** compressed_ptrs,
-    double& compression_ratio,
-    size_t& total_compressed_size,
-    std::vector<cudf::size_type>& compressed_sizes,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr) const;
-
-  /**
-   * @brief Helper function to try CPU compression
-   *
-   * @param[in] device_uncompressed Array of pointers to uncompressed buffers
-   * @param[in] total_uncompressed_size Total size of the uncompressed column
-   * @param[in] uncompressed_ptrs Array of pointers to uncompressed buffers
-   * @param[in] comp_format Compression format to use
-   * @param[in] data_type Data type to use for compression
-   * @param[in] cudf_type CUDF data type of the column being compressed
-   * @param[in] num_buffers Number of buffers to compress
-   * @param[in] memory_kind Memory kind of the column being compressed
-   * @param[out] compressed_ptrs Array of pointers to compressed buffers
-   * @param[out] compression_ratio Compression ratio of the compressed column
-   * @param[out] compressed_size Total size of the compressed column
-   * @param[out] compressed_sizes Vector of sizes of the compressed buffers
-   * @param[in] stream Stream to use for compression
-   * @param[in] mr Memory resource to use for compression
-   * @return Vector of pointers to compressed buffers
-   */
-  std::vector<std::unique_ptr<rmm::device_buffer>> try_cpu_compression(
-    const std::vector<std::unique_ptr<rmm::device_buffer>>& device_uncompressed,
-    const size_t total_uncompressed_size,
-    uint8_t** uncompressed_ptrs,
-    gqe::compression_format comp_format,
-    nvcompType_t data_type,
-    cudf::data_type cudf_type,
-    size_t num_buffers,
-    memory_kind::type memory_kind,
-    uint8_t** compressed_ptrs,
-    double& compression_ratio,
-    size_t& compressed_size,
-    std::vector<cudf::size_type>& compressed_sizes,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr) const;
 
@@ -167,12 +99,13 @@ class compression_manager {
                                                    const double secondary_compression_ratio) const;
 
   /**
-   * @brief Factory method to create a CPUHLIFManager object.
+   * @brief Factory method to create a nvcomp_cpu_manager_adapter object for cpu-based compression.
    *
    * @param[in] compression_level Compression level (1-12)
-   * @return A unique pointer to the CPUHLIFManager object
+   * @return A unique pointer to the nvcomp_cpu_manager_adapter object
    */
-  std::unique_ptr<CPUHLIFManager> create_cpu_manager(int compression_level) const;
+  std::unique_ptr<gqe::storage::nvcomp_cpu_manager_adapter> create_cpu_manager(
+    int compression_level) const;
 
  public:
   /**
@@ -318,6 +251,11 @@ class compression_manager {
   double get_compression_ratio_threshold() const;
 
   /**
+   * @brief Function to fetch decompress backend.
+   * */
+  nvcompDecompressBackend_t get_decompress_backend() const;
+
+  /**
    * @brief Function to fetch whether CPU compression is enabled.
    * */
   bool get_use_cpu_compression() const;
@@ -403,11 +341,15 @@ inline void best_compression_config(cudf::type_id dtype,
   }
 }
 
+}  // namespace storage
+}  // namespace gqe
+
+namespace fmt {
 /**
  * @brief Helper class to support logging of cudf::type_id.
  */
 template <>
-struct fmt::formatter<cudf::data_type> : formatter<std::string> {
+struct formatter<cudf::data_type> : formatter<std::string> {
   auto format(cudf::data_type type, format_context& ctx) const
   {
     return formatter<std::string>::format(cudf_type_to_string(type.id()), ctx);
@@ -451,3 +393,4 @@ struct fmt::formatter<cudf::data_type> : formatter<std::string> {
     throw std::runtime_error("cudf::type_id type_id not supported for log formatting");
   };
 };
+}  // namespace fmt

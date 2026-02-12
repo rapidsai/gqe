@@ -113,6 +113,7 @@ add_library(
   rpc/task_migration.cpp
   storage/compression.cpp
   storage/in_memory.cpp
+  storage/nvcomp_adapter.cpp
   storage/sliced_columns.cpp
   storage/sliced_columns.cu
   storage/parquet.cpp
@@ -161,6 +162,10 @@ target_link_libraries(gqe PUBLIC nvshmem::nvshmem_host)
 target_link_libraries(gqe PRIVATE libperfect)
 target_link_libraries(gqe PUBLIC CUDA::cuda_driver)
 target_link_libraries(gqe PUBLIC CUDA::nvml)
+
+if(NOT GQE_ENABLE_PUBLIC_BUILD)
+  target_compile_definitions(gqe PUBLIC EXPERIMENTAL_NVCOMP)
+endif()
 
 # Download and configure Parquet format
 if(GQE_ENABLE_CUSTOMIZED_PARQUET)

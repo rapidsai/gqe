@@ -57,9 +57,7 @@ RUN git clone https://github.com/rapidsai/cudf.git /cudf \
     && mamba env create -q --name gqe --file /config/conda/docker-$(uname -m).yml \
     && source activate gqe \
     && PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc)} CUDF_CMAKE_CUDA_ARCHITECTURES="80-real;90-real;100-real;120" ./build.sh libcudf --ptds --cmake-args=\" -DCUDF_ENABLE_ARROW_S3=OFF -DBUILD_BENCHMARKS=OFF -DCUDA_ENABLE_LINEINFO=ON \" \
-    && conda clean --all \
-    # Remove nvcomp from the environment to avoid conflicts with the custom nvcomp
-    && conda remove libnvcomp-dev libnvcomp -y
+    && conda clean --all
 
 # Compile MLIR from source
 RUN git clone https://github.com/llvm/llvm-project.git \

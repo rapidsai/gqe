@@ -17,8 +17,10 @@
 
 #include <gqe/memory_resource/boost_shared_memory_resource.hpp>
 #include <gqe/memory_resource/numa_memory_resource.hpp>
+#include <gqe/memory_resource/numa_pool_memory_resource.hpp>
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
 #include <gqe/memory_resource/system_memory_resource.hpp>
+#include <gqe/utility/error.hpp>
 
 #include <gtest/gtest-typed-test.h>
 #include <gtest/gtest.h>
@@ -60,7 +62,8 @@ class MemoryResourceTest<gqe::memory_resource::boost_shared_memory_resource>
 using MemoryResourceTypes = ::testing::Types<gqe::memory_resource::numa_memory_resource,
                                              gqe::memory_resource::system_memory_resource,
                                              gqe::memory_resource::pinned_memory_resource,
-                                             gqe::memory_resource::boost_shared_memory_resource>;
+                                             gqe::memory_resource::boost_shared_memory_resource,
+                                             gqe::memory_resource::numa_pool_memory_resource>;
 TYPED_TEST_SUITE(MemoryResourceTest, MemoryResourceTypes);
 
 TYPED_TEST(MemoryResourceTest, AllocateZero)

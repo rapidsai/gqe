@@ -22,6 +22,7 @@
 #include <gqe/memory_resource/boost_shared_memory_resource.hpp>
 #include <gqe/memory_resource/memory_utilities.hpp>
 #include <gqe/memory_resource/numa_memory_resource.hpp>
+#include <gqe/memory_resource/numa_pool_memory_resource.hpp>
 #include <gqe/memory_resource/pgas_memory_resource.hpp>
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
 #include <gqe/memory_resource/system_memory_resource.hpp>
@@ -92,6 +93,12 @@ rmm::mr::device_memory_resource* task_manager_context::create_table_memory_resou
     _optimization_parameters.max_task_manager_memory == std::numeric_limits<std::size_t>::max()
       ? std::nullopt
       : std::make_optional(_optimization_parameters.max_task_manager_memory);
+  const auto resolve_max_pool_bytes =
+    [max_pool_bytes, max_pool_percentage](const cpu_set& numa_node_set) -> std::size_t {
+    if (max_pool_bytes) { return max_pool_bytes.value(); }
+    auto numa_memory_capacity = memory_resource::available_numa_node_memory(numa_node_set).second;
+    return memory_resource::percent_of_memory(numa_memory_capacity, max_pool_percentage);
+  };
 
   // Create the memory resource lazily
   auto resource = std::visit(
@@ -100,19 +107,11 @@ rmm::mr::device_memory_resource* task_manager_context::create_table_memory_resou
         GQE_LOG_DEBUG("Creating system memory resource");
         return std::make_unique<memory_resource::system_memory_resource>();
       },
-      [initial_pool_bytes, max_pool_bytes](
+      [initial_pool_bytes, resolve_max_pool_bytes](
         const memory_kind::numa& numa) -> std::unique_ptr<rmm::mr::device_memory_resource> {
-        std::size_t max_pool_bytes_set = 0;
+        std::size_t max_pool_bytes_set = resolve_max_pool_bytes(numa.numa_node_set);
         GQE_LOG_DEBUG("Task manager creating `numa` memory resource on NUMA nodes: {}",
                       numa.numa_node_set.pretty_print());
-        if (!max_pool_bytes) {
-          auto numa_memory_capacity =
-            memory_resource::available_numa_node_memory(numa.numa_node_set).second;
-          max_pool_bytes_set =
-            memory_resource::percent_of_memory(numa_memory_capacity, max_pool_percentage);
-        } else {
-          max_pool_bytes_set = max_pool_bytes.value();
-        }
 
         using upstream_mr = memory_resource::numa_memory_resource;
         using pool_mr     = rmm::mr::pool_memory_resource<upstream_mr>;
@@ -127,19 +126,11 @@ rmm::mr::device_memory_resource* task_manager_context::create_table_memory_resou
         GQE_LOG_DEBUG("Creating pinned memory resource");
         return std::make_unique<memory_resource::pinned_memory_resource>();
       },
-      [initial_pool_bytes, max_pool_bytes](const memory_kind::numa_pinned& numa_pinned)
+      [initial_pool_bytes, resolve_max_pool_bytes](const memory_kind::numa_pinned& numa_pinned)
         -> std::unique_ptr<rmm::mr::device_memory_resource> {
-        std::size_t max_pool_bytes_set = 0;
+        std::size_t max_pool_bytes_set = resolve_max_pool_bytes(numa_pinned.numa_node_set);
         GQE_LOG_DEBUG("Task manager creating `numa_pinned` memory resource on NUMA nodes: {}",
                       numa_pinned.numa_node_set.pretty_print());
-        if (!max_pool_bytes) {
-          auto numa_memory_capacity =
-            memory_resource::available_numa_node_memory(numa_pinned.numa_node_set).second;
-          max_pool_bytes_set =
-            memory_resource::percent_of_memory(numa_memory_capacity, max_pool_percentage);
-        } else {
-          max_pool_bytes_set = max_pool_bytes.value();
-        }
 
         using upstream_mr = memory_resource::numa_memory_resource;
         using pool_mr     = rmm::mr::pool_memory_resource<upstream_mr>;
@@ -163,6 +154,14 @@ rmm::mr::device_memory_resource* task_manager_context::create_table_memory_resou
       [](const memory_kind::boost_shared&) -> std::unique_ptr<rmm::mr::device_memory_resource> {
         GQE_LOG_DEBUG("Creating boost_shared memory resource");
         return std::make_unique<memory_resource::boost_shared_memory_resource>();
+      },
+      [initial_pool_bytes, resolve_max_pool_bytes](const memory_kind::numa_pool& numa_pool)
+        -> std::unique_ptr<rmm::mr::device_memory_resource> {
+        std::size_t max_pool_bytes_set = resolve_max_pool_bytes(cpu_set{numa_pool.numa_node_id});
+        GQE_LOG_DEBUG("Creating numa_pool memory resource");
+        // Use the same default-cap policy as other NUMA-backed task manager resources.
+        return std::make_unique<memory_resource::numa_pool_memory_resource>(
+          numa_pool.numa_node_id, initial_pool_bytes, std::make_optional(max_pool_bytes_set));
       }},
     kind);
 

@@ -261,6 +261,9 @@ bool memory_kind::is_gpu_accessible(memory_kind::type type)
       },
       [&](memory_kind::boost_shared) -> bool {
         return device_properties::instance().get<device_properties::property::unifiedAddressing>();
+      },
+      [&](memory_kind::numa_pool) -> bool {
+        return device_properties::instance().get<device_properties::property::unifiedAddressing>();
       }},
     type);
 }
@@ -274,6 +277,7 @@ bool memory_kind::is_cpu_accessible(memory_kind::type type)
                       [&](memory_kind::numa_pinned) { return true; },
                       [&](memory_kind::managed) { return true; },
                       [&](memory_kind::boost_shared) { return true; },
+                      [&](memory_kind::numa_pool) { return true; },
                       [&](memory_kind::device) { return false; },
                     },
                     type);
@@ -324,6 +328,18 @@ bool memory_kind::managed::operator==(managed const& other) const = default;
 
 bool memory_kind::boost_shared::operator==(boost_shared const& other) const = default;
 
+memory_kind::numa_pool::numa_pool(int numa_node_id) : numa_node_id(numa_node_id) {}
+
+memory_kind::numa_pool::numa_pool()
+  : numa_node_id(device_properties::instance().get<device_properties::hostNumaId>())
+{
+}
+
+bool memory_kind::numa_pool::operator==(numa_pool const& other) const
+{
+  return numa_node_id == other.numa_node_id;
+}
+
 std::size_t memory_kind::type_hash::operator()(memory_kind::type const& type) const
 {
   std::size_t h = boost::hash_value(type.index());
@@ -344,7 +360,8 @@ std::size_t memory_kind::type_hash::operator()(memory_kind::type const& type) co
                         },
                         [&h](device const& d) { boost::hash_combine(h, d.device_id.value()); },
                         [](managed const&) {},
-                        [](boost_shared const&) {}},
+                        [](boost_shared const&) {},
+                        [&h](numa_pool const& n) { boost::hash_combine(h, n.numa_node_id); }},
     type);
   return h;
 }

@@ -54,9 +54,12 @@ class device_properties {
    */
   enum property {
     cpuAffinity,
+    hostNumaId,
     managedMemory,
     memDecompressSupport,
     memoryAffinity,
+    memoryPoolsSupported,
+    memoryPoolSupportedHandleTypes,
     multiProcessorCount,
     pageableMemoryAccess,
     unifiedAddressing
@@ -95,6 +98,7 @@ class device_properties {
    * @brief CUDA driver-derived properties cache for a device.
    */
   struct driver_properties {
+    int host_numa_id;
     bool mem_decompress_support;
   };
 
@@ -114,6 +118,8 @@ class device_properties {
    */
   struct runtime_properties {
     bool managed_memory;
+    bool memory_pools_supported;
+    int memory_pool_supported_handle_types;
     int multi_processor_count;
     bool pageable_memory_access;
     bool unified_addressing;
@@ -136,12 +142,18 @@ auto device_properties::get(rmm::cuda_device_id device) const
 {
   if constexpr (p == property::cpuAffinity) {
     return get_nvml_properties(device).cpu_affinity;
+  } else if constexpr (p == property::hostNumaId) {
+    return get_driver_properties(device).host_numa_id;
   } else if constexpr (p == property::managedMemory) {
     return get_runtime_properties(device).managed_memory;
   } else if constexpr (p == property::memDecompressSupport) {
     return get_driver_properties(device).mem_decompress_support;
   } else if constexpr (p == property::memoryAffinity) {
     return get_nvml_properties(device).memory_affinity;
+  } else if constexpr (p == property::memoryPoolsSupported) {
+    return get_runtime_properties(device).memory_pools_supported;
+  } else if constexpr (p == property::memoryPoolSupportedHandleTypes) {
+    return get_runtime_properties(device).memory_pool_supported_handle_types;
   } else if constexpr (p == property::multiProcessorCount) {
     return get_runtime_properties(device).multi_processor_count;
   } else if constexpr (p == property::pageableMemoryAccess) {

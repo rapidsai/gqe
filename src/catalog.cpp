@@ -123,6 +123,13 @@ void catalog::register_table(std::string const& table_name,
       [&](storage_kind::boost_shared_memory) -> std::unique_ptr<storage::table> {
         return std::make_unique<storage::in_memory_table>(
           memory_kind::boost_shared{}, column_names, column_types, _task_manager_context);
+      },
+      [&](storage_kind::numa_pool_memory memory) -> std::unique_ptr<storage::table> {
+        return std::make_unique<storage::in_memory_table>(
+          memory_kind::numa_pool{memory.numa_node_id},
+          column_names,
+          column_types,
+          _task_manager_context);
       }},
     storage);
 

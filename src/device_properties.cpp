@@ -37,6 +37,11 @@ namespace gqe {
 
 namespace {
 
+// Ref:
+// https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/stream-ordered-memory-allocation.html#query-for-support
+constexpr int k_min_driver_version_for_async_pools       = 11020;
+constexpr int k_min_driver_version_for_pool_handle_types = 11030;
+
 std::vector<rmm::cuda_device_id> get_all_devices()
 {
   int deviceCount;
@@ -83,6 +88,22 @@ cpu_set query_memory_affinity(nvmlDevice_t nvml_device)
 }
 
 /**
+ * @brief Query the host NUMA ID for the device.
+ *
+ * @return int The host NUMA node ID closest to the device.
+ */
+int query_host_numa_id(rmm::cuda_device_id device)
+{
+  int host_numa_id = 0;
+  CUresult result =
+    cuDeviceGetAttribute(&host_numa_id, CU_DEVICE_ATTRIBUTE_HOST_NUMA_ID, device.value());
+  if (result != CUDA_SUCCESS) {
+    throw std::runtime_error("Failed to get device attribute HOST_NUMA_ID");
+  }
+  return host_numa_id;
+}
+
+/**
  * @brief Query the memory decompression support.
  *
  * @return bool True if the device supports memory decompression.
@@ -110,20 +131,42 @@ device_properties::device_properties()
   // Initialize NVML.
   GQE_NVML_TRY(nvmlInit_v2());
 
+  // Get driver version once for all devices.
+  int driver_version = 0;
+  GQE_CUDA_TRY(cudaDriverGetVersion(&driver_version));
+
   for (auto const& device : get_all_devices()) {
     // Cache CUDA runtime properties.
     cudaDeviceProp cuda_properties;
     GQE_CUDA_TRY(cudaGetDeviceProperties(&cuda_properties, device.value()));
+
+    // Query memory pools support with driver version check.
+    int memory_pools_supported = 0;
+    if (driver_version >= k_min_driver_version_for_async_pools) {
+      GQE_CUDA_TRY(cudaDeviceGetAttribute(
+        &memory_pools_supported, cudaDevAttrMemoryPoolsSupported, device.value()));
+    }
+
+    // Query memory pool supported handle types with driver version check.
+    int memory_pool_supported_handle_types = 0;
+    if (driver_version >= k_min_driver_version_for_pool_handle_types) {
+      GQE_CUDA_TRY(cudaDeviceGetAttribute(&memory_pool_supported_handle_types,
+                                          cudaDevAttrMemoryPoolSupportedHandleTypes,
+                                          device.value()));
+    }
+
     runtime_properties runtime_props{
-      .managed_memory         = static_cast<bool>(cuda_properties.managedMemory),
-      .multi_processor_count  = cuda_properties.multiProcessorCount,
-      .pageable_memory_access = static_cast<bool>(cuda_properties.pageableMemoryAccess),
-      .unified_addressing     = static_cast<bool>(cuda_properties.unifiedAddressing),
-    };
+      .managed_memory                     = static_cast<bool>(cuda_properties.managedMemory),
+      .memory_pools_supported             = static_cast<bool>(memory_pools_supported),
+      .memory_pool_supported_handle_types = memory_pool_supported_handle_types,
+      .multi_processor_count              = cuda_properties.multiProcessorCount,
+      .pageable_memory_access             = static_cast<bool>(cuda_properties.pageableMemoryAccess),
+      .unified_addressing                 = static_cast<bool>(cuda_properties.unifiedAddressing)};
     _runtime_properties_cache.insert(std::make_pair(device.value(), std::move(runtime_props)));
 
     // Cache CUDA driver properties.
-    driver_properties driver_props{.mem_decompress_support = query_mem_decompress_support(device)};
+    driver_properties driver_props{.host_numa_id           = query_host_numa_id(device),
+                                   .mem_decompress_support = query_mem_decompress_support(device)};
     _driver_properties_cache.insert(std::make_pair(device.value(), std::move(driver_props)));
 
     // Get NVML device handle by PCI bus ID to ensure that NVML gets the same device as CUDA. NVML

@@ -375,6 +375,32 @@ struct boost_shared {
 };
 
 /**
+ * @brief NUMA pool memory.
+ *
+ * The memory resource for numa_pool is managed centrally by task_manager_context.
+ * Use task_manager_context::get_memory_resource(memory_kind::numa_pool{}) to access it.
+ *
+ * @note Uses cudaMemPool for allocations.
+ */
+struct numa_pool {
+  // cudaMemPool_t only supports specifying a single NUMA node id. Ref:
+  // https://docs.nvidia.com/cuda/cuda-runtime-api/structcudaMemLocation.html#structcudaMemLocation
+  int numa_node_id; /**< NUMA node id. */
+
+  /**
+   * @brief Construct numa_pool with explicit numa node id.
+   */
+  numa_pool(int numa_node_id);
+
+  /**
+   * @brief Construct numa_pool using the memory affinity of the current CUDA device.
+   */
+  numa_pool();
+
+  bool operator==(numa_pool const& other) const;
+};
+
+/**
  * @brief Memory kind of an in-memory table.
  */
 using type = std::variant<memory_kind::system,
@@ -383,7 +409,8 @@ using type = std::variant<memory_kind::system,
                           memory_kind::numa_pinned,
                           memory_kind::device,
                           memory_kind::managed,
-                          memory_kind::boost_shared>;
+                          memory_kind::boost_shared,
+                          memory_kind::numa_pool>;
 
 /**
  * @brief Return whether the GPU can directly access the memory kind
@@ -442,6 +469,11 @@ using numa_pinned_memory = memory_kind::numa_pinned;
 using boost_shared_memory = memory_kind::boost_shared;
 
 /**
+ * @copydoc gqe::memory_kind::numa_pool
+ */
+using numa_pool_memory = memory_kind::numa_pool;
+
+/**
  * @brief Parquet file format, optionally Hive partitioned.
  */
 struct parquet_file {
@@ -463,6 +495,7 @@ using type = std::variant<storage_kind::system_memory,
                           storage_kind::managed_memory,
                           storage_kind::numa_pinned_memory,
                           storage_kind::boost_shared_memory,
+                          storage_kind::numa_pool_memory,
                           storage_kind::parquet_file>;
 
 }  // namespace storage_kind

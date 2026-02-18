@@ -194,6 +194,8 @@ class compression_manager {
    * @param[out] is_compressed Boolean flag that stores whether compression was viable or not
    * @param[out] compressed_size Total size of the compressed column in bytes
    * @param[out] uncompressed_size Total size of the uncompressed column in bytes
+   * @param[out] primary_compressed_size Total size of the primary compressed column in bytes
+   * @param[out] secondary_compressed_size Total size of the secondary compressed column in bytes
    * @param[out] compressed_sizes Vector of sizes of the compressed buffers
    * @param[in] cudf_type CUDF data type of the column being compressed
    * @param[in] memory_kind Memory kind of the column being compressed
@@ -209,6 +211,8 @@ class compression_manager {
     bool& is_compressed,
     size_t& compressed_size,
     size_t& uncompressed_size,
+    size_t& primary_compressed_size,
+    size_t& secondary_compressed_size,
     std::vector<cudf::size_type>& compressed_sizes,
     cudf::data_type cudf_type,
     memory_kind::type memory_kind,

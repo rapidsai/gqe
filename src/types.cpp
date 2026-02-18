@@ -366,31 +366,78 @@ std::size_t memory_kind::type_hash::operator()(memory_kind::type const& type) co
   return h;
 }
 
-table_statistics::table_statistics(int64_t num_rows_, size_t num_columns_)
+fixed_width_compression_statistics& fixed_width_compression_statistics::operator+=(
+  const fixed_width_compression_statistics& other)
+{
+  num_compressed_row_groups += other.num_compressed_row_groups;
+  compressed_size += other.compressed_size;
+  uncompressed_size += other.uncompressed_size;
+  primary_compressed_size += other.primary_compressed_size;
+  secondary_compressed_size += other.secondary_compressed_size;
+  num_primary_compressed_row_groups += other.num_primary_compressed_row_groups;
+  num_secondary_compressed_row_groups += other.num_secondary_compressed_row_groups;
+  return *this;
+}
+
+string_compression_statistics& string_compression_statistics::operator+=(
+  const string_compression_statistics& other)
+{
+  offsets_stats += other.offsets_stats;
+  chars_stats += other.chars_stats;
+  return *this;
+}
+
+table_statistics::table_statistics(int64_t num_rows_, std::vector<cudf::data_type>& column_types)
 {
   num_rows    = num_rows_;
-  num_columns = num_columns_;
-  compressed_num_row_groups.resize(num_columns);
-  compressed_size_per_column.resize(num_columns);
-  uncompressed_size_per_column.resize(num_columns);
+  num_columns = column_types.size();
+  column_stats.reserve(num_columns);
+  for (size_t i = 0; i < column_types.size(); ++i) {
+    const auto& col_type = column_types[i];
+    if (col_type.id() == cudf::type_id::STRING) {
+      column_stats.emplace_back(
+        column_statistics{.column_id = i, .compression_stats = string_compression_statistics{}});
+    } else {
+      column_stats.emplace_back(column_statistics{
+        .column_id = i, .compression_stats = fixed_width_compression_statistics{}});
+    }
+  }
 }
+
+namespace detail {
+void add_compression_stats(column_compression_statistics& lhs,
+                           const column_compression_statistics& rhs)
+{
+  std::visit(
+    [](auto& left, const auto& right) {
+      using LT = std::decay_t<decltype(left)>;
+      using RT = std::decay_t<decltype(right)>;
+
+      if constexpr (std::is_same_v<LT, RT>) {
+        left += right;
+      } else {
+        throw std::logic_error("Type mismatch in compression statistics");
+      }
+    },
+    lhs,
+    rhs);
+}
+}  // namespace detail
 
 void table_statistics::add_column_statistics(const column_statistics& col_stats)
 {
-  if (col_stats.compressed_size != col_stats.uncompressed_size) {
-    compressed_num_row_groups[col_stats.column_id] += 1;
-  }
-  compressed_size_per_column[col_stats.column_id] += col_stats.compressed_size;
-  uncompressed_size_per_column[col_stats.column_id] += col_stats.uncompressed_size;
+  auto& target_stats       = column_stats[col_stats.column_id].compression_stats;
+  const auto& source_stats = col_stats.compression_stats;
+
+  detail::add_compression_stats(target_stats, source_stats);
 }
 
 void table_statistics::append_table_statistics(const table_statistics& new_stats)
 {
   num_rows += new_stats.num_rows;
   for (size_t i = 0; i < num_columns; ++i) {
-    compressed_num_row_groups[i] += new_stats.compressed_num_row_groups[i];
-    compressed_size_per_column[i] += new_stats.compressed_size_per_column[i];
-    uncompressed_size_per_column[i] += new_stats.uncompressed_size_per_column[i];
+    detail::add_compression_stats(column_stats[i].compression_stats,
+                                  new_stats.column_stats[i].compression_stats);
   }
   num_row_groups += 1;
 }

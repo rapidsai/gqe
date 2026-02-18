@@ -19,6 +19,7 @@
 
 #include <gqe/utility/helpers.hpp>
 
+#include <cudf/types.hpp>
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 
@@ -537,12 +538,58 @@ using type = std::variant<partitioning_schema_kind::automatic,
 };  // namespace partitioning_schema_kind
 
 /**
- * @brief Statistics of a column.
+ * @brief Base compression statistics.
+ *
+ * This structure tracks compression metrics for a single contiguous buffer of data.
+ * It does not contain nested structures and is used both for:
+ * - Standard (non-string) columns directly
+ * - Components of string columns (offsets and chars buffers)
+ */
+struct fixed_width_compression_statistics {
+  size_t num_compressed_row_groups = 0;  /// Number of compressed row groups.
+  int64_t compressed_size = 0;  /// Compressed size in bytes, using mixed format if both primary and
+                                /// secondary compression are applied.
+  int64_t uncompressed_size                = 0;  /// Uncompressed size in bytes.
+  int64_t primary_compressed_size          = 0;  /// Compressed size using only primary format.
+  int64_t secondary_compressed_size        = 0;  /// Compressed size using only secondary format.
+  size_t num_primary_compressed_row_groups = 0;  /// Number of row groups using primary compression.
+  size_t num_secondary_compressed_row_groups =
+    0;  /// Number of row groups using secondary compression.
+
+  fixed_width_compression_statistics& operator+=(const fixed_width_compression_statistics& other);
+};
+
+/**
+ * @brief Compression statistics for string columns (offsets + chars breakdown).
+ *
+ * String columns consist of two separate buffers (offsets and chars), each with their own
+ * compression statistics. This structure provides the detailed breakdown.
+ */
+struct string_compression_statistics {
+  fixed_width_compression_statistics
+    offsets_stats;  /// Compression statistics for the offsets buffer.
+  fixed_width_compression_statistics chars_stats;  /// Compression statistics for the chars buffer.
+
+  string_compression_statistics& operator+=(const string_compression_statistics& other);
+};
+
+/**
+ * @brief Column compression statistics per column, which can be aggregated for multiple row groups.
+ *
+ * For standard (non-string) columns, use fixed_width_compression_statistics directly.
+ * For string columns, use string_compression_statistics which provides offsets and chars breakdown.
+ */
+using column_compression_statistics =
+  std::variant<fixed_width_compression_statistics, string_compression_statistics>;
+
+/**
+ * @brief Statistics of a column per row group. It could be aggregated for multiple row groups
+ * within a single column.
  */
 struct column_statistics {
-  size_t column_id          = 0;  /// Column ID.
-  int64_t compressed_size   = 0;  /// Compressed size in bytes of the column.
-  int64_t uncompressed_size = 0;  /// Uncompressed size in bytes of the column.
+  size_t column_id = 0;  /// Column ID.
+
+  column_compression_statistics compression_stats;  /// Compression statistics of the column.
 };
 
 /**
@@ -552,11 +599,8 @@ struct table_statistics {
   int64_t num_rows      = 0;  /// Number of rows in the table.
   size_t num_row_groups = 0;  /// Number of row groups in the table.
   size_t num_columns    = 0;  /// Number of columns in the table.
-  std::vector<size_t> compressed_num_row_groups =
-    {};  /// Number of compressed row groups in the table for each column ID.
-  std::vector<int64_t> compressed_size_per_column = {};  /// Compressed size in bytes per column ID.
-  std::vector<int64_t> uncompressed_size_per_column =
-    {};  /// Uncompressed size in bytes per column ID.
+
+  std::vector<column_statistics> column_stats = {};  /// Column statistics per column ID.
 
   table_statistics() = default;
 
@@ -568,9 +612,11 @@ struct table_statistics {
    * during construction. And row groups are atomically updated later via `append_table_statistics`.
    *
    * @param num_rows_ number of rows
-   * @param num_columns_ number of columns
+   * @param column_types data types of the columns, used to determine whether a column is a string
+   * column or not. We need this information because we need to initialize the appropriate
+   * compression statistics for each column.
    */
-  table_statistics(int64_t num_rows_, size_t num_columns_);
+  table_statistics(int64_t num_rows_, std::vector<cudf::data_type>& column_types);
 
   /**
    * @brief Add the column statistics for a given column to the current table statistics.

@@ -1165,6 +1165,15 @@ TEST_F(InMemoryReadTaskTest, IneffectiveCompressionStats)
       ASSERT_TRUE(row_group->get_column(i).get_compressed_size() ==
                   row_group->get_column(i).get_uncompressed_size());
       ASSERT_TRUE(row_group->get_column(i).get_compression_ratio() == 1.0);
+      auto stats = std::get<gqe::fixed_width_compression_statistics>(
+        row_group->get_column(i).get_compression_stats());
+      ASSERT_TRUE(stats.num_compressed_row_groups == 0);
+      ASSERT_TRUE(stats.compressed_size == stats.uncompressed_size);
+      // The primary compressed size is smaller even if the compression isineffective.
+      ASSERT_TRUE(stats.primary_compressed_size < stats.compressed_size);
+      ASSERT_TRUE(stats.secondary_compressed_size == 0);
+      ASSERT_TRUE(stats.num_primary_compressed_row_groups == 0);
+      ASSERT_TRUE(stats.num_secondary_compressed_row_groups == 0);
     }
   }
   gqe::storage::in_memory_read_task task =
@@ -1207,6 +1216,14 @@ TEST_F(InMemoryReadTaskTest, EffectiveCompressionStats)
       ASSERT_TRUE(row_group->get_column(i).get_compressed_size() <
                   row_group->get_column(i).get_uncompressed_size());
       ASSERT_TRUE(row_group->get_column(i).get_compression_ratio() > 1.0);
+      auto stats = std::get<gqe::fixed_width_compression_statistics>(
+        row_group->get_column(i).get_compression_stats());
+      ASSERT_TRUE(stats.num_compressed_row_groups == 1);
+      ASSERT_TRUE(stats.compressed_size < stats.uncompressed_size);
+      ASSERT_TRUE(stats.primary_compressed_size == stats.compressed_size);
+      ASSERT_TRUE(stats.secondary_compressed_size == 0);
+      ASSERT_TRUE(stats.num_primary_compressed_row_groups == 1);
+      ASSERT_TRUE(stats.num_secondary_compressed_row_groups == 0);
     }
   }
 

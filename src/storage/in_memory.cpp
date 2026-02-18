@@ -78,20 +78,30 @@ namespace gqe {
 
 namespace storage {
 
-// Get the size of a column in bytes, string column includes both chars and offsets.
+// Get the size of a string column in bytes, can only be called on string columns. Returns a pair of
+// (chars_size, offsets_size).
+std::pair<int64_t, int64_t> get_string_column_size(cudf::column const& cudf_column)
+{
+  if (cudf_column.type().id() != cudf::type_id::STRING) {
+    throw std::runtime_error("get_string_column_size can only be called on string columns");
+  }
+  cudf::strings_column_view string_col(cudf_column);
+  int64_t chars_size = static_cast<int64_t>(string_col.chars_size(cudf::get_default_stream()));
+  cudf::column_view offsets = string_col.offsets();
+  int64_t offsets_size      = offsets.size() * cudf::size_of(offsets.type());
+  return std::make_pair(chars_size, offsets_size);
+}
+
+// Get the size of a column in bytes, string column includes both chars and offsets size.
 int64_t get_column_size(cudf::column const& cudf_column)
 {
   auto const num_rows = cudf_column.size();
   auto const type     = cudf_column.type();
   if (type.id() == cudf::type_id::STRING) {
-    cudf::strings_column_view string_col(cudf_column);
-    int64_t chars_size = static_cast<int64_t>(string_col.chars_size(cudf::get_default_stream()));
-    cudf::column_view offsets = string_col.offsets();
-    int64_t offsets_size      = (offsets.size() - 1) * cudf::size_of(offsets.type());
+    auto [chars_size, offsets_size] = get_string_column_size(cudf_column);
     return chars_size + offsets_size;
-  } else {
-    return static_cast<int64_t>(num_rows * cudf::size_of(type));
   }
+  return static_cast<int64_t>(num_rows * cudf::size_of(type));
 }
 
 // Support logging of in_memory_column_type
@@ -227,6 +237,8 @@ int64_t shared_column::get_data_size() const { return _data_size; }
 
 int64_t shared_column::get_offsets_size() const { return _offsets_size; }
 
+cudf::data_type shared_column::get_type() const { return _type; }
+
 cudf::column_view shared_column::view() const
 {
   // Safety check for dangling pointers
@@ -280,6 +292,29 @@ int64_t shared_contiguous_column::get_uncompressed_size() const
 {
   auto found = gqe::utility::find_object<gqe::storage::shared_column>(&_segment, _column_name);
   return found->get_data_size() + found->get_offsets_size();
+}
+
+column_compression_statistics shared_contiguous_column::get_compression_stats() const
+{
+  auto found = gqe::utility::find_object<gqe::storage::shared_column>(&_segment, _column_name);
+
+  if (found->get_type().id() == cudf::type_id::STRING) {
+    string_compression_statistics string_stats;
+    string_stats.offsets_stats.compressed_size   = found->get_offsets_size();
+    string_stats.offsets_stats.uncompressed_size = found->get_offsets_size();
+    string_stats.chars_stats.compressed_size     = found->get_data_size();
+    string_stats.chars_stats.uncompressed_size   = found->get_data_size();
+
+    return column_compression_statistics(string_stats);
+  } else {
+    fixed_width_compression_statistics fixed_width_stats;
+    fixed_width_stats.compressed_size           = get_compressed_size();
+    fixed_width_stats.uncompressed_size         = get_uncompressed_size();
+    fixed_width_stats.primary_compressed_size   = fixed_width_stats.compressed_size;
+    fixed_width_stats.secondary_compressed_size = fixed_width_stats.uncompressed_size;
+
+    return column_compression_statistics(fixed_width_stats);
+  }
 }
 
 cudf::column_view shared_contiguous_column::view() const
@@ -346,6 +381,28 @@ bool contiguous_column::is_compressed() const { return false; }
 int64_t contiguous_column::get_compressed_size() const { return get_uncompressed_size(); }
 
 int64_t contiguous_column::get_uncompressed_size() const { return get_column_size(_data); }
+
+column_compression_statistics contiguous_column::get_compression_stats() const
+{
+  if (_data.type().id() == cudf::type_id::STRING) {
+    string_compression_statistics string_stats;
+    auto [chars_size, offsets_size]              = get_string_column_size(_data);
+    string_stats.offsets_stats.compressed_size   = offsets_size;
+    string_stats.offsets_stats.uncompressed_size = offsets_size;
+    string_stats.chars_stats.compressed_size     = chars_size;
+    string_stats.chars_stats.uncompressed_size   = chars_size;
+
+    return column_compression_statistics(string_stats);
+  } else {
+    fixed_width_compression_statistics fixed_width_stats;
+    fixed_width_stats.compressed_size           = get_compressed_size();
+    fixed_width_stats.uncompressed_size         = get_uncompressed_size();
+    fixed_width_stats.primary_compressed_size   = fixed_width_stats.compressed_size;
+    fixed_width_stats.secondary_compressed_size = fixed_width_stats.uncompressed_size;
+
+    return column_compression_statistics(fixed_width_stats);
+  }
+}
 
 cudf::column_view contiguous_column::view() const { return _data.view(); }
 
@@ -448,6 +505,13 @@ int64_t compressed_column::get_compressed_size() const
 int64_t compressed_column::get_uncompressed_size() const
 {
   return _uncompressed_size + _null_mask_uncompressed_size;
+}
+
+column_compression_statistics compressed_column::get_compression_stats() const
+{
+  // `compressed_column` is about to be deprecated, thus we don't add further support for this.
+  column_compression_statistics stats;
+  return stats;
 }
 
 shared_compressed_column_base::shared_compressed_column_base(
@@ -616,6 +680,16 @@ int64_t shared_compressed_column::get_uncompressed_size() const
 
   return shared_compressed_column_base->_uncompressed_size +
          shared_compressed_column_base->_null_mask_uncompressed_size;
+}
+
+column_compression_statistics shared_compressed_column::get_compression_stats() const
+{
+  // FIXME: Given that we need 1) support for shared compressed sliced column and 2) refactor for
+  // IPC communication without using boost shared memory, we leave the implementation of this
+  // function until those are implemented, as the current implementation would likely be
+  // significantly changed by those features.
+  column_compression_statistics stats;
+  return stats;
 }
 
 cudf::size_type shared_compressed_column::null_count() const
@@ -1777,7 +1851,7 @@ void in_memory_write_task::execute_default()
   std::vector<std::unique_ptr<column_base>> new_columns(_column_indexes.size());
 
   // Local table statistics for the current row group.
-  table_statistics row_group_table_stats(input_table.num_rows(), input_table.num_columns());
+  table_statistics row_group_table_stats(input_table.num_rows(), _data_types);
 
   for (decltype(input_table.num_columns()) column_idx = 0; column_idx < input_table.num_columns();
        ++column_idx) {
@@ -1890,8 +1964,7 @@ void in_memory_write_task::execute_default()
     }
     column_statistics col_stats = {
       .column_id         = static_cast<size_t>(_column_indexes[column_idx]),
-      .compressed_size   = new_columns[_column_indexes[column_idx]]->get_compressed_size(),
-      .uncompressed_size = new_columns[_column_indexes[column_idx]]->get_uncompressed_size()};
+      .compression_stats = new_columns[_column_indexes[column_idx]]->get_compression_stats()};
     row_group_table_stats.add_column_statistics(col_stats);
   }
 

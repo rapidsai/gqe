@@ -364,6 +364,8 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_b
   bool& is_compressed,
   size_t& compressed_size,
   size_t& uncompressed_size,
+  size_t& primary_compressed_size,
+  size_t& secondary_compressed_size,
   std::vector<cudf::size_type>& compressed_sizes,
   cudf::data_type cudf_type,
   memory_kind::type memory_kind,
@@ -399,7 +401,6 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_b
     decompressed_ptrs[ix] = static_cast<uint8_t*>(uncompressed->data());
   }
 
-  size_t primary_compressed_size   = 0;
   double primary_compression_ratio = 0.0;
   std::vector<cudf::size_type> primary_compressed_sizes;
   std::vector<std::unique_ptr<rmm::device_buffer>> primary_compressed_data_buffers;
@@ -429,7 +430,6 @@ std::vector<std::unique_ptr<rmm::device_buffer>> compression_manager::compress_b
                                                        mr);
   }
 
-  size_t secondary_compressed_size   = 0;
   double secondary_compression_ratio = 0.0;
   std::vector<cudf::size_type> secondary_compressed_sizes;
   std::vector<std::unique_ptr<rmm::device_buffer>> secondary_compressed_data_buffers;

@@ -163,7 +163,11 @@ compressed_sliced_column::compressed_sliced_column(
                          cudf_type),
     _secondary_compression_format(secondary_comp_format),
     _secondary_compression_ratio_threshold(secondary_compression_ratio_threshold),
-    _secondary_compression_multiplier_threshold(secondary_compression_multiplier_threshold)
+    _secondary_compression_multiplier_threshold(secondary_compression_multiplier_threshold),
+    _primary_compressed_size(0),
+    _secondary_compressed_size(0),
+    _null_mask_primary_compressed_size(0),
+    _null_mask_secondary_compressed_size(0)
 {
   _size       = cudf_column.size();
   _cudf_type  = cudf_column.type();
@@ -281,6 +285,8 @@ void compressed_sliced_column::do_compress(
   bool& is_compressed,
   size_t& compressed_size,
   size_t& uncompressed_size,
+  size_t& primary_compressed_size,
+  size_t& secondary_compressed_size,
   bool is_null_mask,
   memory_kind::type memory_kind,
   rmm::cuda_stream_view stream,
@@ -321,6 +327,8 @@ void compressed_sliced_column::do_compress(
                                                    is_compressed,
                                                    compressed_size,
                                                    uncompressed_size,
+                                                   primary_compressed_size,
+                                                   secondary_compressed_size,
                                                    compressed_sizes,
                                                    _cudf_type,
                                                    memory_kind,
@@ -350,6 +358,8 @@ void compressed_sliced_column::compress(cudf::column&& cudf_column,
               _is_compressed,
               _compressed_size,
               _uncompressed_size,
+              _primary_compressed_size,
+              _secondary_compressed_size,
               false /*is_null_mask*/,
               memory_kind,
               stream,
@@ -364,6 +374,8 @@ void compressed_sliced_column::compress(cudf::column&& cudf_column,
                 _is_null_mask_compressed,
                 _null_mask_compressed_size,
                 _null_mask_uncompressed_size,
+                _null_mask_primary_compressed_size,
+                _null_mask_secondary_compressed_size,
                 true /*is_null_mask*/,
                 memory_kind,
                 stream,
@@ -394,6 +406,22 @@ int64_t compressed_sliced_column::get_compressed_size() const
 int64_t compressed_sliced_column::get_uncompressed_size() const
 {
   return _uncompressed_size + _null_mask_uncompressed_size;
+}
+
+column_compression_statistics compressed_sliced_column::get_compression_stats() const
+{
+  fixed_width_compression_statistics fixed_width_stats;
+  fixed_width_stats.compressed_size   = get_compressed_size();
+  fixed_width_stats.uncompressed_size = get_uncompressed_size();
+
+  fixed_width_stats.primary_compressed_size   = _primary_compressed_size;
+  fixed_width_stats.secondary_compressed_size = _secondary_compressed_size;
+  fixed_width_stats.num_primary_compressed_row_groups =
+    _is_compressed && !_is_secondary_compressed ? 1 : 0;
+  fixed_width_stats.num_secondary_compressed_row_groups = _is_secondary_compressed ? 1 : 0;
+
+  fixed_width_stats.num_compressed_row_groups = _is_compressed ? 1 : 0;
+  return column_compression_statistics(fixed_width_stats);
 }
 
 template <bool large_string_mode>
@@ -512,6 +540,8 @@ void string_compressed_sliced_column<large_string_mode>::compress(cudf::column&&
                                    _is_compressed,
                                    _compressed_size,
                                    _uncompressed_size,
+                                   _primary_compressed_size,
+                                   _secondary_compressed_size,
                                    _compressed_data_sizes,
                                    cudf::data_type(cudf::type_id::STRING),
                                    memory_kind,
@@ -533,6 +563,8 @@ void string_compressed_sliced_column<large_string_mode>::compress(cudf::column&&
                 _is_null_mask_compressed,
                 _null_mask_compressed_size,
                 _null_mask_uncompressed_size,
+                _null_mask_primary_compressed_size,
+                _null_mask_secondary_compressed_size,
                 true /*is_null_mask*/,
                 memory_kind,
                 stream,
@@ -580,6 +612,8 @@ void string_compressed_sliced_column<large_string_mode>::compress(cudf::column&&
                                    _offsets_are_compressed,
                                    _offsets_compressed_size,
                                    _offsets_uncompressed_size,
+                                   _offsets_primary_compressed_size,
+                                   _offsets_secondary_compressed_size,
                                    _compressed_offset_sizes,
                                    offset_element_type,
                                    memory_kind,
@@ -741,6 +775,39 @@ template <bool large_string_mode>
 bool string_compressed_sliced_column<large_string_mode>::is_compressed() const
 {
   return _is_compressed || _offsets_are_compressed;
+}
+
+template <bool large_string_mode>
+column_compression_statistics
+string_compressed_sliced_column<large_string_mode>::get_compression_stats() const
+{
+  string_compression_statistics string_stats;
+
+  // Offsets buffer statistics
+  string_stats.offsets_stats.compressed_size   = static_cast<int64_t>(_offsets_compressed_size);
+  string_stats.offsets_stats.uncompressed_size = static_cast<int64_t>(_offsets_uncompressed_size);
+  string_stats.offsets_stats.primary_compressed_size =
+    static_cast<int64_t>(_offsets_primary_compressed_size);
+  string_stats.offsets_stats.secondary_compressed_size =
+    static_cast<int64_t>(_offsets_secondary_compressed_size);
+  string_stats.offsets_stats.num_compressed_row_groups = _offsets_are_compressed ? 1ul : 0;
+  string_stats.offsets_stats.num_primary_compressed_row_groups =
+    _offsets_are_compressed && !_offsets_are_secondary_compressed ? 1ul : 0;
+  string_stats.offsets_stats.num_secondary_compressed_row_groups =
+    _offsets_are_secondary_compressed ? 1ul : 0;
+
+  // Chars buffer statistics
+  string_stats.chars_stats.compressed_size         = static_cast<int64_t>(_compressed_size);
+  string_stats.chars_stats.uncompressed_size       = static_cast<int64_t>(_uncompressed_size);
+  string_stats.chars_stats.primary_compressed_size = static_cast<int64_t>(_primary_compressed_size);
+  string_stats.chars_stats.secondary_compressed_size =
+    static_cast<int64_t>(_secondary_compressed_size);
+  string_stats.chars_stats.num_compressed_row_groups = _is_compressed ? 1ul : 0;
+  string_stats.chars_stats.num_primary_compressed_row_groups =
+    _is_compressed && !_is_secondary_compressed ? 1ul : 0;
+  string_stats.chars_stats.num_secondary_compressed_row_groups = _is_secondary_compressed ? 1ul : 0;
+
+  return column_compression_statistics(string_stats);
 }
 
 template class string_compressed_sliced_column<false>;

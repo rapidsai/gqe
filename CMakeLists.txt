@@ -47,6 +47,12 @@ option(GQE_ENABLE_QUERY_COMPILER "Enable the query compiler" OFF)
 option(GQE_ENABLE_SUBSTRAIT_PRODUCER "Enable the Substrait producer" OFF)
 # TODO: Update default to ON when GQE is ready for public release
 option(GQE_ENABLE_PUBLIC_BUILD "Enable building for external user" OFF)
+set(GQE_NVCOMP_LIB_DIR
+    ""
+    CACHE
+      PATH
+      "Optional path to prebuilt nvCOMP installation (must contain cmake config files)."
+)
 
 # ##############################################################################
 # * shared dependencies
@@ -78,7 +84,12 @@ cpmaddpackage(
 # * nvcomp setup
 # ----------------------------------------------------------------------------------
 
-if(NOT GQE_ENABLE_PUBLIC_BUILD)
+if(GQE_NVCOMP_LIB_DIR)
+  message(STATUS "Using prebuilt nvCOMP from: ${GQE_NVCOMP_LIB_DIR}")
+  list(APPEND CMAKE_PREFIX_PATH "${GQE_NVCOMP_LIB_DIR}")
+  find_package(nvcomp CONFIG REQUIRED)
+  list(REMOVE_AT CMAKE_PREFIX_PATH -1)
+elseif(NOT GQE_ENABLE_PUBLIC_BUILD)
   # CMake variable for gqe-nvcomp tag
   set(GQE_NVCOMP_TAG
       "a7ff787194cb0eb948b4d0443d5f16ba4da714a9"
@@ -147,7 +158,23 @@ if(NOT GQE_ENABLE_PUBLIC_BUILD)
     add_library(deflate ALIAS libdeflate_static)
   endif()
 
-  find_package(lz4 REQUIRED)
+  find_package(lz4 QUIET)
+  if(NOT lz4_FOUND)
+    cpmaddpackage(
+      NAME
+      lz4
+      GITHUB_REPOSITORY
+      lz4/lz4
+      VERSION
+      1.10.0
+      SOURCE_SUBDIR
+      "build/cmake"
+      OPTIONS
+      "BUILD_STATIC_LIBS ON"
+      "BUILD_SHARED_LIBS OFF"
+      "LZ4_POSITION_INDEPENDENT_LIB ON"
+      "LZ4_BUILD_CLI OFF")
+  endif()
 endif()
 
 # ##############################################################################

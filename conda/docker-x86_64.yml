@@ -42,3 +42,4 @@ dependencies:
   - fmt=11.1.4
   - boost-cpp
   - pre-commit
+  - uv=0.10.4

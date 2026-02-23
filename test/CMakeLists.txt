@@ -1,5 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved. SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION &
+# AFFILIATES. All rights reserved. SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not
 # use this file except in compliance with the License. You may obtain a copy of
@@ -254,6 +254,15 @@ target_link_libraries(expression_equal_test PUBLIC gqe)
 target_link_libraries(expression_equal_test PUBLIC GTest::gtest_main
                                                    GTest::gmock)
 add_test(NAME expression_equal_test COMMAND expression_equal_test)
+
+add_executable(substrait_if_then_test logical/substrait_if_then_test.cpp)
+target_include_directories(substrait_if_then_test
+                           PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+target_link_libraries(substrait_if_then_test PUBLIC gqe)
+target_link_libraries(substrait_if_then_test PUBLIC GTest::gtest_main
+                                                    GTest::gmock)
+target_link_libraries(substrait_if_then_test PRIVATE logical_test_common)
+add_test(NAME substrait_if_then_test COMMAND substrait_if_then_test)
 
 add_executable(relation_equal_test logical/relation_equal_test.cpp)
 target_include_directories(relation_equal_test

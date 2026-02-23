@@ -137,18 +137,31 @@ std::unique_ptr<gqe::expression> gqe::substrait_parser::parse_if_then_expression
   substrait::Expression_IfThen const& if_then_expression,
   std::vector<std::shared_ptr<gqe::logical::relation>>& subquery_relations) const
 {
-  if (if_then_expression.ifs_size() != 1)
-    throw std::runtime_error(
-      "Attempting to parse IfThen expression of size " +
-      std::to_string(if_then_expression.ifs_size()) +
-      ". SubstraitParser only support IfThen expression with `ifs` size of 1.");
+  auto const num_ifs = if_then_expression.ifs_size();
 
-  auto if_expr   = parse_expression(if_then_expression.ifs().at(0).if_(), subquery_relations);
-  auto then_expr = parse_expression(if_then_expression.ifs().at(0).then(), subquery_relations);
+  if (num_ifs == 0) {
+    throw std::runtime_error("IfThen expression must have at least one if clause");
+  }
+
+  // Parse the ELSE expression (default value)
   auto else_expr = parse_expression(if_then_expression.else_(), subquery_relations);
 
-  return std::make_unique<gqe::if_then_else_expression>(
-    std::move(if_expr), std::move(then_expr), std::move(else_expr));
+  // Build nested if_then_else expressions from right to left (innermost to outermost)
+  // For CASE WHEN c1 THEN v1 WHEN c2 THEN v2 WHEN c3 THEN v3 ELSE default:
+  // Build: IF c1 THEN v1 ELSE (IF c2 THEN v2 ELSE (IF c3 THEN v3 ELSE default))
+  std::unique_ptr<gqe::expression> current_else = std::move(else_expr);
+
+  // Process if clauses in reverse order to build nested structure
+  for (int i = num_ifs - 1; i >= 0; --i) {
+    auto if_expr   = parse_expression(if_then_expression.ifs(i).if_(), subquery_relations);
+    auto then_expr = parse_expression(if_then_expression.ifs(i).then(), subquery_relations);
+
+    // Create nested if_then_else: IF condition THEN value ELSE (previous_else)
+    current_else = std::make_unique<gqe::if_then_else_expression>(
+      std::move(if_expr), std::move(then_expr), std::move(current_else));
+  }
+
+  return current_else;
 }
 
 namespace {

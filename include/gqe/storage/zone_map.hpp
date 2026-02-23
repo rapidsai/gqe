@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@
 #include <boost/container/vector.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/offset_ptr.hpp>
+#include <rmm/mr/device/per_device_resource.hpp>
 
 // Forward declarations
 namespace gqe {
@@ -199,8 +200,11 @@ class zone_map {
    * @brief Create a zone map of a cudf::table_view with a given partition size.
    * @param table The input cudf::table_view.
    * @param partition_size The number of rows per partition.
+   * @param mr The memory resource used to allocate the zone map table.
    */
-  explicit zone_map(const cudf::table_view& table, cudf::size_type partition_size);
+  explicit zone_map(const cudf::table_view& table,
+                    cudf::size_type partition_size,
+                    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
   zone_map(const zone_map& other)      = delete;
   zone_map& operator=(const zone_map&) = delete;
@@ -301,7 +305,7 @@ class zone_map {
   [[nodiscard]] static std::unique_ptr<cudf::table> compute_zone_map(
     const cudf::table_view& table,
     cudf::size_type partition_size,
-    rmm::mr::device_memory_resource* mr);
+    rmm::device_async_resource_ref mr);
 
   /// Compute the null counts for each zone map partitions.
   [[nodiscard]] static std::vector<std::vector<cudf::size_type>> compute_null_counts(
@@ -312,9 +316,6 @@ class zone_map {
 
   /// The number of rows of the input table.
   cudf::size_type _num_rows;
-
-  /// Memory resource used to allocate the cudf::table storing the zone map.
-  std::unique_ptr<rmm::mr::device_memory_resource> _memory_resource;
 
   /// The actual zone map table.
   std::unique_ptr<cudf::table> _zone_map;

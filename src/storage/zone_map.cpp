@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -359,19 +359,20 @@ void check_partition_size(cudf::size_type partition_size)
   }
 }
 
-gqe::zone_map::zone_map(const cudf::table_view& table, cudf::size_type partition_size)
+gqe::zone_map::zone_map(const cudf::table_view& table,
+                        cudf::size_type partition_size,
+                        rmm::device_async_resource_ref mr)
   : _partition_size(partition_size), _num_rows(table.num_rows())
 {
-  _memory_resource = std::make_unique<rmm::mr::cuda_memory_resource>();
-  _zone_map        = compute_zone_map(table, partition_size, _memory_resource.get());
-  _null_counts     = compute_null_counts(table, partition_size);
+  _zone_map    = compute_zone_map(table, partition_size, mr);
+  _null_counts = compute_null_counts(table, partition_size);
 
   check_partition_size(partition_size);
 }
 
 std::unique_ptr<cudf::table> gqe::zone_map::compute_zone_map(const cudf::table_view& table,
                                                              cudf::size_type partition_size,
-                                                             rmm::mr::device_memory_resource* mr)
+                                                             rmm::device_async_resource_ref mr)
 {
   gqe::utility::nvtx_scoped_range range{"compute_zone_map"};
 
@@ -627,8 +628,8 @@ gqe::shared_zone_map_table::shared_zone_map_table(
     _null_counts(
       shared_zone_map_table::SharedVectorSizeTypeAllocator(segment->get_segment_manager()))
 {
-  auto temp_zone_map =
-    gqe::zone_map::compute_zone_map(table, partition_size, rmm::mr::get_current_device_resource());
+  auto temp_zone_map = gqe::zone_map::compute_zone_map(
+    table, partition_size, rmm::mr::get_current_device_resource_ref());
   auto std_null_counts = gqe::zone_map::compute_null_counts(table, partition_size);
 
   // Need to convert std::vector<std::vector<cudf::size_type>> to

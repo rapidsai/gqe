@@ -439,12 +439,15 @@ class CudaGpuArray {
                     cudaMemcpyHostToDevice,
                     stream.value());
   }
-  // Returns a pointer to the first element of the memory.
-  constexpr pointer get() noexcept { return pointer(buffer.element_ptr(0)); }
-  // Returns a pointer to the first element of the memory.
+  // Returns a pointer to the underlying memory, or nullptr if size == 0.
+  constexpr pointer get() noexcept
+  {
+    return buffer.size() ? pointer(buffer.data()) : pointer(nullptr);
+  }
+  // Returns a const pointer to the underlying memory, or nullptr if size == 0.
   constexpr const const_pointer get() const noexcept
   {
-    return const_pointer(buffer.element_ptr(0));
+    return buffer.size() ? const_pointer(buffer.data()) : const_pointer(nullptr);
   }
   //// Returns a pointer to the first element of the memory.
   // constexpr const_pointer get() const noexcept {

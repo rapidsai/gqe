@@ -109,6 +109,35 @@ using TestTypes = ::testing::Types<int32_t, int64_t, float, double>;
 // Instantiate tests for each data type
 INSTANTIATE_TYPED_TEST_SUITE_P(DataTypeTests, scatter_aggregate_single_column_test, TestTypes);
 
+TEST_F(scatter_aggregate_test, zero_sized_return)
+{
+  cudf::test::fixed_width_column_wrapper<float> data{1.0, 2.0, 3.0, 4.0, 5.0};
+  std::vector<cudf::size_type> groups_data{};
+
+  rmm::device_uvector<cudf::size_type> group_ids(groups_data.size(), cudf::get_default_stream());
+  cudaMemcpy(group_ids.data(),
+             groups_data.data(),
+             groups_data.size() * sizeof(cudf::size_type),
+             cudaMemcpyHostToDevice);
+
+  cudf::column_view empty_mask;
+  cudf::size_type groups_count =
+    groups_data.size() > 0 ? *std::max_element(groups_data.begin(), groups_data.end()) + 1 : 0;
+  cudf::type_id output_type_id = cudf::type_to_id<float>();
+
+  cudf::column result = libperfect::scatter_aggregate(data,
+                                                      group_ids,
+                                                      empty_mask,
+                                                      std::nullopt,
+                                                      cudf::aggregation::SUM,
+                                                      groups_count,
+                                                      output_type_id);
+
+  // 0-width group means 0-width result
+  cudf::test::fixed_width_column_wrapper<float> expected{};
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result);
+}
+
 TEST_F(scatter_aggregate_test, string_input_throws_exception)
 {
   // Test with string input - should throw an exception

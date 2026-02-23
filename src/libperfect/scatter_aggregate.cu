@@ -305,7 +305,10 @@ CudaGpuArray<output_type> scatter_aggregate_helper(const value_type values,
   // This code causes hard to trace bug in gqe-python tpch q17 with
   // sf100.  It's unclear if the code is even faster than shmem
   // aggregate.
-  if (max_index <= 1) {
+  if (max_index == 0) {
+    // nothing to compute, so return 0 sized result
+    return result;
+  } else if (max_index == 1) {
     scatter_private_shmem_aggregate_kernel<thread_count,
                                            aggregation_kind,
                                            1,

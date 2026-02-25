@@ -1124,9 +1124,7 @@ materialize_join_from_position_lists_task::materialize_join_from_position_lists_
   std::shared_ptr<task> left_table,
   std::vector<std::shared_ptr<task>> position_lists,
   join_type_type join_type,
-  std::vector<cudf::size_type> projection_indices,
-  std::shared_ptr<join_hash_map_cache> hash_map_cache,
-  bool mark_join)
+  std::vector<cudf::size_type> projection_indices)
   : task(ctx_ref,
          task_id,
          stage_id,
@@ -1139,9 +1137,7 @@ materialize_join_from_position_lists_task::materialize_join_from_position_lists_
          }(),
          {}),
     _join_type(join_type),
-    _projection_indices(projection_indices),
-    _hash_map_cache(hash_map_cache),
-    _mark_join(mark_join)
+    _projection_indices(projection_indices)
 {
   GQE_EXPECTS(
     join_type == join_type_type::left_semi || join_type == join_type_type::left_anti,
@@ -1152,6 +1148,9 @@ void materialize_join_from_position_lists_task::execute()
 {
   prepare_dependencies();
 
+  utility::nvtx_scoped_range materialize_from_positions_range(
+    "materialize_join_from_position_lists_task");
+
   GQE_EXPECTS(
     _join_type == join_type_type::left_semi || _join_type == join_type_type::left_anti,
     "materialize_join_from_position_lists_task only works with left-semi or left-anti join.");
@@ -1160,56 +1159,45 @@ void materialize_join_from_position_lists_task::execute()
   auto left_view       = *dependent_tasks[0]->result();
   std::unique_ptr<cudf::column> bool_mask;
 
-  if (_hash_map_cache && _mark_join) {
-    auto* impl = _hash_map_cache->get<mark_join_impl>();
-    GQE_EXPECTS(impl,
-                "Expected mark_join_impl in cache for materialize_join_from_position_lists_task");
-    auto positions = impl->compute_positions_list_from_cached_map(_join_type);
-    auto position_column =
-      std::make_unique<cudf::column>(std::move(*positions), rmm::device_buffer{}, 0);
+  // For left-anti join, since we want to keep rows such that the indices are in *all* position
+  // lists, we increment `counts` for each position list, and only keep rows such that the count
+  // == the number of position lists.
+  std::unique_ptr<cudf::column> counts;
 
+  if (_join_type == join_type_type::left_anti) {
+    counts = cudf::make_column_from_scalar(
+      cudf::numeric_scalar<int32_t>(0),  // Scalar value to fill with (0 in this case)
+      left_view.num_rows()               // Number of rows in the new column
+    );
+  } else {
     bool_mask =
       cudf::make_column_from_scalar(cudf::numeric_scalar<bool>(false), left_view.num_rows());
-    detail::set_boolean_mask(bool_mask->mutable_view(), *position_column);
-  } else {
-    // For left-anti join, since we want to keep rows such that the indices are in *all* position
-    // lists, we increment `counts` for each position list, and only keep rows such that the count
-    // == the number of position lists.
-    std::unique_ptr<cudf::column> counts;
+  }
 
-    if (_join_type == join_type_type::left_anti) {
-      counts = cudf::make_column_from_scalar(
-        cudf::numeric_scalar<int32_t>(0),  // Scalar value to fill with (0 in this case)
-        left_view.num_rows()               // Number of rows in the new column
-      );
+  for (std::size_t partition_idx = 1; partition_idx < dependent_tasks.size(); partition_idx++) {
+    auto child_table = *dependent_tasks[partition_idx]->result();
+    GQE_EXPECTS(child_table.num_columns() == 1,
+                "materialize_join_from_position_lists_task expects position list table to have a "
+                "single column");
+
+    auto position_column = child_table.column(0);
+
+    // Note that we can use `set_boolean_mask` and `increment_counts` because indices from the
+    // position lists are unique
+    if (_join_type == join_type_type::left_semi) {
+      detail::set_boolean_mask(bool_mask->mutable_view(), position_column);
     } else {
-      bool_mask =
-        cudf::make_column_from_scalar(cudf::numeric_scalar<bool>(false), left_view.num_rows());
+      detail::increment_counts(counts->mutable_view(), position_column);
     }
+  }
 
-    for (std::size_t partition_idx = 1; partition_idx < dependent_tasks.size(); partition_idx++) {
-      auto child_table = *dependent_tasks[partition_idx]->result();
-      GQE_EXPECTS(child_table.num_columns() == 1,
-                  "materialize_join_from_position_lists_task expects position list table to have a "
-                  "single column");
-
-      auto position_column = child_table.column(0);
-
-      // Note that we can use `set_boolean_mask` and `increment_counts` because indices from the
-      // position lists are unique
-      if (_join_type == join_type_type::left_semi) {
-        detail::set_boolean_mask(bool_mask->mutable_view(), position_column);
-      } else {
-        detail::increment_counts(counts->mutable_view(), position_column);
-      }
-    }
-
-    if (_join_type == join_type_type::left_anti) {
-      bool_mask = cudf::binary_operation(counts->view(),
-                                         cudf::numeric_scalar<int32_t>(dependent_tasks.size() - 1),
-                                         cudf::binary_operator::EQUAL,
-                                         cudf::data_type(cudf::type_id::BOOL8));
-    }
+  if (_join_type == join_type_type::left_anti) {
+    // Note the first dependent task is the left table.
+    int num_position_lists = dependent_tasks.size() - 1;
+    bool_mask              = cudf::binary_operation(counts->view(),
+                                       cudf::numeric_scalar<int32_t>(num_position_lists),
+                                       cudf::binary_operator::EQUAL,
+                                       cudf::data_type(cudf::type_id::BOOL8));
   }
   auto materialized_result =
     cudf::apply_boolean_mask(left_view.select(_projection_indices), bool_mask->view());
@@ -1222,6 +1210,50 @@ void materialize_join_from_position_lists_task::execute()
     left_view.num_rows(),
     materialized_result->num_rows());
   emit_result(std::move(materialized_result));
+  remove_dependencies();
+}
+
+extract_mark_join_positions_task::extract_mark_join_positions_task(
+  context_reference ctx_ref,
+  int32_t task_id,
+  int32_t stage_id,
+  std::vector<std::shared_ptr<task>> join_tasks,
+  join_type_type join_type,
+  std::shared_ptr<join_hash_map_cache> hash_map_cache)
+  : task(ctx_ref, task_id, stage_id, {}, {}),
+    _join_type(join_type),
+    _join_tasks(join_tasks),
+    _hash_map_cache(hash_map_cache)
+{
+  GQE_EXPECTS(join_type == join_type_type::left_semi || join_type == join_type_type::left_anti,
+              "extract_mark_join_positions_task only works with left-semi or left-anti join.");
+}
+
+void extract_mark_join_positions_task::execute()
+{
+  // Actually there is no dependencies for this task, but we still call it for consistency with
+  // other task execution.
+  prepare_dependencies();
+
+  utility::nvtx_scoped_range extract_positions_range("extract_mark_join_positions_task");
+
+  auto* impl = _hash_map_cache->get<mark_join_impl>();
+  GQE_EXPECTS(impl, "Expected mark_join_impl in cache for extract_mark_join_positions_task");
+  auto positions = impl->compute_positions_list_from_cached_map(_join_type);
+
+  std::vector<std::unique_ptr<cudf::column>> result_columns;
+  result_columns.push_back(
+    std::make_unique<cudf::column>(std::move(*positions), rmm::device_buffer{}, 0));
+  auto result_table = std::make_unique<cudf::table>(std::move(result_columns));
+
+  GQE_LOG_TRACE(
+    "Executed extract_mark_join_positions task: task_id={}, stage_id={}, output_size={}.",
+    task_id(),
+    stage_id(),
+    result_table->num_rows());
+  emit_result(std::move(result_table));
+
+  // No dependencies, but we still call it here for consistency.
   remove_dependencies();
 }
 

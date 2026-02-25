@@ -181,16 +181,23 @@ class SingleKeyColumnJoinTest
 
     if (late_materialize) {
       std::vector<std::shared_ptr<gqe::task>> tasks{{join_task}};
+      std::vector<std::shared_ptr<gqe::task>> late_materialization_dependencies;
+      if (mark_join && hash_map_cache) {
+        late_materialization_dependencies.push_back(
+          std::make_shared<gqe::extract_mark_join_positions_task>(
+            ctx_ref, join_task_id + 1, stage_id, tasks, join_type, hash_map_cache));
+      } else {
+        late_materialization_dependencies = std::move(tasks);
+      }
       late_materialization = std::make_shared<gqe::materialize_join_from_position_lists_task>(
         ctx_ref,
         join_task_id,
         stage_id,
-        std::move(left_task),      // left table
-        std::move(tasks),          // positions lists
-        join_type,                 // join type
-        get_projection_indices(),  // projection indices
-        hash_map_cache,            // hash map
-        mark_join);                // use mark join
+        std::move(left_task),                          // left table
+        std::move(late_materialization_dependencies),  // positions lists
+        join_type,                                     // join type
+        get_projection_indices()                       // projection indices
+      );
     }
   }
 
@@ -713,16 +720,24 @@ class NonEqualityJoinConditionTest : public gqe::test::BaseFixture {
                                                  !late_materialize);
     if (late_materialize) {
       std::vector<std::shared_ptr<gqe::task>> tasks{{join_task}};
+      std::vector<std::shared_ptr<gqe::task>> late_materialization_dependencies;
+      if (hash_map_cache && (join_type == gqe::join_type_type::left_semi ||
+                             join_type == gqe::join_type_type::left_anti)) {
+        late_materialization_dependencies.push_back(
+          std::make_shared<gqe::extract_mark_join_positions_task>(
+            ctx_ref, join_task_id + 1, stage_id, tasks, join_type, hash_map_cache));
+      } else {
+        late_materialization_dependencies = std::move(tasks);
+      }
       late_materialization = std::make_shared<gqe::materialize_join_from_position_lists_task>(
         ctx_ref,
         join_task_id,
         stage_id,
-        std::move(left_task),  // left table
-        tasks,                 // positions lists
-        join_type,             // join type
-        projection_indices,    // projection indices
-        hash_map_cache,        // hash map
-        true);                 // use mark join
+        std::move(left_task),                          // left table
+        std::move(late_materialization_dependencies),  // positions lists
+        join_type,                                     // join type
+        projection_indices                             // projection indices
+      );
     }
   }
 
@@ -1275,16 +1290,24 @@ class SingleKeyColumnJoinWithFilterTest : public gqe::test::BaseFixture {
 
     if (late_materialize) {
       std::vector<std::shared_ptr<gqe::task>> tasks{{join_task}};
+      std::vector<std::shared_ptr<gqe::task>> late_materialization_dependencies;
+      if (hash_map_cache && (join_type == gqe::join_type_type::left_semi ||
+                             join_type == gqe::join_type_type::left_anti)) {
+        late_materialization_dependencies.push_back(
+          std::make_shared<gqe::extract_mark_join_positions_task>(
+            ctx_ref, join_task_id + 1, stage_id, tasks, join_type, hash_map_cache));
+      } else {
+        late_materialization_dependencies = std::move(tasks);
+      }
       late_materialization = std::make_shared<gqe::materialize_join_from_position_lists_task>(
         ctx_ref,
         join_task_id + 1,
         stage_id,
-        std::move(left_task),  // left table
-        std::move(tasks),      // positions lists
-        join_type,             // join type
-        projection_indices,    // projection indices
-        hash_map_cache,        // hash map
-        true);                 // use mark join
+        std::move(left_task),                          // left table
+        std::move(late_materialization_dependencies),  // positions lists
+        join_type,                                     // join type
+        projection_indices                             // projection indices
+      );
     }
   }
 

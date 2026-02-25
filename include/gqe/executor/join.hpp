@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -457,16 +457,13 @@ class materialize_join_from_position_lists_task : public task {
    * supported.
    * @param[in] projection_indices Column indices to materialize.
    */
-  materialize_join_from_position_lists_task(
-    context_reference ctx_ref,
-    int32_t task_id,
-    int32_t stage_id,
-    std::shared_ptr<task> left_table,
-    std::vector<std::shared_ptr<task>> position_lists,
-    join_type_type join_type,
-    std::vector<cudf::size_type> projection_indices,
-    std::shared_ptr<join_hash_map_cache> hash_map_cache = nullptr,
-    bool mark_join                                      = false);
+  materialize_join_from_position_lists_task(context_reference ctx_ref,
+                                            int32_t task_id,
+                                            int32_t stage_id,
+                                            std::shared_ptr<task> left_table,
+                                            std::vector<std::shared_ptr<task>> position_lists,
+                                            join_type_type join_type,
+                                            std::vector<cudf::size_type> projection_indices);
 
   void execute() override;
 
@@ -475,6 +472,35 @@ class materialize_join_from_position_lists_task : public task {
   std::vector<cudf::size_type> _projection_indices;
   std::shared_ptr<join_hash_map_cache> _hash_map_cache;
   bool _mark_join;
+};
+
+class extract_mark_join_positions_task : public task {
+ public:
+  /**
+   * @brief Extract the mark join positions list from the local cached hash map.
+   *
+   * @param ctx_ref The context in which the current task is running.
+   * @param task_id Globally unique identifier of the task.
+   * @param stage_id Stage of the current task.
+   * @param join_tasks The mark join tasks that contain the cached hash map. This would not be
+   * dependency, but it would be stored as a member to keep the join tasks alive.
+   * @param join_type Type of the join. Only left semi and left anti join are supported.
+   * @param hash_map_cache The cache that contains the hash map for mark join. This would not be
+   * dependency, but it would be stored as a member to keep the cache alive.
+   */
+  extract_mark_join_positions_task(context_reference ctx_ref,
+                                   int32_t task_id,
+                                   int32_t stage_id,
+                                   std::vector<std::shared_ptr<task>> join_tasks,
+                                   join_type_type join_type,
+                                   std::shared_ptr<join_hash_map_cache> hash_map_cache);
+
+  void execute() override;
+
+ private:
+  join_type_type _join_type;
+  std::vector<std::shared_ptr<task>> _join_tasks;
+  std::shared_ptr<join_hash_map_cache> _hash_map_cache;
 };
 
 }  // namespace gqe

@@ -674,17 +674,41 @@ void task_graph_builder::generate_task_graph_visitor::visit(
     // Generate a separate `materialize_join_from_position_lists_task` for semi/anti join
     if (separate_materialization) {
       _builder->insert_pipeline_breaker(join_tasks);
+      std::vector<std::shared_ptr<gqe::task>> late_materialization_dependencies;
+
+      if (mark_join && hash_map_cache) {
+        auto task_manager_context = dynamic_cast<multi_process_task_manager_context*>(
+          _builder->_ctx_ref._task_manager_context);
+        bool is_multi_process = (task_manager_context != nullptr);
+        // If not running in multi-process mode, set num_ranks to 1.
+        auto num_ranks = is_multi_process ? task_manager_context->comm->world_size() : 1;
+        // It would happen that join_tasks.size() < world_size.
+        auto num_extract_tasks = std::min(static_cast<std::size_t>(num_ranks), join_tasks.size());
+        std::vector<std::shared_ptr<task>> extract_mark_join_positions_tasks(num_extract_tasks);
+        for (size_t i = 0; i < num_extract_tasks; i++) {
+          extract_mark_join_positions_tasks[i] =
+            std::make_shared<extract_mark_join_positions_task>(_builder->_ctx_ref,
+                                                               _builder->_current_task_id,
+                                                               _builder->_current_stage_id,
+                                                               join_tasks,
+                                                               relation_join_type,
+                                                               hash_map_cache);
+          _builder->_current_task_id++;
+        }
+        late_materialization_dependencies = std::move(extract_mark_join_positions_tasks);
+        _builder->insert_pipeline_breaker(late_materialization_dependencies);
+      } else {
+        late_materialization_dependencies = std::move(join_tasks);
+      }
 
       _generated_tasks.push_back(std::make_shared<materialize_join_from_position_lists_task>(
         _builder->_ctx_ref,
         _builder->_current_task_id,
         _builder->_current_stage_id,
         std::move(concatenated_left_task),
-        std::move(join_tasks),
+        std::move(late_materialization_dependencies),
         relation_join_type,
-        relation->projection_indices(),
-        hash_map_cache,
-        mark_join));
+        relation->projection_indices()));
 
       _builder->_current_task_id++;
     } else {

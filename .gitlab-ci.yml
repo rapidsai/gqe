@@ -10,8 +10,6 @@ variables:
 code_style:
   stage: test
   rules:
-    - if: $CI_MERGE_REQUEST_DRAFT == "true"
-      when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - Dockerfile
@@ -37,8 +35,6 @@ tpch_queries:
         - conda/docker-x86_64.yml
       variables:
         DOCKER_IMAGE: $GQE_MR_IMAGE
-    - if: $CI_MERGE_REQUEST_DRAFT == "true"
-      when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   image: $DOCKER_IMAGE

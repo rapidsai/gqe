@@ -278,6 +278,7 @@ void execute_task_graph_multi_process(context_reference ctx_ref, task_graph cons
   }
 
   auto execute_locally = [task_manager_context](task* t) {
+    if (t->is_execute_on_all_ranks()) { return true; }
     auto execution_ranks = task_manager_context->scheduler->get_execution_ranks(t);
     if (execution_ranks.find(task_manager_context->comm->rank()) != execution_ranks.end()) {
       return true;

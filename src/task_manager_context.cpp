@@ -33,6 +33,7 @@
 #include <gqe/utility/logger.hpp>
 
 #include <cudf/types.hpp>
+#include <cudf/utilities/pinned_memory.hpp>
 #include <cudf/utilities/traits.hpp>
 #include <grpc/grpc.h>
 #include <grpcpp/security/server_credentials.h>
@@ -226,6 +227,10 @@ multi_process_task_manager_context::default_init(MPI_Comm mpi_comm,
   GQE_LOG_INFO("Setting pool size to {}", pool_size);
 
   auto pgas_mr = std::make_unique<gqe::pgas_memory_resource>(pool_size);
+
+  // Force initialization of the pinned memory resource to avoid the first allocation happening
+  // during execution.
+  std::ignore = cudf::get_pinned_memory_resource();
 
   std::unique_ptr<gqe::scheduler> scheduler;
   if (type == gqe::SCHEDULER_TYPE::ROUND_ROBIN) {

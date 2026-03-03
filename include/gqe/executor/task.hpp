@@ -126,6 +126,19 @@ class task {
    */
   void assign_pipeline(int32_t pipeline_id) noexcept;
 
+  /**
+   * @brief Mark this task for broadcast execution on all ranks.
+   */
+  void set_execute_on_all_ranks(bool execute_on_all_ranks) noexcept
+  {
+    _execute_on_all_ranks = execute_on_all_ranks;
+  }
+
+  /**
+   * @brief Return whether this task should be executed on all ranks.
+   */
+  [[nodiscard]] bool is_execute_on_all_ranks() const noexcept { return _execute_on_all_ranks; }
+
  protected:
   /**
    * @brief Emit an owned result.
@@ -214,6 +227,7 @@ class task {
   std::vector<std::shared_ptr<task>> _subqueries;
   result_kind::type _result;
   std::atomic<status_type> _status;
+  bool _execute_on_all_ranks = false;
 };
 
 }  // namespace gqe

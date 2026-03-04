@@ -59,7 +59,7 @@ current phase of GQE development (e.g., TPC-H SF100, SF1k).*
        minimially functional.
  - [ ] MR solves *one* (sub-)issue. Big issue is split into multiple
        self-contained MRs.
- - [ ] All source code files include [the Apache-2.0 license header](https://confluence.nvidia.com/display/LEG/Apache+2.0) and year is up-to-date.
+ - [ ] All new source code files include the Apache-2.0 license header (see example in exisiting source files) and year is up-to-date.
  - [ ] Code style adheres to the [C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines) and [libcudf developer guidelines](https://github.com/rapidsai/cudf/blob/main/cpp/doxygen/developer_guide/DEVELOPER_GUIDE.md).
    - MLIR code instead adheres to the [LLVM coding standards](https://llvm.org/docs/CodingStandards.html).
  - [ ] Code is DRY. I.e., uses existing GQE / cuDF / MLIR infrastructure and

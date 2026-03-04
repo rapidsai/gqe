@@ -58,21 +58,25 @@ any questions related to the implementation of the issue, ask them in the issue 
    ```bash
    git clone <GQE_REPO>
    ```
-2. The easiest way to set up the GQE build environment is by running the appropirate [Docker image](https://github.com/orgs/rapidsai/packages?repo_name=gqe) which has all dependencies installed. Follow the [Docker Engine install instructions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository) if you need to install Docker. If needed, [install](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#installing-with-apt) and [configure](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#configuring-docker) the NVIDIA container toolkit. With Docker set up, launch the GQE container:
+2. The easiest way to set up the GQE build environment is by building the GQE Dockerfile and running the resulting image which has all dependencies installed. Follow the [Docker Engine install instructions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository) if you need to install Docker. If needed, [install](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#installing-with-apt) and [configure](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#configuring-docker) the NVIDIA container toolkit. With Docker set up, build the GQE container image:
+   ```bash
+   docker build -t gqe .
+   ```
+3. Launch the GQE container:
    ```bash
    docker run -it --rm --gpus all \
             -v gqe:</gqe> \
             -v <HOST_DIR>:<CONTAINER_DIR> \
             <GQE_DOCKER_IMAGE>
    ```
-3. Build GQE inside the container:
+4. Build GQE inside the container:
    ```bash
    mkdir /gqe/build
    cd $_
    cmake ..
    make -j$(nproc)
    ```
-4. Run test cases to make sure setup is successsful:
+5. Run test cases to make sure setup is successsful:
    ```bash
    ctest --output-on-failure
    ```
@@ -83,12 +87,42 @@ For high-level design issues like interfaces, class hierarchies, recourse manage
 ### Naming convention
 We generally use [snake_case](https://en.wikipedia.org/wiki/Snake_case) in accordance with [libcudf convention](https://github.com/rapidsai/cudf/blob/main/cpp/doxygen/developer_guide/DEVELOPER_GUIDE.md#code-and-documentation-style-and-formatting). The main exception is in query compiler code, where [camelCase](https://en.wikipedia.org/wiki/Camel_case) is desirable for readability particularly when mixing with MLIR library code and/or using TableGen. See [LLVM Coding Standards](https://llvm.org/docs/CodingStandards.html#name-types-functions-variables-and-enumerators-properly) for more details.
 
-### Code formatting
-GQE uses clang-format with the same formatting style as used by libcudf. clang-format will be checked but not automatically applied by the CI. Developers are expected to apply clang-format locally before the MRs can be accepted. For any modified source file, one can run the following to apply formatting:
+### Pre-commit Hooks
+
+This project uses [pre-commit](https://pre-commit.com/) to enforce code style. The hooks include:
+- **clang-format** for C++/CUDA formatting
+- **cmake-format** for CMake formatting
+
+#### Setup
+
+Install the pre-commit hooks (one-time setup):
+
 ```bash
-clang-format -i <source-file>
+pre-commit install
 ```
-For convenience, it is recommended to configure your text editor to automatically apply clang-format on save. For example, vscode has a [plugin](https://marketplace.visualstudio.com/items?itemName=xaver.clang-format) to apply clang-format automatically.
+
+Note: `pre-commit` is included in the conda environment.
+
+To avoid warnings from the copyright check hook, set the target branch:
+
+```bash
+git config rapidsai.baseBranch main
+```
+
+#### Usage
+
+The hooks will run automatically on `git commit`. To run manually on all files:
+
+```bash
+pre-commit run --all-files
+```
+
+To run a specific hook:
+
+```bash
+pre-commit run clang-format --all-files
+pre-commit run cmake-format --all-files
+```
 
 ## Signing Your Work
 

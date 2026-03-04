@@ -13,7 +13,6 @@ compile_commands.json
 /rust/target/
 /rust/producer/target/
 /rust/output/
-Cargo.lock
 
 # Emacs directory configuration
 .dir-locals.el

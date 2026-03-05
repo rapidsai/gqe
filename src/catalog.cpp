@@ -130,6 +130,13 @@ void catalog::register_table(std::string const& table_name,
           column_names,
           column_types,
           _task_manager_context);
+      },
+      [&](storage_kind::shared_numa_pool_memory memory) -> std::unique_ptr<storage::table> {
+        return std::make_unique<storage::in_memory_table>(
+          memory_kind::shared_numa_pool{memory.numa_node_id},
+          column_names,
+          column_types,
+          _task_manager_context);
       }},
     storage);
 

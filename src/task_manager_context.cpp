@@ -25,6 +25,7 @@
 #include <gqe/memory_resource/numa_pool_memory_resource.hpp>
 #include <gqe/memory_resource/pgas_memory_resource.hpp>
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
+#include <gqe/memory_resource/shared_numa_pool_memory_resource.hpp>
 #include <gqe/memory_resource/system_memory_resource.hpp>
 #include <gqe/rpc/task_migration.hpp>
 #include <gqe/types.hpp>
@@ -163,6 +164,17 @@ rmm::mr::device_memory_resource* task_manager_context::create_table_memory_resou
         // Use the same default-cap policy as other NUMA-backed task manager resources.
         return std::make_unique<memory_resource::numa_pool_memory_resource>(
           numa_pool.numa_node_id, initial_pool_bytes, std::make_optional(max_pool_bytes_set));
+      },
+      [initial_pool_bytes,
+       resolve_max_pool_bytes](const memory_kind::shared_numa_pool& shared_numa_pool)
+        -> std::unique_ptr<rmm::mr::device_memory_resource> {
+        std::size_t max_pool_bytes_set =
+          resolve_max_pool_bytes(cpu_set{shared_numa_pool.numa_node_id});
+        GQE_LOG_DEBUG("Creating shared_numa_pool memory resource");
+        return std::make_unique<memory_resource::shared_numa_pool_resource>(
+          shared_numa_pool.numa_node_id,
+          initial_pool_bytes,
+          std::make_optional(max_pool_bytes_set));
       }},
     kind);
 

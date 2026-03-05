@@ -19,6 +19,7 @@
 #include <gqe/memory_resource/numa_memory_resource.hpp>
 #include <gqe/memory_resource/numa_pool_memory_resource.hpp>
 #include <gqe/memory_resource/pinned_memory_resource.hpp>
+#include <gqe/memory_resource/shared_numa_pool_memory_resource.hpp>
 #include <gqe/memory_resource/system_memory_resource.hpp>
 #include <gqe/utility/error.hpp>
 
@@ -63,7 +64,8 @@ using MemoryResourceTypes = ::testing::Types<gqe::memory_resource::numa_memory_r
                                              gqe::memory_resource::system_memory_resource,
                                              gqe::memory_resource::pinned_memory_resource,
                                              gqe::memory_resource::boost_shared_memory_resource,
-                                             gqe::memory_resource::numa_pool_memory_resource>;
+                                             gqe::memory_resource::numa_pool_memory_resource,
+                                             gqe::memory_resource::shared_numa_pool_resource>;
 TYPED_TEST_SUITE(MemoryResourceTest, MemoryResourceTypes);
 
 TYPED_TEST(MemoryResourceTest, AllocateZero)
@@ -118,3 +120,39 @@ TYPED_TEST(MemoryResourceTest, AllocateMultipleOfPageize)
   EXPECT_TRUE(rmm::is_pointer_aligned(ptr));
   EXPECT_NO_THROW(this->mr->deallocate(ptr, allocation_size));
 }
+
+#if defined(GQE_ENABLE_FABRIC_SHARED_POOL_TESTS)
+TEST(SharedNumaPoolResourceTest, ExportedPool)
+{
+  gqe::memory_resource::shared_numa_pool_resource mr;
+  std::ignore = mr.export_pool();
+
+  void* ptr = mr.allocate(1024);
+  ASSERT_NE(nullptr, ptr);
+
+  EXPECT_NO_THROW(mr.deallocate(ptr, 1024));
+  EXPECT_NO_THROW(mr.finalize());
+}
+
+TEST(SharedNumaPoolResourceTest, ImportedPool)
+{
+  gqe::memory_resource::shared_numa_pool_resource owner;
+
+  auto handle = owner.export_pool();
+
+  void* owner_ptr = owner.allocate(1024);
+  ASSERT_NE(nullptr, owner_ptr);
+
+  auto export_data = owner.export_pointer(owner_ptr);
+
+  auto imported     = gqe::memory_resource::shared_numa_pool_resource::import_pool(handle);
+  auto imported_ptr = imported.import_pointer(export_data);
+  ASSERT_NE(nullptr, imported_ptr.get());
+  imported_ptr.reset();
+
+  EXPECT_NO_THROW(owner.deallocate(owner_ptr, 1024));
+  EXPECT_NO_THROW(owner.finalize());
+}
+#else
+// TODO: Remove this compile-time guard once POSIX file-handle support is added.
+#endif

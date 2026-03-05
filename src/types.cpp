@@ -264,6 +264,9 @@ bool memory_kind::is_gpu_accessible(memory_kind::type type)
       },
       [&](memory_kind::numa_pool) -> bool {
         return device_properties::instance().get<device_properties::property::unifiedAddressing>();
+      },
+      [&](memory_kind::shared_numa_pool) -> bool {
+        return device_properties::instance().get<device_properties::property::unifiedAddressing>();
       }},
     type);
 }
@@ -278,6 +281,7 @@ bool memory_kind::is_cpu_accessible(memory_kind::type type)
                       [&](memory_kind::managed) { return true; },
                       [&](memory_kind::boost_shared) { return true; },
                       [&](memory_kind::numa_pool) { return true; },
+                      [&](memory_kind::shared_numa_pool) { return true; },
                       [&](memory_kind::device) { return false; },
                     },
                     type);
@@ -340,29 +344,42 @@ bool memory_kind::numa_pool::operator==(numa_pool const& other) const
   return numa_node_id == other.numa_node_id;
 }
 
+memory_kind::shared_numa_pool::shared_numa_pool(int numa_node_id) : numa_node_id(numa_node_id) {}
+
+memory_kind::shared_numa_pool::shared_numa_pool()
+  : numa_node_id(device_properties::instance().get<device_properties::hostNumaId>())
+{
+}
+
+bool memory_kind::shared_numa_pool::operator==(shared_numa_pool const& other) const
+{
+  return numa_node_id == other.numa_node_id;
+}
+
 std::size_t memory_kind::type_hash::operator()(memory_kind::type const& type) const
 {
   std::size_t h = boost::hash_value(type.index());
-  std::visit(
-    utility::overloaded{[](system const&) {},
-                        [&h](numa const& n) {
-                          boost::hash_combine(h, static_cast<int>(n.page_kind));
-                          for (int i = 0; i < cpu_set::max_count; ++i) {
-                            if (n.numa_node_set.contains(i)) { boost::hash_combine(h, i); }
-                          }
-                        },
-                        [](pinned const&) {},
-                        [&h](numa_pinned const& n) {
-                          boost::hash_combine(h, static_cast<int>(n.page_kind));
-                          for (int i = 0; i < cpu_set::max_count; ++i) {
-                            if (n.numa_node_set.contains(i)) { boost::hash_combine(h, i); }
-                          }
-                        },
-                        [&h](device const& d) { boost::hash_combine(h, d.device_id.value()); },
-                        [](managed const&) {},
-                        [](boost_shared const&) {},
-                        [&h](numa_pool const& n) { boost::hash_combine(h, n.numa_node_id); }},
-    type);
+  std::visit(utility::overloaded{
+               [](system const&) {},
+               [&h](numa const& n) {
+                 boost::hash_combine(h, static_cast<int>(n.page_kind));
+                 for (int i = 0; i < cpu_set::max_count; ++i) {
+                   if (n.numa_node_set.contains(i)) { boost::hash_combine(h, i); }
+                 }
+               },
+               [](pinned const&) {},
+               [&h](numa_pinned const& n) {
+                 boost::hash_combine(h, static_cast<int>(n.page_kind));
+                 for (int i = 0; i < cpu_set::max_count; ++i) {
+                   if (n.numa_node_set.contains(i)) { boost::hash_combine(h, i); }
+                 }
+               },
+               [&h](device const& d) { boost::hash_combine(h, d.device_id.value()); },
+               [](managed const&) {},
+               [](boost_shared const&) {},
+               [&h](numa_pool const& n) { boost::hash_combine(h, n.numa_node_id); },
+               [&h](shared_numa_pool const& n) { boost::hash_combine(h, n.numa_node_id); }},
+             type);
   return h;
 }
 

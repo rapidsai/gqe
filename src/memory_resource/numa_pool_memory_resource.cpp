@@ -28,9 +28,10 @@
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 
+#include <algorithm>
 #include <exception>
 #include <memory>
-#include <string>
+#include <utility>
 
 namespace {
 
@@ -119,11 +120,51 @@ namespace gqe {
 
 namespace memory_resource {
 
+struct remote_numa_pool_handle_impl {
+  explicit remote_numa_pool_handle_impl(CUmemFabricHandle handle) : _handle(handle) {}
+
+  [[nodiscard]] CUmemFabricHandle handle() const noexcept { return _handle; }
+
+ private:
+  CUmemFabricHandle _handle{};
+};
+
+struct remote_pool_pointer_impl {
+  explicit remote_pool_pointer_impl(cudaMemPoolPtrExportData handle) : _handle(handle) {}
+
+  [[nodiscard]] cudaMemPoolPtrExportData handle() const noexcept { return _handle; }
+
+ private:
+  cudaMemPoolPtrExportData _handle{};
+};
+
+remote_numa_pool_handle::remote_numa_pool_handle(std::unique_ptr<remote_numa_pool_handle_impl> impl)
+  : _impl(std::move(impl))
+{
+}
+
+remote_numa_pool_handle::~remote_numa_pool_handle() = default;
+
+remote_numa_pool_handle::remote_numa_pool_handle(remote_numa_pool_handle&&) noexcept = default;
+
+remote_numa_pool_handle& remote_numa_pool_handle::operator=(remote_numa_pool_handle&&) noexcept =
+  default;
+
+remote_pool_pointer::remote_pool_pointer(std::unique_ptr<remote_pool_pointer_impl> impl)
+  : _impl(std::move(impl))
+{
+}
+
+remote_pool_pointer::~remote_pool_pointer() = default;
+
+remote_pool_pointer::remote_pool_pointer(remote_pool_pointer&&) noexcept = default;
+
+remote_pool_pointer& remote_pool_pointer::operator=(remote_pool_pointer&&) noexcept = default;
+
 /**
  * @brief Implementation class for numa_pool_handle.
  */
-class numa_pool_handle_impl {
- public:
+struct numa_pool_handle_impl {
   explicit numa_pool_handle_impl(int numa_node, std::size_t initial_size, std::size_t max_size)
     : _pool(create_numa_pool(numa_node, initial_size, max_size)),
       _mr(std::make_unique<rmm::mr::cuda_async_view_memory_resource>(_pool))
@@ -156,7 +197,7 @@ class numa_pool_handle_impl {
 
   [[nodiscard]] cudaMemPool_t pool() const noexcept { return _pool; }
 
-  [[nodiscard]] rmm::mr::cuda_async_view_memory_resource& mr() noexcept { return *_mr; }
+  [[nodiscard]] rmm::mr::cuda_async_view_memory_resource& mr() { return *_mr; }
 
  private:
   cudaMemPool_t _pool{nullptr};
@@ -164,14 +205,101 @@ class numa_pool_handle_impl {
   std::unique_ptr<rmm::mr::cuda_async_view_memory_resource> _mr;
 };
 
+/**
+ * @brief Implementation class for imported_numa_pool_handle.
+ */
+struct imported_numa_pool_handle_impl {
+  explicit imported_numa_pool_handle_impl(cudaMemPool_t imported_pool) : _pool(imported_pool) {}
+
+  ~imported_numa_pool_handle_impl()
+  {
+    if (_pool != nullptr) {
+      // We call terminate() here since exceptions cannot be thrown in a destructor.
+      if (auto status = cudaMemPoolDestroy(_pool); status != cudaSuccess) {
+        GQE_LOG_ERROR("cudaMemPoolDestroy failed with: {}", cudaGetErrorString(status));
+        std::terminate();
+      }
+    }
+  }
+
+  imported_numa_pool_handle_impl(imported_numa_pool_handle_impl const&)            = delete;
+  imported_numa_pool_handle_impl& operator=(imported_numa_pool_handle_impl const&) = delete;
+  imported_numa_pool_handle_impl(imported_numa_pool_handle_impl&&)                 = delete;
+  imported_numa_pool_handle_impl& operator=(imported_numa_pool_handle_impl&&)      = delete;
+
+  [[nodiscard]] cudaMemPool_t pool() const noexcept { return _pool; }
+
+ private:
+  cudaMemPool_t _pool{nullptr};
+};
+
 // numa_pool_handle implementation
 numa_pool_handle::numa_pool_handle() = default;
+
+numa_pool_handle::numa_pool_handle(std::unique_ptr<numa_pool_handle_impl> impl)
+  : _impl(std::move(impl))
+{
+}
 
 numa_pool_handle::~numa_pool_handle() = default;
 
 numa_pool_handle::numa_pool_handle(numa_pool_handle&&) noexcept = default;
 
 numa_pool_handle& numa_pool_handle::operator=(numa_pool_handle&&) noexcept = default;
+
+remote_numa_pool_handle numa_pool_handle::export_pool() const
+{
+  GQE_EXPECTS(_impl != nullptr, "Attempted to export an invalid numa_pool_handle");
+
+  CUmemFabricHandle remote_handle{};
+  GQE_CUDA_TRY(
+    cudaMemPoolExportToShareableHandle(&remote_handle, _impl->pool(), cudaMemHandleTypeFabric, 0));
+  return remote_numa_pool_handle(std::make_unique<remote_numa_pool_handle_impl>(remote_handle));
+}
+
+remote_pool_pointer numa_pool_handle::export_pointer(void* ptr) const
+{
+  GQE_EXPECTS(_impl != nullptr, "Attempted to export pointer from an invalid numa_pool_handle");
+  GQE_EXPECTS(ptr != nullptr, "Cannot export a nullptr");
+
+  cudaMemPoolPtrExportData export_data{};
+  GQE_CUDA_TRY(cudaMemPoolExportPointer(&export_data, ptr));
+  return remote_pool_pointer(std::make_unique<remote_pool_pointer_impl>(export_data));
+}
+
+// imported_numa_pool_handle implementation
+imported_numa_pool_handle::imported_numa_pool_handle(remote_numa_pool_handle const& remote_handle)
+{
+  GQE_EXPECTS(remote_handle._impl != nullptr,
+              "Attempted to import pool from an invalid remote_numa_pool_handle");
+
+  cudaMemPool_t imported_pool{nullptr};
+  auto mutable_handle = remote_handle._impl->handle();
+  GQE_CUDA_TRY(cudaMemPoolImportFromShareableHandle(
+    &imported_pool, &mutable_handle, cudaMemHandleTypeFabric, 0));
+  _impl = std::make_unique<imported_numa_pool_handle_impl>(imported_pool);
+}
+
+imported_numa_pool_handle::~imported_numa_pool_handle() = default;
+
+imported_numa_pool_handle::imported_numa_pool_handle(imported_numa_pool_handle&&) noexcept =
+  default;
+
+imported_numa_pool_handle& imported_numa_pool_handle::operator=(
+  imported_numa_pool_handle&&) noexcept = default;
+
+void* imported_numa_pool_handle::import_pointer(remote_pool_pointer const& remote_pointer) const
+{
+  GQE_EXPECTS(_impl != nullptr,
+              "Attempted to import pointer with an invalid imported_numa_pool_handle");
+  GQE_EXPECTS(remote_pointer._impl != nullptr,
+              "Attempted to import pointer with invalid remote_pool_pointer");
+
+  auto mutable_export_data = remote_pointer._impl->handle();
+  void* imported_ptr       = nullptr;
+  GQE_CUDA_TRY(cudaMemPoolImportPointer(&imported_ptr, _impl->pool(), &mutable_export_data));
+  return imported_ptr;
+}
 
 // numa_pool_memory_resource implementation
 numa_pool_memory_resource::numa_pool_memory_resource(int numa_node,

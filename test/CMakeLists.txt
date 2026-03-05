@@ -197,6 +197,10 @@ target_include_directories(memory_resource
                            PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_link_libraries(memory_resource PUBLIC gqe)
 target_link_libraries(memory_resource PUBLIC GTest::gtest_main GTest::gmock)
+if(GQE_ENABLE_FABRIC_SHARED_POOL_TESTS)
+  target_compile_definitions(memory_resource
+                             PRIVATE GQE_ENABLE_FABRIC_SHARED_POOL_TESTS)
+endif()
 add_test(NAME memory_resource COMMAND memory_resource)
 
 add_executable(parquet_storage integration/parquet_storage.cpp)

@@ -33,6 +33,9 @@
 
 namespace gqe {
 
+/// @brief Generic owning pointer used for non-typed external buffer lifetimes.
+using owning_pointer = std::unique_ptr<void, std::function<void(void*)>>;
+
 /**
  * @brief Enum to specify which engine to use for I/O operations.
  */
@@ -402,6 +405,35 @@ struct numa_pool {
 };
 
 /**
+ * @brief Shared NUMA pool memory.
+ *
+ * The memory resource for shared_numa_pool is managed centrally by
+ * task_manager_context. Use
+ * task_manager_context::get_memory_resource(memory_kind::shared_numa_pool{})
+ * to access it.
+ *
+ * @note Uses shared_numa_pool_resource (cudaMemPool export/import capable).
+ */
+struct shared_numa_pool {
+  // cudaMemPool_t only supports specifying a single NUMA node id. Ref:
+  // https://docs.nvidia.com/cuda/cuda-runtime-api/structcudaMemLocation.html#structcudaMemLocation
+  int numa_node_id; /**< NUMA node id. */
+
+  /**
+   * @brief Construct shared_numa_pool with explicit numa node id.
+   */
+  shared_numa_pool(int numa_node_id);
+
+  /**
+   * @brief Construct shared_numa_pool using the memory affinity of the
+   * current CUDA device.
+   */
+  shared_numa_pool();
+
+  bool operator==(shared_numa_pool const& other) const;
+};
+
+/**
  * @brief Memory kind of an in-memory table.
  */
 using type = std::variant<memory_kind::system,
@@ -411,7 +443,8 @@ using type = std::variant<memory_kind::system,
                           memory_kind::device,
                           memory_kind::managed,
                           memory_kind::boost_shared,
-                          memory_kind::numa_pool>;
+                          memory_kind::numa_pool,
+                          memory_kind::shared_numa_pool>;
 
 /**
  * @brief Return whether the GPU can directly access the memory kind
@@ -475,6 +508,11 @@ using boost_shared_memory = memory_kind::boost_shared;
 using numa_pool_memory = memory_kind::numa_pool;
 
 /**
+ * @copydoc gqe::memory_kind::shared_numa_pool
+ */
+using shared_numa_pool_memory = memory_kind::shared_numa_pool;
+
+/**
  * @brief Parquet file format, optionally Hive partitioned.
  */
 struct parquet_file {
@@ -497,6 +535,7 @@ using type = std::variant<storage_kind::system_memory,
                           storage_kind::numa_pinned_memory,
                           storage_kind::boost_shared_memory,
                           storage_kind::numa_pool_memory,
+                          storage_kind::shared_numa_pool_memory,
                           storage_kind::parquet_file>;
 
 }  // namespace storage_kind

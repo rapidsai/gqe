@@ -342,6 +342,7 @@ int main(int argc, char* argv[])
           throw std::logic_error("Boost shared memory usage not implemented for this benchmark");
         },
         [&](const gqe::storage_kind::numa_pool_memory) { register_and_copy(); },
+        [&](const gqe::storage_kind::shared_numa_pool_memory) { register_and_copy(); },
         [&catalog, name = std::cref(name), definition = std::cref(definition)](
           const gqe::storage_kind::parquet_file& pf) {
           catalog.register_table(name, definition, pf, gqe::partitioning_schema_kind::automatic{});

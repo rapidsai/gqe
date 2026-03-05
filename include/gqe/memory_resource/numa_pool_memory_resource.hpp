@@ -28,10 +28,52 @@ namespace gqe {
 
 namespace memory_resource {
 
-class numa_pool_handle_impl;
+struct remote_numa_pool_handle_impl;
+struct remote_pool_pointer_impl;
+struct numa_pool_handle_impl;
+struct imported_numa_pool_handle_impl;
 
 /**
- * @brief Opaque handle wrapping a CUDA memory pool.
+ * @brief Opaque shareable handle for pool export/import.
+ */
+class remote_numa_pool_handle {
+ public:
+  ~remote_numa_pool_handle();
+
+  remote_numa_pool_handle(remote_numa_pool_handle&&) noexcept;
+  remote_numa_pool_handle& operator=(remote_numa_pool_handle&&) noexcept;
+
+  remote_numa_pool_handle(remote_numa_pool_handle const&)            = delete;
+  remote_numa_pool_handle& operator=(remote_numa_pool_handle const&) = delete;
+
+ private:
+  explicit remote_numa_pool_handle(std::unique_ptr<remote_numa_pool_handle_impl> impl);
+  std::unique_ptr<remote_numa_pool_handle_impl> _impl;
+
+  friend class numa_pool_handle;
+  friend class imported_numa_pool_handle;
+};
+
+/**
+ * @brief Opaque pointer-export data for pool pointer export/import.
+ */
+class remote_pool_pointer {
+ public:
+  ~remote_pool_pointer();
+
+  remote_pool_pointer(remote_pool_pointer&&) noexcept;
+  remote_pool_pointer& operator=(remote_pool_pointer&&) noexcept;
+
+ private:
+  explicit remote_pool_pointer(std::unique_ptr<remote_pool_pointer_impl> impl);
+  std::unique_ptr<remote_pool_pointer_impl> _impl;
+
+  friend class numa_pool_handle;
+  friend class imported_numa_pool_handle;
+};
+
+/**
+ * @brief Owner-side opaque handle wrapping a CUDA memory pool.
  *
  */
 class numa_pool_handle {
@@ -45,10 +87,49 @@ class numa_pool_handle {
   numa_pool_handle(numa_pool_handle const&)            = delete;
   numa_pool_handle& operator=(numa_pool_handle const&) = delete;
 
+  /**
+   * @brief Export this NUMA pool handle as a shareable handle.
+   */
+  [[nodiscard]] remote_numa_pool_handle export_pool() const;
+
+  /**
+   * @brief Export a pointer allocated from this pool.
+   */
+  [[nodiscard]] remote_pool_pointer export_pointer(void* ptr) const;
+
  private:
+  explicit numa_pool_handle(std::unique_ptr<numa_pool_handle_impl> impl);
+
   std::unique_ptr<numa_pool_handle_impl> _impl;
 
   friend class numa_pool_memory_resource;
+};
+
+/**
+ * @brief Importer-side opaque handle for pointer-import operations.
+ */
+class imported_numa_pool_handle {
+ public:
+  /**
+   * @brief Import a NUMA pool handle from a shareable handle.
+   */
+  explicit imported_numa_pool_handle(remote_numa_pool_handle const& remote_handle);
+
+  ~imported_numa_pool_handle();
+
+  imported_numa_pool_handle(imported_numa_pool_handle&&) noexcept;
+  imported_numa_pool_handle& operator=(imported_numa_pool_handle&&) noexcept;
+
+  imported_numa_pool_handle(imported_numa_pool_handle const&)            = delete;
+  imported_numa_pool_handle& operator=(imported_numa_pool_handle const&) = delete;
+
+  /**
+   * @brief Import a pointer from another process into this pool.
+   */
+  [[nodiscard]] void* import_pointer(remote_pool_pointer const& remote_pointer) const;
+
+ private:
+  std::unique_ptr<imported_numa_pool_handle_impl> _impl;
 };
 
 /**

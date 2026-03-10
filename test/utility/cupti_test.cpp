@@ -15,9 +15,11 @@
  * limitations under the License.
  */
 
-#include <gqe/utility/cupti.hpp>
-
 #include "../utility.hpp"
+
+#include <gqe/utility/cuda.hpp>
+#include <gqe/utility/cupti_activity.hpp>
+#include <gqe/utility/cupti_range.hpp>
 
 #include <gtest/gtest.h>
 
@@ -29,6 +31,9 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 
+#include <cuda_runtime.h>
+
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -36,9 +41,17 @@
 #include <string>
 #include <vector>
 
-class UserRangeProfilerTest : public ::testing::Test {
+// ── Shared base fixture ────────────────────────────────────────────────────────
+
+/**
+ * @brief Base fixture shared by UserRangeProfilerTest and ActivityProfilerTest.
+ *
+ * Provides a small GPU dataset, a stream, a memory resource, and two GPU
+ * workload helpers so that individual fixtures do not repeat setup logic.
+ */
+class CuptiTestBase : public ::testing::Test {
  public:
-  UserRangeProfilerTest() : stream(cudf::get_default_stream()) {}
+  CuptiTestBase() : stream(cudf::get_default_stream()) {}
 
   void SetUp() override
   {
@@ -64,11 +77,30 @@ class UserRangeProfilerTest : public ::testing::Test {
     stream.synchronize();
   }
 
-  static constexpr auto metric = "sm__inst_executed.sum";
+  /**
+   * @brief Performs a small host-to-device memcpy to produce observable memory
+   * transfer activity for profiling.
+   */
+  void run_memcpy()
+  {
+    constexpr size_t num_bytes = 1024;
+    std::vector<uint8_t> host_buf(num_bytes, 0);
+    void* device_buf = nullptr;
+    cudaMalloc(&device_buf, num_bytes);
+    cudaMemcpy(device_buf, host_buf.data(), num_bytes, cudaMemcpyHostToDevice);
+    cudaFree(device_buf);
+  }
 
   rmm::mr::cuda_memory_resource mr;
   rmm::cuda_stream_view stream;
   std::unique_ptr<cudf::column> data;
+};
+
+// ── UserRangeProfilerTest ─────────────────────────────────────────────────────
+
+class UserRangeProfilerTest : public CuptiTestBase {
+ public:
+  static constexpr auto metric = "sm__inst_executed.sum";
 };
 
 /**
@@ -199,4 +231,168 @@ TEST_F(UserRangeProfilerTest, ExceptionRecovery)
 
   EXPECT_TRUE(profile.metric_values.contains(metric));
   EXPECT_GT(profile.metric_values[metric], 0);
+}
+
+// ── ActivityProfilerTest ───────────────────────────────────────────────────────
+
+class ActivityProfilerTest : public CuptiTestBase {};
+
+/**
+ * @brief A kernel launched between start() and stop() produces at least one kernel record.
+ */
+TEST_F(ActivityProfilerTest, KernelCaptured)
+{
+  gqe::utility::activity_profiler profiler({CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL});
+
+  profiler.start();
+  run_cuda_fn();
+  auto records = profiler.stop();
+
+  EXPECT_FALSE(records.kernels.empty());
+  for (auto const& k : records.kernels) {
+    EXPECT_FALSE(k.name.empty());
+    EXPECT_GT(k.interval.end_time, k.interval.start_time);
+  }
+
+  auto time_breakdown = gqe::utility::activity_profiler::get_time_breakdown(records);
+  EXPECT_GT(time_breakdown.compute_kernel_s, 0);
+  EXPECT_EQ(time_breakdown.io_kernel_s, 0);
+  EXPECT_EQ(time_breakdown.memcpy_s, 0);
+  EXPECT_EQ(time_breakdown.mem_decompress_s, 0);
+  EXPECT_EQ(time_breakdown.merged_io_activity_s, 0);
+}
+
+/**
+ * @brief Records only contain events from within the start()/stop() window.
+ *
+ * start() flushes and discards any pre-existing buffered records, so a kernel
+ * run before start() must not appear in stop() return value.
+ */
+TEST_F(ActivityProfilerTest, WindowIsolation)
+{
+  gqe::utility::activity_profiler profiler({CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL});
+
+  run_cuda_fn();  // before start() — flushed and discarded by start()
+
+  profiler.start();
+  auto records = profiler.stop();
+
+  EXPECT_TRUE(records.kernels.empty());
+  EXPECT_TRUE(records.memcopies.empty());
+  EXPECT_TRUE(records.markers.empty());
+  EXPECT_TRUE(records.mem_decompress.empty());
+}
+
+/**
+ * @brief The profiler can be reused across multiple start()/stop() cycles.
+ */
+TEST_F(ActivityProfilerTest, MultiUse)
+{
+  constexpr int32_t runs = 3;
+
+  gqe::utility::activity_profiler profiler({CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL});
+
+  for (int32_t run = 0; run < runs; ++run) {
+    profiler.start();
+    run_cuda_fn();
+    auto records = profiler.stop();
+
+    EXPECT_FALSE(records.kernels.empty()) << "Failed on run " << run;
+  }
+}
+
+/**
+ * @brief An NVTX scoped range pushed inside the window appears as an nvtx_event
+ * with the correct name and valid start/end timestamps.
+ */
+TEST_F(ActivityProfilerTest, NvtxMarkerCaptured)
+{
+  constexpr auto range_name = "test_nvtx_range";
+
+  gqe::utility::activity_profiler profiler(
+    {CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL, CUPTI_ACTIVITY_KIND_MARKER});
+
+  profiler.start();
+  {
+    gqe::utility::nvtx_scoped_range range(range_name);
+    run_cuda_fn();
+  }  // nvtxRangePop fires here
+  auto records = profiler.stop();
+
+  auto it = std::find_if(
+    records.markers.begin(), records.markers.end(), [](gqe::utility::nvtx_event const& e) {
+      return e.name.find(range_name) != std::string::npos;
+    });
+
+  EXPECT_NE(it, records.markers.end()) << "Expected nvtx_event named '" << range_name << "'";
+  if (it != records.markers.end()) { EXPECT_GE(it->interval.end_time, it->interval.start_time); }
+}
+
+/**
+ * @brief A host-to-device memcpy inside the window produces at least one memcpy record
+ * with valid timestamps.
+ */
+TEST_F(ActivityProfilerTest, MemcpyCaptured)
+{
+  gqe::utility::activity_profiler profiler({CUPTI_ACTIVITY_KIND_MEMCPY});
+
+  profiler.start();
+  run_memcpy();
+  auto records = profiler.stop();
+
+  EXPECT_FALSE(records.memcopies.empty());
+  for (auto const& m : records.memcopies) {
+    EXPECT_GT(m.interval.end_time, m.interval.start_time);
+  }
+
+  auto time_breakdown = gqe::utility::activity_profiler::get_time_breakdown(records);
+  EXPECT_EQ(time_breakdown.compute_kernel_s, 0);
+  EXPECT_EQ(time_breakdown.io_kernel_s, 0);
+  EXPECT_GT(time_breakdown.memcpy_s, 0);
+  EXPECT_EQ(time_breakdown.mem_decompress_s, 0);
+  EXPECT_GT(time_breakdown.merged_io_activity_s, 0);
+}
+
+/**
+ * @brief An exception thrown inside a start()/stop() bracket does not corrupt
+ * subsequent uses via a freshly-constructed profiler.
+ *
+ * The destructor calls void stop(), which flushes CUPTI and clears
+ * g_active_profiler, so the next construction succeeds.
+ */
+TEST_F(ActivityProfilerTest, ExceptionRecovery)
+{
+  bool exception_was_caught = false;
+
+  try {
+    gqe::utility::activity_profiler profiler({CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL});
+    profiler.start();
+    throw std::runtime_error("Simulated exception.");
+    auto records = profiler.stop();
+  } catch (std::runtime_error const&) {
+    exception_was_caught = true;
+  }
+
+  EXPECT_TRUE(exception_was_caught);
+
+  // A new profiler constructed after the failed one must work correctly.
+  gqe::utility::activity_profiler profiler({CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL});
+  profiler.start();
+  run_cuda_fn();
+  auto records = profiler.stop();
+
+  EXPECT_FALSE(records.kernels.empty());
+}
+
+/**
+ * @brief Constructing a second activity_profiler while one already exists throws a logic error,
+ * because the CUPTI Activity API uses process-global buffer callbacks.
+ */
+TEST_F(ActivityProfilerTest, SingleInstanceEnforced)
+{
+  gqe::utility::activity_profiler first({CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL});
+
+  EXPECT_THROW(
+    { gqe::utility::activity_profiler second({CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL}); },
+    std::logic_error);
 }

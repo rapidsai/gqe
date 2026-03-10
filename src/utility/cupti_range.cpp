@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-#include <gqe/utility/cupti.hpp>
+#include <gqe/utility/cupti_range.hpp>
 
+#include <gqe/utility/cupti_common.hpp>
 #include <gqe/utility/error.hpp>
 
 #include <cuda.h>
@@ -37,21 +38,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#define GQE_CUPTI_TRY(api_function_call)                                                          \
-  do {                                                                                            \
-    CUptiResult status = api_function_call;                                                       \
-    if (status != CUPTI_SUCCESS) {                                                                \
-      const char* error_string;                                                                   \
-      cuptiGetResultString(status, &error_string);                                                \
-                                                                                                  \
-      auto error_message = std::string("CUPTI error: ") + __FILE__ + ":" +                        \
-                           std::to_string(__LINE__) + ": Function " + #api_function_call +        \
-                           " failed with error(" + std::to_string(status) + "): " + error_string; \
-                                                                                                  \
-      throw gqe::cuda_error{error_message};                                                       \
-    }                                                                                             \
-  } while (0)
 
 // Redefine CUPTI_API_CALL to throw a GQE exception instead of exiting the program on error.
 //

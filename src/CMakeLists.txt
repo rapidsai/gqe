@@ -123,7 +123,8 @@ add_library(
   storage/parquet_reader.cpp
   storage/parquet_reader.cu
   utility/cuda.cpp
-  utility/cupti.cpp
+  utility/cupti_range.cpp
+  utility/cupti_activity.cpp
   utility/hashing.cpp
   utility/linux.cpp
   utility/timer.cpp

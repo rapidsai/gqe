@@ -44,6 +44,8 @@ tpch_queries:
     - hostname
     - nvidia-smi
     - export CCACHE_DIR=/ccache_files
+    # Enable NVTX injection for CUPTI activity profiling. This is required to capture the nvtx markers.
+    - export NVTX_INJECTION64_PATH=/conda/envs/gqe/lib/libcupti.so.12
     # For https links, the CI does not have access to the ssh keys, so we need to use deploy tokens.
     # Rather than have multiple deploy tokens for all dependencies, we use a single token for all dependencies, which is stored in the Variables section here: https://gitlab-master.nvidia.com/haog/gqe-python/-/settings/ci_cd.
     # Currently, the deploy token and username belongs to Yadu Kiran (ykiran)

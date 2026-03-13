@@ -26,7 +26,9 @@
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/aggregation/aggregation.hpp>
 
+#include <cstdint>
 #include <optional>
+#include <type_traits>
 
 namespace libperfect {
 
@@ -56,8 +58,19 @@ template <int thread_count,
           typename row_mask_type,
           typename output_map_type,
           typename output_type>
-//__launch_bounds__(maxThreadsPerBlock, minBlocksPerMultiprocessor)
-//__launch_bounds__(THREADS_PER_BLOCK, 1)
+// Scatter inputs in batches; each thread accumulates per-index partials in
+// private shared memory, then reduces to a block aggregate and atomically
+// combines into global output.
+//
+//   values/indices
+//        |
+//   [batch loads]
+//        |
+//   thread-private __shared__ (sum[idx][thread])
+//        |
+//   block reduction -> block_sum[idx]
+//        |
+//   atomic to global output[idx]
 __global__ void scatter_private_shmem_aggregate_kernel(const value_type values,
                                                        const index_type indices,
                                                        const row_mask_type row_mask,
@@ -69,13 +82,15 @@ __global__ void scatter_private_shmem_aggregate_kernel(const value_type values,
   constexpr auto threads_per_block = thread_count;
   auto block_index                 = blockIdx.x;
   auto thread_in_block_index       = threadIdx.x;
-  auto thread_in_grid_index        = threads_per_block * block_index + thread_in_block_index;
+  // auto threads_in_grid             = threads_per_block * block_count;
+  constexpr int MASK_VECTOR_WIDTH  = 16;
+  constexpr int ELEMENTS_PER_BATCH = threads_per_block * MASK_VECTOR_WIDTH;
 
   // Zero all storage.
   __shared__
-    typename std::pointer_traits<output_type>::element_type sum[thread_count][scatter_size];
+    typename std::pointer_traits<output_type>::element_type sum[scatter_size][thread_count];
   for (size_t i = 0; i < scatter_size; i++) {
-    sum[thread_in_block_index][i] =
+    sum[i][thread_in_block_index] =
       get_identity<aggregation_kind, typename std::pointer_traits<output_type>::element_type>();
   }
   __shared__ typename std::pointer_traits<output_type>::element_type block_sum[scatter_size];
@@ -85,26 +100,106 @@ __global__ void scatter_private_shmem_aggregate_kernel(const value_type values,
   }
   __syncthreads();
 
-  // Do private_shmem sums.
-  for (size_t i = thread_in_grid_index; i < length; i += threads_per_block * block_count) {
-    if constexpr (has_row_mask) {
-      if (!row_mask[i]) { continue; }
-    }
-    auto index_to_write = indices[i];
+  auto aggregate_value = [&](auto index_to_write,
+                             typename std::pointer_traits<value_type>::element_type value) {
     if constexpr (has_output_map) { index_to_write = output_map[index_to_write]; }
     if constexpr (aggregation_kind == cudf::aggregation::SUM) {
-      sum[thread_in_block_index][index_to_write] += values[i];
+      sum[index_to_write][thread_in_block_index] += value;
     } else if constexpr (aggregation_kind == cudf::aggregation::MIN) {
-      sum[thread_in_block_index][index_to_write] =
-        min(sum[thread_in_block_index][index_to_write],
-            static_cast<typename std::pointer_traits<output_type>::element_type>(values[i]));
+      sum[index_to_write][thread_in_block_index] =
+        min(sum[index_to_write][thread_in_block_index],
+            static_cast<typename std::pointer_traits<output_type>::element_type>(value));
     } else if constexpr (aggregation_kind == cudf::aggregation::PRODUCT) {
-      sum[thread_in_block_index][index_to_write] *= values[i];
+      sum[index_to_write][thread_in_block_index] *= value;
     } else if constexpr (aggregation_kind == cudf::aggregation::COUNT_VALID ||
                          aggregation_kind == cudf::aggregation::COUNT_ALL) {
-      sum[thread_in_block_index][index_to_write]++;
+      sum[index_to_write][thread_in_block_index]++;
     } else {
       static_assert(aggregation_kind < 0);  // Support the other aggregation types.
+    }
+  };
+
+  size_t total_batches =
+    (static_cast<size_t>(length) + ELEMENTS_PER_BATCH - 1) / ELEMENTS_PER_BATCH;
+  size_t batches_per_block = total_batches / block_count;
+  size_t remaining_batches = total_batches - batches_per_block * block_count;
+  size_t batches           = batches_per_block;
+  size_t block_start       = 0;
+  if (block_index < remaining_batches) {
+    batches += 1;
+    block_start = block_index * batches * ELEMENTS_PER_BATCH;
+  } else {
+    block_start =
+      (remaining_batches * (batches + 1) + (block_index - remaining_batches) * batches) *
+      ELEMENTS_PER_BATCH;
+  }
+
+  if constexpr (has_row_mask) {
+    __shared__ unsigned char row_mask_shared[ELEMENTS_PER_BATCH];
+    auto row_mask_ptr  = row_mask.data();
+    auto row_mask_addr = reinterpret_cast<uintptr_t>(row_mask_ptr);
+    bool aligned_mask  = (row_mask_addr & (MASK_VECTOR_WIDTH - 1)) == 0;
+    auto row_mask_vec  = reinterpret_cast<const float4*>(row_mask_ptr);
+    for (size_t batch_index = 0; batch_index < batches; ++batch_index) {
+      size_t batch_start = block_start + batch_index * ELEMENTS_PER_BATCH;
+      if (batch_start >= static_cast<size_t>(length)) { break; }
+      bool full_batch = batch_start + ELEMENTS_PER_BATCH <= static_cast<size_t>(length);
+      using value_element_type =
+        std::remove_const_t<typename std::pointer_traits<value_type>::element_type>;
+      using index_element_type =
+        std::remove_const_t<typename std::pointer_traits<index_type>::element_type>;
+      value_element_type val[MASK_VECTOR_WIDTH];
+      index_element_type idx[MASK_VECTOR_WIDTH];
+      for (int lane = 0; lane < MASK_VECTOR_WIDTH; ++lane) {
+        size_t row_index = batch_start + thread_in_block_index + lane * threads_per_block;
+        if (row_index < static_cast<size_t>(length)) {
+          val[lane] = values[row_index];
+          idx[lane] = indices[row_index];
+        }
+      }
+      if (aligned_mask && full_batch) {
+        reinterpret_cast<float4*>(row_mask_shared)[thread_in_block_index] =
+          row_mask_vec[batch_start / MASK_VECTOR_WIDTH + thread_in_block_index];
+      } else {
+        for (int lane = 0; lane < MASK_VECTOR_WIDTH; ++lane) {
+          size_t mask_index = batch_start + thread_in_block_index + lane * threads_per_block;
+          row_mask_shared[thread_in_block_index + lane * threads_per_block] =
+            mask_index < static_cast<size_t>(length) ? row_mask_ptr[mask_index] : 0;
+        }
+      }
+      __syncthreads();
+
+      for (int lane = 0; lane < MASK_VECTOR_WIDTH; ++lane) {
+        size_t row_index = batch_start + thread_in_block_index + lane * threads_per_block;
+        if (row_index >= static_cast<size_t>(length)) { continue; }
+        auto mask_offset = thread_in_block_index + lane * threads_per_block;
+        if (!row_mask_shared[mask_offset]) { continue; }
+        aggregate_value(idx[lane], val[lane]);
+      }
+      __syncthreads();
+    }
+  } else {
+    for (size_t batch_index = 0; batch_index < batches; ++batch_index) {
+      size_t batch_start = block_start + batch_index * ELEMENTS_PER_BATCH;
+      if (batch_start >= static_cast<size_t>(length)) { break; }
+      using value_element_type =
+        std::remove_const_t<typename std::pointer_traits<value_type>::element_type>;
+      using index_element_type =
+        std::remove_const_t<typename std::pointer_traits<index_type>::element_type>;
+      value_element_type val[MASK_VECTOR_WIDTH];
+      index_element_type idx[MASK_VECTOR_WIDTH];
+      for (int lane = 0; lane < MASK_VECTOR_WIDTH; ++lane) {
+        size_t row_index = batch_start + thread_in_block_index + lane * threads_per_block;
+        if (row_index < static_cast<size_t>(length)) {
+          val[lane] = values[row_index];
+          idx[lane] = indices[row_index];
+        }
+      }
+      for (int lane = 0; lane < MASK_VECTOR_WIDTH; ++lane) {
+        size_t row_index = batch_start + thread_in_block_index + lane * threads_per_block;
+        if (row_index >= static_cast<size_t>(length)) { continue; }
+        aggregate_value(idx[lane], val[lane]);
+      }
     }
   }
 
@@ -113,18 +208,18 @@ __global__ void scatter_private_shmem_aggregate_kernel(const value_type values,
     if constexpr (aggregation_kind == cudf::aggregation::SUM ||
                   aggregation_kind == cudf::aggregation::COUNT_VALID ||
                   aggregation_kind == cudf::aggregation::COUNT_ALL) {
-      atomicAdd(&block_sum[i], sum[thread_in_block_index][i]);
+      atomicAdd(&block_sum[i], sum[i][thread_in_block_index]);
     } else if constexpr (aggregation_kind == cudf::aggregation::MIN) {
       if constexpr (std::is_same_v<typename std::pointer_traits<output_type>::element_type, int> ||
                     std::is_same_v<typename std::pointer_traits<output_type>::element_type,
                                    unsigned>) {
-        auto warp_sum = reduce_min_sync(0xffffffff, sum[thread_in_block_index][i]);
+        auto warp_sum = reduce_min_sync(0xffffffff, sum[i][thread_in_block_index]);
         if (thread_in_block_index % 32 == 0) { atomicMin(&block_sum[i], warp_sum); }
       } else {
-        atomicMin(&block_sum[i], sum[thread_in_block_index][i]);
+        atomicMin(&block_sum[i], sum[i][thread_in_block_index]);
       }
     } else if constexpr (aggregation_kind == cudf::aggregation::PRODUCT) {
-      atomicProduct(&block_sum[i], sum[thread_in_block_index][i]);
+      atomicProduct(&block_sum[i], sum[i][thread_in_block_index]);
     } else {
       static_assert(aggregation_kind < 0);  // Support the other aggregation types.
     }
@@ -296,9 +391,6 @@ CudaGpuArray<output_type> scatter_aggregate_helper(const value_type values,
   // Get SM count using memoized device properties.
   int sm_count =
     gqe::device_properties::instance().get<gqe::device_properties::multiProcessorCount>();
-  constexpr auto BLOCKS_PER_SM = 64;
-
-  auto block_count            = BLOCKS_PER_SM * sm_count;
   constexpr auto thread_count = 64;
   CudaGpuArray<output_type> result(max_index, stream);
   result.fill(get_identity<aggregation_kind, output_type>(), stream);
@@ -308,60 +400,70 @@ CudaGpuArray<output_type> scatter_aggregate_helper(const value_type values,
   if (max_index == 0) {
     // nothing to compute, so return 0 sized result
     return result;
-  } else if (max_index == 1) {
-    scatter_private_shmem_aggregate_kernel<thread_count,
-                                           aggregation_kind,
-                                           1,
-                                           has_row_mask,
-                                           has_output_map>
-      <<<block_count, thread_count, 0, stream.value()>>>(
-        values, indices, row_mask, output_map, length, result.get());
-  } else if (max_index <= 2) {
-    scatter_private_shmem_aggregate_kernel<thread_count,
-                                           aggregation_kind,
-                                           2,
-                                           has_row_mask,
-                                           has_output_map>
-      <<<block_count, thread_count, 0, stream.value()>>>(
-        values, indices, row_mask, output_map, length, result.get());
-  } else if (max_index <= 4) {
-    scatter_private_shmem_aggregate_kernel<thread_count,
-                                           aggregation_kind,
-                                           4,
-                                           has_row_mask,
-                                           has_output_map>
-      <<<block_count, thread_count, 0, stream.value()>>>(
-        values, indices, row_mask, output_map, length, result.get());
-  } else if (max_index <= 8) {
-    scatter_private_shmem_aggregate_kernel<thread_count,
-                                           aggregation_kind,
-                                           8,
-                                           has_row_mask,
-                                           has_output_map>
-      <<<block_count, thread_count, 0, stream.value()>>>(
-        values, indices, row_mask, output_map, length, result.get());
-  } else if (max_index <= 16) {
-    scatter_private_shmem_aggregate_kernel<thread_count,
-                                           aggregation_kind,
-                                           16,
-                                           has_row_mask,
-                                           has_output_map>
-      <<<block_count, thread_count, 0, stream.value()>>>(
-        values, indices, row_mask, output_map, length, result.get());
   } else if (max_index <= 32) {
-    scatter_private_shmem_aggregate_kernel<thread_count,
-                                           aggregation_kind,
-                                           32,
-                                           has_row_mask,
-                                           has_output_map>
-      <<<block_count, thread_count, 0, stream.value()>>>(
-        values, indices, row_mask, output_map, length, result.get());
+    constexpr auto BLOCKS_PER_SM =
+      48;  // scatter_private_shmem_aggregate_kernel needs 80
+           // reg/thread, so we can only have 12 blocks per SM. Launch 48 to make it 4 waves.
+    auto block_count = BLOCKS_PER_SM * sm_count;
+    if (max_index == 1) {
+      scatter_private_shmem_aggregate_kernel<thread_count,
+                                             aggregation_kind,
+                                             1,
+                                             has_row_mask,
+                                             has_output_map>
+        <<<block_count, thread_count, 0, stream.value()>>>(
+          values, indices, row_mask, output_map, length, result.get());
+    } else if (max_index <= 2) {
+      scatter_private_shmem_aggregate_kernel<thread_count,
+                                             aggregation_kind,
+                                             2,
+                                             has_row_mask,
+                                             has_output_map>
+        <<<block_count, thread_count, 0, stream.value()>>>(
+          values, indices, row_mask, output_map, length, result.get());
+    } else if (max_index <= 4) {
+      scatter_private_shmem_aggregate_kernel<thread_count,
+                                             aggregation_kind,
+                                             4,
+                                             has_row_mask,
+                                             has_output_map>
+        <<<block_count, thread_count, 0, stream.value()>>>(
+          values, indices, row_mask, output_map, length, result.get());
+    } else if (max_index <= 8) {
+      scatter_private_shmem_aggregate_kernel<thread_count,
+                                             aggregation_kind,
+                                             8,
+                                             has_row_mask,
+                                             has_output_map>
+        <<<block_count, thread_count, 0, stream.value()>>>(
+          values, indices, row_mask, output_map, length, result.get());
+    } else if (max_index <= 16) {
+      scatter_private_shmem_aggregate_kernel<thread_count,
+                                             aggregation_kind,
+                                             16,
+                                             has_row_mask,
+                                             has_output_map>
+        <<<block_count, thread_count, 0, stream.value()>>>(
+          values, indices, row_mask, output_map, length, result.get());
+    } else {
+      scatter_private_shmem_aggregate_kernel<thread_count,
+                                             aggregation_kind,
+                                             32,
+                                             has_row_mask,
+                                             has_output_map>
+        <<<block_count, thread_count, 0, stream.value()>>>(
+          values, indices, row_mask, output_map, length, result.get());
+    }
   } else if (sizeof(output_type) * max_index <= 32768) {
+    constexpr auto BLOCKS_PER_SM = 64;
+    auto block_count             = BLOCKS_PER_SM * sm_count;
     // 32k fits into 48k shmem for sure.
     scatter_shmem_aggregate_kernel<aggregation_kind, has_row_mask, has_output_map>
       <<<block_count, thread_count, sizeof(output_type) * max_index, stream.value()>>>(
         values, indices, row_mask, output_map, max_index, length, result.get());
   } else {
+    constexpr auto BLOCKS_PER_SM = 64;
+    auto block_count             = BLOCKS_PER_SM * sm_count;
     scatter_global_aggregate_kernel<aggregation_kind, has_row_mask, has_output_map>
       <<<block_count, thread_count, 0, stream.value()>>>(
         values, indices, row_mask, output_map, max_index, length, result.get());

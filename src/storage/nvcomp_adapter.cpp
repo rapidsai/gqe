@@ -355,7 +355,9 @@ nvcomp_cpu_manager_adapter& nvcomp_cpu_manager_adapter::operator=(nvcomp_cpu_man
 nvcomp_cpu_manager_adapter::~nvcomp_cpu_manager_adapter() = default;
 
 std::unique_ptr<nvcomp_cpu_manager_adapter> nvcomp_cpu_manager_adapter::create_cpu_manager(
-  compression_manager const& comp_manager, int compression_level)
+  compression_manager const& comp_manager,
+  gqe::compression_format comp_format,
+  int compression_level)
 {
 #ifndef EXPERIMENTAL_NVCOMP
   GQE_EXPECTS(false, "`create_cpu_manager` is disabled in public GQE build");
@@ -363,7 +365,7 @@ std::unique_ptr<nvcomp_cpu_manager_adapter> nvcomp_cpu_manager_adapter::create_c
   std::unique_ptr<nvcomp_cpu_manager_adapter> cpu_manager_adapter;
 #ifdef EXPERIMENTAL_NVCOMP
   std::unique_ptr<nvcomp::CPUHLIFManager> cpu_manager;
-  switch (comp_manager.get_comp_format()) {
+  switch (comp_format) {
     case gqe::compression_format::lz4:
       cpu_manager =
         std::make_unique<nvcomp::LZ4CPUHLIFManager>(comp_manager.get_compression_chunk_size());
@@ -457,7 +459,7 @@ std::vector<std::unique_ptr<rmm::device_buffer>> nvcomp_cpu_manager_adapter::com
   bool compression_mr_is_host_accessible = memory_kind::is_cpu_accessible(memory_kind);
 
   auto cpu_compression_manager =
-    create_cpu_manager(comp_manager, comp_manager.get_compression_level());
+    create_cpu_manager(comp_manager, comp_format, comp_manager.get_compression_level());
 
   std::vector<size_t> max_compressed_sizes;
   std::vector<size_t> uncompressed_sizes;

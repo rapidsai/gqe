@@ -1142,6 +1142,24 @@ TEST_F(InMemoryReadTaskTest, PruningWithCompressionOverlapAndStringColumnAndCasc
   CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
 }
 
+// Regression test for https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/merge_requests/471
+TEST_F(InMemoryReadTaskTest, SecondaryFormatLz4WithCpu)
+{
+  SetUp(true, 4 * 64 * 1024, 64 * 1024);
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::cascaded;
+  _query_ctx->parameters.in_memory_table_secondary_compression_format =
+    gqe::compression_format::lz4;
+  _query_ctx->parameters.use_cpu_compression = true;
+
+  auto row_groups = create_row_groups(_input_tables.begin(), _input_tables.end());
+  auto task       = create_read_task(row_groups, _column_indexes, _data_types);
+  task.execute();
+
+  ASSERT_TRUE(task.result().has_value());
+  auto expected = cudf::concatenate(_input_tables);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
+}
+
 TEST_F(InMemoryReadTaskTest, IneffectiveCompressionStats)
 {
   auto const num_rows = 2 * 64 * 1024;

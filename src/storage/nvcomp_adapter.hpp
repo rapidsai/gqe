@@ -151,7 +151,9 @@ class nvcomp_cpu_manager_adapter {
                                   // of incomplete type
 
   static std::unique_ptr<nvcomp_cpu_manager_adapter> create_cpu_manager(
-    gqe::storage::compression_manager const& comp_manager, int compression_level);
+    gqe::storage::compression_manager const& comp_manager,
+    gqe::compression_format comp_format,
+    int compression_level);
 
   void cpu_batch_compress(uint8_t** compressed_ptrs,
                           const uint8_t* const* uncomp_ptrs,

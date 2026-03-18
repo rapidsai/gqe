@@ -590,9 +590,10 @@ std::unique_ptr<gqe::storage::nvcomp_manager_adapter> compression_manager::creat
 }
 
 std::unique_ptr<gqe::storage::nvcomp_cpu_manager_adapter> compression_manager::create_cpu_manager(
-  int compression_level) const
+  gqe::compression_format comp_format, int compression_level) const
 {
-  return gqe::storage::nvcomp_cpu_manager_adapter::create_cpu_manager(*this, compression_level);
+  return gqe::storage::nvcomp_cpu_manager_adapter::create_cpu_manager(
+    *this, comp_format, compression_level);
 }
 
 gqe::compression_format compression_manager::get_comp_format() const { return _comp_format; }

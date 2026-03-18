@@ -105,7 +105,7 @@ class compression_manager {
    * @return A unique pointer to the nvcomp_cpu_manager_adapter object
    */
   std::unique_ptr<gqe::storage::nvcomp_cpu_manager_adapter> create_cpu_manager(
-    int compression_level) const;
+    gqe::compression_format comp_format, int compression_level) const;
 
  public:
   /**

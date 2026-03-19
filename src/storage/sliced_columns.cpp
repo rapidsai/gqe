@@ -40,9 +40,10 @@ void do_decompress_buffers(
   const size_t num_buffers                 = partition_idxs.size();
   std::byte* source_ptr                    = static_cast<std::byte*>(compression_buffer->data());
 
-  auto cudf_pinned_resource = cudf::get_pinned_memory_resource();
-  std::byte** comp_buffers  = static_cast<std::byte**>(cudf_pinned_resource.allocate_async(
-    sizeof(std::byte*) * num_buffers, alignof(std::byte*), stream));
+  auto cudf_pinned_resource     = cudf::get_pinned_memory_resource();
+  std::byte** comp_buffers      = static_cast<std::byte**>(cudf_pinned_resource.allocate_async(
+    2 * sizeof(std::byte*) * num_buffers, alignof(std::byte*), stream));
+  std::byte** host_comp_buffers = comp_buffers + num_buffers;
   GQE_CUDA_TRY(cudaStreamSynchronize(stream));
 
   GQE_LOG_DEBUG(
@@ -50,7 +51,6 @@ void do_decompress_buffers(
     num_buffers,
     (void*)source_ptr,
     (void*)target_ptr);
-  std::vector<std::byte*> host_comp_buffers;
   size_t copy_idx = 0;
   for (size_t partition_idx : partition_idxs) {
 #ifndef NDEBUG
@@ -58,22 +58,22 @@ void do_decompress_buffers(
                   partition_idx,
                   (void*)source_ptr);
 #endif
-    host_comp_buffers.push_back(
-      static_cast<std::byte*>(compressed_data_buffers[partition_idx]->data()));
+    host_comp_buffers[copy_idx] =
+      static_cast<std::byte*>(compressed_data_buffers[partition_idx]->data());
     comp_buffers[copy_idx] = source_ptr;
     source_ptr += rmm::align_up(compressed_data_sizes[partition_idx], 8);
     ++copy_idx;
   }
   nvcomp_manager.decompress_batch(reinterpret_cast<uint8_t*>(target_ptr),
                                   reinterpret_cast<uint8_t**>(comp_buffers),
-                                  reinterpret_cast<uint8_t**>(host_comp_buffers.data()),
+                                  reinterpret_cast<uint8_t**>(host_comp_buffers),
                                   num_buffers,
                                   is_secondary_compressed,
                                   cudf_type,
                                   stream,
                                   mr);
   // Release pointer arrays in pinned memory
-  cudf_pinned_resource.deallocate_async(comp_buffers, sizeof(std::byte*) * num_buffers, stream);
+  cudf_pinned_resource.deallocate_async(comp_buffers, sizeof(std::byte*) * num_buffers * 2, stream);
 }
 
 compressed_sliced_column::compressed_sliced_column(

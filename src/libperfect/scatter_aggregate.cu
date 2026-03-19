@@ -135,7 +135,8 @@ __global__ void scatter_private_shmem_aggregate_kernel(const value_type values,
   }
 
   if constexpr (has_row_mask) {
-    __shared__ unsigned char row_mask_shared[ELEMENTS_PER_BATCH];
+    // alignment is required here since we access row_mask_shared by casting it to float4
+    alignas(16) __shared__ unsigned char row_mask_shared[ELEMENTS_PER_BATCH];
     auto row_mask_ptr  = row_mask.data();
     auto row_mask_addr = reinterpret_cast<uintptr_t>(row_mask_ptr);
     bool aligned_mask  = (row_mask_addr & (MASK_VECTOR_WIDTH - 1)) == 0;

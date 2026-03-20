@@ -20,6 +20,7 @@
         "--name=gqe-dev",
         "--gpus=all",
         "--security-opt=seccomp=unconfined",
+        "--security-opt=apparmor=unconfined",
         "--cap-add=SYS_PTRACE"
     ],
     "customizations": {

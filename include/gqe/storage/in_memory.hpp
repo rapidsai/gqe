@@ -826,19 +826,21 @@ class string_compressed_sliced_column : public string_compressed_sliced_column_b
     rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource()) const;
 
   /**
-   * @brief Determine the offsets of each partition which should be added to the string offsets.
-   * @param[out] partition_offsets Partition offset array.
+   * @brief Determine the row and char offsets of each copied partition.
+   * @param[out] partition_char_offsets Character-buffer base offset of each copied partition.
+   * @param[out] partition_row_offsets Row-offset base of each copied partition in the concatenated
+   * output.
+   * @param[in,out] char_offset The current character-buffer offset.
+   * @param[in,out] row_offset The current row offset in the concatenated output.
    * @param[in] pruning_result Indicates which partitions are pruned.
-   * @param[in] start_offset The offset into the character buffer with which to start filling
-   * partitions_offsets for this column.
-   * @param[in] partition_offset_idx The index into partition_offsets where to start filling.
-   * pruning_result.
-   * @return The current offset after processing the pruning_result.
+   * @param[in] partition_offset_idx The index at which to start writing partition metadata.
    */
-  offsets_type fill_partition_offsets(offsets_type* partition_offsets,
-                                      const pruning_result_t& pruning_result,
-                                      offsets_type start_offset,
-                                      size_t partition_offset_idx) const;
+  void fill_partition_offsets(offsets_type* partition_char_offsets,
+                              cudf::size_type* partition_row_offsets,
+                              offsets_type& char_offset,
+                              cudf::size_type& row_offset,
+                              const pruning_result_t& pruning_result,
+                              size_t partition_offset_idx) const;
   /**
    * @copydoc gqe::storage::column_base::get_compressed_size()
    * Compute the compressed size for the column, considering the data, offsets, and null mask.

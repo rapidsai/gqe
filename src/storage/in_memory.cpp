@@ -1359,35 +1359,52 @@ string_compressed_sliced_output_column_helper<large_string_mode>::make_cudf_colu
     num_partitions += pruning_result.partition_indexes().size();
   }
 
-  rmm::device_buffer partition_offsets_buffer(
+  rmm::device_buffer partition_char_offsets_buffer(
     num_partitions * sizeof(offsets_type), concatenation_stream, cudf_pinned_resource);
-  offsets_type* partition_offsets =
-    reinterpret_cast<offsets_type*>(partition_offsets_buffer.data());
-  GQE_CUDA_TRY(cudaStreamSynchronize(concatenation_stream));
-  size_t char_offset          = 0;
+  offsets_type* partition_char_offsets =
+    reinterpret_cast<offsets_type*>(partition_char_offsets_buffer.data());
+  rmm::device_buffer partition_row_offsets_buffer(
+    num_partitions * sizeof(cudf::size_type), concatenation_stream, cudf_pinned_resource);
+  auto* partition_row_offsets =
+    reinterpret_cast<cudf::size_type*>(partition_row_offsets_buffer.data());
+
+  concatenation_stream.synchronize();
+
+  offsets_type char_offset    = 0;
+  cudf::size_type row_offset  = 0;
   size_t partition_offset_idx = 0;
   for (auto& [row_group, pruning_result] : *_pruning_results) {
     auto& column =
       get_column<string_compressed_sliced_column<large_string_mode>>(row_group, _column_idx);
-    char_offset = column.fill_partition_offsets(
-      partition_offsets, pruning_result, char_offset, partition_offset_idx);
+    column.fill_partition_offsets(partition_char_offsets,
+                                  partition_row_offsets,
+                                  char_offset,
+                                  row_offset,
+                                  pruning_result,
+                                  partition_offset_idx);
     partition_offset_idx += pruning_result.partition_indexes().size();
   }
-  cudf::size_type partition_size = _pruning_results->front().second.partition_size();
+
+  // create a copy on device before adjust_offsets since we will do a binary search over this buffer
+  auto d_partition_row_offsets_buffer =
+    rmm::device_buffer(partition_row_offsets_buffer, concatenation_stream);
+  auto d_partition_row_offsets =
+    reinterpret_cast<cudf::size_type*>(d_partition_row_offsets_buffer.data());
   adjust_offsets_api(reinterpret_cast<offsets_type*>(_offset_buffer->data()),
                      _num_rows,
-                     partition_size,
-                     partition_offsets,
+                     num_partitions,
+                     d_partition_row_offsets,
+                     partition_char_offsets,
                      _char_buffer->size(),
                      concatenation_stream);
   GQE_LOG_DEBUG(
-    "Adjusted offsets; _column_idx = {}, num_partitions = {}, char_offset = {}, _num_rows = {}, "
-    "partition_size = {}, _char_buffer->size() = {}",
+    "Adjusted offsets; _column_idx = {}, num_partitions = {}, char_offset = {}, row_offset = {}, "
+    "_num_rows = {}, _char_buffer->size() = {}",
     _column_idx,
     num_partitions,
     char_offset,
+    row_offset,
     _num_rows,
-    partition_size,
     _char_buffer->size());
 
   // Create CUDF column

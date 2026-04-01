@@ -740,23 +740,46 @@ std::pair<bool, size_t> string_compressed_sliced_column<large_string_mode>::deco
 }
 
 template <bool large_string_mode>
-string_compressed_sliced_column<large_string_mode>::offsets_type
-string_compressed_sliced_column<large_string_mode>::fill_partition_offsets(
-  offsets_type* partition_offsets,
+void string_compressed_sliced_column<large_string_mode>::fill_partition_offsets(
+  offsets_type* partition_char_offsets,
+  cudf::size_type* partition_row_offsets,
+  offsets_type& char_offset,
+  cudf::size_type& row_offset,
   const pruning_result_t& pruning_result,
-  offsets_type char_offset,
   size_t partition_offset_idx) const
 {
-  auto partition_idxs = pruning_result.partition_indexes();
+  auto partition_idxs             = pruning_result.partition_indexes();
+  auto chars_partition_offset_idx = partition_offset_idx;
   for (auto partition_idx : partition_idxs) {
 #ifndef NDEBUG
     GQE_LOG_DEBUG("partition_idx = {}, char_offset = {}", partition_idx, char_offset);
 #endif
-    partition_offsets[partition_offset_idx] = char_offset;
+    partition_char_offsets[chars_partition_offset_idx] = char_offset;
     char_offset += _partition_char_array_sizes[partition_idx];
-    ++partition_offset_idx;
+    ++chars_partition_offset_idx;
   }
-  return char_offset;
+
+  auto const partition_size     = pruning_result.partition_size();
+  auto row_partition_offset_idx = partition_offset_idx;
+  for (auto const& consolidated_partition : pruning_result.consolidated_partitions()) {
+    auto partition_start = consolidated_partition.start;
+    while (partition_start < consolidated_partition.end) {
+      auto const partition_end =
+        std::min<cudf::size_type>(partition_start + partition_size, consolidated_partition.end);
+      auto const row_count = partition_end - partition_start;
+#ifndef NDEBUG
+      auto const partition_idx = static_cast<size_t>(partition_start / partition_size);
+      GQE_LOG_DEBUG("partition_idx = {}, row_offset = {}, char_offset = {}",
+                    partition_idx,
+                    row_offset,
+                    char_offset);
+#endif
+      partition_row_offsets[row_partition_offset_idx] = row_offset;
+      row_offset += row_count;
+      ++row_partition_offset_idx;
+      partition_start = partition_end;
+    }
+  }
 }
 
 template <bool large_string_mode>

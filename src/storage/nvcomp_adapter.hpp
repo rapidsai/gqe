@@ -37,6 +37,7 @@ class compression_manager;
 namespace nvcomp {
 struct CPUHLIFManager;
 struct nvcompManagerBase;
+struct LZ4CPUManager;
 }  // namespace nvcomp
 
 namespace gqe {
@@ -137,7 +138,9 @@ class nvcomp_manager_adapter {
 class nvcomp_cpu_manager_adapter {
  private:
   std::unique_ptr<nvcomp::CPUHLIFManager> _cpu_manager;
+  std::unique_ptr<nvcomp::LZ4CPUManager> _lz4_cpu_manager;  // for nvcomp version 5.2
   void set_cpu_manager(std::unique_ptr<nvcomp::CPUHLIFManager> cpu_manager);
+  void set_lz4_cpu_manager(std::unique_ptr<nvcomp::LZ4CPUManager> lz4_cpu_manager);
 
  public:
   nvcomp_cpu_manager_adapter() = default;  // default constructor

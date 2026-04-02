@@ -22,13 +22,9 @@
 #include <gqe/utility/error.hpp>
 
 #include <cudf/utilities/pinned_memory.hpp>
+#include <nvcomp/lz4_cpu.hpp>
 #include <nvcomp/nvcompManagerFactory.hpp>
-#ifdef EXPERIMENTAL_NVCOMP
-#include <CPUManager.hpp>
-#include <LZ4CPUHLIFManager.hpp>
-#endif
 
-#ifndef EXPERIMENTAL_NVCOMP
 namespace nvcomp {
 // stubs
 struct CPUHLIFManager {
@@ -47,7 +43,6 @@ struct CPUHLIFManager {
   }
 };
 }  // namespace nvcomp
-#endif
 
 namespace gqe {
 namespace storage {
@@ -66,22 +61,29 @@ std::unique_ptr<nvcomp_manager_adapter> nvcomp_manager_adapter::create_manager(
             // decompression for load balancing purposes. Should be disabled when
             // chunks are approximately the same size.
   int algorithm = 0;
+
   switch (comp_format) {
-    case gqe::compression_format::lz4:
+    case gqe::compression_format::lz4: {
       GQE_LOG_TRACE("Creating LZ4 compression manager for column '{}'",
                     comp_manager.get_column_name());
       if (data_type == NVCOMP_TYPE_LONGLONG) {
         // LZ4 doesn't support LONGLONG, downcast to INT
         data_type = NVCOMP_TYPE_INT;
       }
-      manager = std::make_unique<nvcomp::LZ4Manager>(
+
+      nvcompBitshuffleMode_t bitshuffle_mode = NVCOMP_BITSHUFFLE_NONE;
+      manager                                = std::make_unique<nvcomp::LZ4Manager>(
         comp_manager.get_compression_chunk_size(),
-        nvcompBatchedLZ4CompressOpts_t{data_type, {0}},
-        nvcompBatchedLZ4DecompressOpts_t{
-          comp_manager.get_decompress_backend(), use_de_sort ? 1 : 0, {0}},
+        nvcompBatchedLZ4CompressOpts_t{data_type, bitshuffle_mode, {0}},
+        nvcompBatchedLZ4DecompressOpts_t{comp_manager.get_decompress_backend(),
+                                         use_de_sort ? 1 : 0,
+                                         data_type,
+                                         bitshuffle_mode,
+                                                                        {0}},
         stream,
         nvcomp::NoComputeNoVerify);
       break;
+    }
     case gqe::compression_format::snappy:
       GQE_LOG_TRACE("Creating Snappy compression manager for column '{}'",
                     comp_manager.get_column_name());
@@ -203,21 +205,13 @@ nvcomp::DecompressionConfig nvcomp_manager_adapter::configure_decompression(
 size_t nvcomp_manager_adapter::get_compressed_output_size_host(const uint8_t* comp_buffer)
 {
   GQE_EXPECTS(_manager, "No nvCOMP manager set");
-#ifdef EXPERIMENTAL_NVCOMP
-  return _manager->get_compressed_output_size_host(comp_buffer);
-#else
   return _manager->get_compressed_output_size(comp_buffer);
-#endif
 }
 
 size_t nvcomp_manager_adapter::get_decompressed_output_size_host(const uint8_t* comp_buffer)
 {
   GQE_EXPECTS(_manager, "No nvCOMP manager set");
-#ifdef EXPERIMENTAL_NVCOMP
-  return _manager->get_decompressed_output_size_host(comp_buffer);
-#else
-  return _manager->configure_decompression(comp_buffer).decomp_data_size;
-#endif
+  return _manager->get_decompressed_output_size(comp_buffer);
 }
 
 void nvcomp_manager_adapter::compress(const uint8_t* uncomp_buffer,
@@ -279,13 +273,6 @@ std::vector<std::unique_ptr<rmm::device_buffer>> nvcomp_manager_adapter::compres
   }
   man_conf.compression_manager->compress(
     uncompressed_ptrs, compressed_ptrs, man_conf.compression_configs);
-// Not needed when using public nvCOMP, since sizes are not actually read from host
-#ifdef EXPERIMENTAL_NVCOMP
-  if (compression_mr_is_host_accessible) {
-    // Only necessary if we're going to grab the compressed sizes from the host
-    GQE_CUDA_TRY(cudaStreamSynchronize(stream));
-  }
-#endif
 
   total_compressed_size = 0;
   for (size_t ix = 0; ix < num_buffers; ix++) {
@@ -325,22 +312,13 @@ void nvcomp_manager_adapter::decompress(
   const uint8_t* const* host_comp_buffers)
 {
   GQE_EXPECTS(_manager, "No nvCOMP manager set");
-#ifdef EXPERIMENTAL_NVCOMP
+
   _manager->decompress(decomp_buffers,
                        device_comp_buffers,
                        decomp_configs,
-                       batch_count,
                        comp_sizes,
+                       batch_count,
                        host_comp_buffers);
-#else
-  for (size_t i = 0; i < batch_count; ++i) {
-    _manager->decompress(decomp_buffers[i],
-                         device_comp_buffers[i],
-                         decomp_configs.size() == batch_count
-                           ? decomp_configs[i]
-                           : _manager->configure_decompression(device_comp_buffers[i]));
-  }
-#endif
 }
 
 size_t nvcomp_manager_adapter::get_compressed_output_size(const uint8_t* comp_buffer)
@@ -359,56 +337,44 @@ std::unique_ptr<nvcomp_cpu_manager_adapter> nvcomp_cpu_manager_adapter::create_c
   gqe::compression_format comp_format,
   int compression_level)
 {
-#ifndef EXPERIMENTAL_NVCOMP
-  GQE_EXPECTS(false, "`create_cpu_manager` is disabled in public GQE build");
-#endif
   std::unique_ptr<nvcomp_cpu_manager_adapter> cpu_manager_adapter;
-#ifdef EXPERIMENTAL_NVCOMP
-  std::unique_ptr<nvcomp::CPUHLIFManager> cpu_manager;
-  switch (comp_format) {
-    case gqe::compression_format::lz4:
-      cpu_manager =
-        std::make_unique<nvcomp::LZ4CPUHLIFManager>(comp_manager.get_compression_chunk_size());
-      cpu_manager->set_compression_level(compression_level);
-      break;
-    case gqe::compression_format::none:
-    case gqe::compression_format::ans:
-    case gqe::compression_format::snappy:
-    case gqe::compression_format::gdeflate:
-    case gqe::compression_format::deflate:
-    case gqe::compression_format::cascaded:
-    case gqe::compression_format::zstd:
-    case gqe::compression_format::gzip:
-    case gqe::compression_format::bitcomp:
-    case gqe::compression_format::best_compression_ratio:
-    case gqe::compression_format::best_decompression_speed:
-    default: throw std::runtime_error("Unsupported compression format for CPU compression manager");
-  }
+
+  GQE_EXPECTS(comp_format == gqe::compression_format::lz4,
+              "Unsupported compression format for CPU compression manager");
+  std::unique_ptr<nvcomp::LZ4CPUManager> lz4_cpu_manager;
+  lz4_cpu_manager = std::make_unique<nvcomp::LZ4CPUManager>(
+    comp_manager.get_compression_chunk_size(),
+    compression_level,
+    0 /* num_threads = 0 uses maximum available hardware concurrency threads */);
   cpu_manager_adapter = std::make_unique<nvcomp_cpu_manager_adapter>();
-  cpu_manager_adapter->set_cpu_manager(std::move(cpu_manager));
-#endif
+  cpu_manager_adapter->set_lz4_cpu_manager(std::move(lz4_cpu_manager));
+
   return cpu_manager_adapter;
 }
 
 void nvcomp_cpu_manager_adapter::set_cpu_manager(
   std::unique_ptr<nvcomp::CPUHLIFManager> cpu_manager)
 {
-#ifndef EXPERIMENTAL_NVCOMP
-  GQE_EXPECTS(false, "`set_cpu_manager` is not available in public GQE build");
-#endif
+  throw std::runtime_error("`set_cpu_manager` is not available in nvcomp < 5.2");
   _cpu_manager = std::move(cpu_manager);
+}
+
+void nvcomp_cpu_manager_adapter::set_lz4_cpu_manager(
+  std::unique_ptr<nvcomp::LZ4CPUManager> lz4_cpu_manager)
+{
+  _lz4_cpu_manager = std::move(lz4_cpu_manager);
 }
 
 size_t nvcomp_cpu_manager_adapter::get_compressed_output_size(const uint8_t* comp_buffer)
 {
-  GQE_EXPECTS(_cpu_manager, "No CPU nvCOMP manager set");
-  return _cpu_manager->get_compressed_output_size(comp_buffer);
+  GQE_EXPECTS(_lz4_cpu_manager, "No LZ4 CPU nvCOMP manager set");
+  return _lz4_cpu_manager->get_compressed_output_size(comp_buffer);
 }
 
 size_t nvcomp_cpu_manager_adapter::get_max_compressed_output_size(const size_t input_size)
 {
-  GQE_EXPECTS(_cpu_manager, "No CPU nvCOMP manager set");
-  return _cpu_manager->get_max_compressed_output_size(input_size);
+  GQE_EXPECTS(_lz4_cpu_manager, "No LZ4 CPU nvCOMP manager set");
+  return _lz4_cpu_manager->configure_compression(input_size).max_compressed_buffer_size;
 }
 
 void nvcomp_cpu_manager_adapter::cpu_batch_compress(uint8_t** compressed_ptrs,
@@ -421,16 +387,10 @@ void nvcomp_cpu_manager_adapter::cpu_batch_compress(uint8_t** compressed_ptrs,
                                                     const bool benchmark_mode,
                                                     const int iteration_count)
 {
-  GQE_EXPECTS(_cpu_manager, "No CPU nvCOMP manager set");
-  _cpu_manager->cpu_batch_compress(compressed_ptrs,
-                                   uncomp_ptrs,
-                                   uncomp_sizes,
-                                   compressed_sizes,
-                                   batch_count,
-                                   num_threads,
-                                   max_comp_sizes,
-                                   benchmark_mode,
-                                   iteration_count);
+  GQE_EXPECTS(_lz4_cpu_manager, "No LZ4 CPU nvCOMP manager set");
+  std::vector<size_t> uncomp_sizes_vec(uncomp_sizes, uncomp_sizes + batch_count);
+  auto comp_configs = _lz4_cpu_manager->configure_compression(uncomp_sizes_vec);
+  _lz4_cpu_manager->compress(uncomp_ptrs, compressed_ptrs, comp_configs, compressed_sizes);
 }
 
 std::vector<std::unique_ptr<rmm::device_buffer>> nvcomp_cpu_manager_adapter::compress_batch(
@@ -450,7 +410,6 @@ std::vector<std::unique_ptr<rmm::device_buffer>> nvcomp_cpu_manager_adapter::com
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-#ifdef EXPERIMENTAL_NVCOMP
   assert(device_uncompressed.size() == num_buffers);
 
   compressed_sizes.clear();
@@ -567,29 +526,6 @@ std::vector<std::unique_ptr<rmm::device_buffer>> nvcomp_cpu_manager_adapter::com
   compressed_size   = total_compressed_size;
   compression_ratio = static_cast<double>(total_uncompressed_size) / total_compressed_size;
   return output_compressed_buffers;
-#else
-  GQE_LOG_TRACE(
-    "Experimental nvCOMP not available; falling back to GPU compression manager for batched "
-    "compression of column '{}' with compression "
-    "level {}",
-    comp_manager.get_column_name(),
-    comp_manager.get_compression_level());
-  return nvcomp_manager_adapter::compress_batch(comp_manager,
-                                                device_uncompressed,
-                                                total_uncompressed_size,
-                                                uncompressed_ptrs,
-                                                comp_format,
-                                                data_type,
-                                                cudf_type,
-                                                num_buffers,
-                                                memory_kind,
-                                                compressed_ptrs,
-                                                compression_ratio,
-                                                compressed_size,
-                                                compressed_sizes,
-                                                stream,
-                                                mr);
-#endif
 }
 
 }  // namespace storage

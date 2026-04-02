@@ -158,6 +158,7 @@ target_link_libraries(gqe PUBLIC spdlog::spdlog_header_only)
 target_link_libraries(gqe PUBLIC substrait)
 target_link_libraries(gqe PRIVATE Threads::Threads)
 target_link_libraries(gqe PUBLIC nvcomp::nvcomp)
+target_link_libraries(gqe PUBLIC nvcomp::nvcomp_cpu)
 target_link_libraries(gqe PUBLIC lz4)
 target_link_libraries(gqe PUBLIC uring)
 target_link_libraries(gqe PUBLIC MPI::MPI_CXX)
@@ -166,8 +167,11 @@ target_link_libraries(gqe PRIVATE libperfect)
 target_link_libraries(gqe PUBLIC CUDA::cuda_driver)
 target_link_libraries(gqe PUBLIC CUDA::nvml)
 
-if(NOT GQE_ENABLE_PUBLIC_BUILD)
-  target_compile_definitions(gqe PUBLIC EXPERIMENTAL_NVCOMP)
+if(NOT nvcomp_VERSION_MAJOR EQUAL 5 AND NOT nvcomp_VERSION_MINOR EQUAL 2)
+  message(
+    FATAL_ERROR
+      "Unsupported nvcomp version: ${nvcomp_VERSION_MAJOR}.${nvcomp_VERSION_MINOR}. GQE requires nvcomp 5.2."
+  )
 endif()
 
 # Download and configure Parquet format

@@ -94,7 +94,7 @@ if(GQE_NVCOMP_LIB_DIR)
 elseif(NOT GQE_ENABLE_PUBLIC_BUILD)
   # CMake variable for gqe-nvcomp tag
   set(GQE_NVCOMP_TAG
-      "a7ff787194cb0eb948b4d0443d5f16ba4da714a9"
+      "614b388a8466a0020d9ee7e6fd53f69fc5790ac2"
       CACHE STRING "Git tag for gqe-nvcomp")
   set(GQE_NVCOMP_SOURCE_DIR
       ""
@@ -141,42 +141,16 @@ elseif(NOT GQE_ENABLE_PUBLIC_BUILD)
   endif()
 endif()
 
+if(GQE_ENABLE_PUBLIC_BUILD)
+  find_package(nvcomp CONFIG REQUIRED)
+endif()
+
 find_program(CCACHE_FOUND ccache)
 if(CCACHE_FOUND)
   set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
   set(CMAKE_C_COMPILER_LAUNCHER ccache)
   set(CMAKE_CUDA_COMPILER_LAUNCHER ccache)
   set(env{CCACHE_BASEDIR} ${CMAKE_CURRENT_LIST_DIR})
-endif()
-
-# ##############################################################################
-# * nvcomp CPU setup
-# ----------------------------------------------------------------------------------
-
-if(NOT GQE_ENABLE_PUBLIC_BUILD)
-  # Create an alias 'deflate' for 'libdeflate_static' to satisfy linking
-  # requirements nvcomp's cpu_compression tests expect a 'deflate' target
-  if(TARGET libdeflate_static AND NOT TARGET deflate)
-    add_library(deflate ALIAS libdeflate_static)
-  endif()
-
-  find_package(lz4 QUIET)
-  if(NOT lz4_FOUND)
-    cpmaddpackage(
-      NAME
-      lz4
-      GITHUB_REPOSITORY
-      lz4/lz4
-      VERSION
-      1.10.0
-      SOURCE_SUBDIR
-      "build/cmake"
-      OPTIONS
-      "BUILD_STATIC_LIBS ON"
-      "BUILD_SHARED_LIBS OFF"
-      "LZ4_POSITION_INDEPENDENT_LIB ON"
-      "LZ4_BUILD_CLI OFF")
-  endif()
 endif()
 
 # ##############################################################################

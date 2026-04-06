@@ -34,7 +34,7 @@ dependencies:
   - thrift-compiler=0.19
   - libthrift=0.19
   - zlib>=1.2.13  # libthrift checks zlib during CMake configuration, but conda-forge doesn't install it automatically
-  - libnvcomp-dev==5.0.0.6
+  - libnvcomp-dev==5.2.0.10
   - libnvjitlink-dev
   - liburing
   - libnvshmem-static==3.2.5

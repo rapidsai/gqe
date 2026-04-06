@@ -49,6 +49,7 @@ ENV PATH=${PATH}:/conda/bin
 SHELL ["/bin/bash", "-c"]
 
 # Compile libcudf from source
+# Note: nvCOMP version temporarily downgraded for cuDF build (restored immediately after)
 COPY conda/*.yml /config/conda/
 RUN git clone https://github.com/rapidsai/cudf.git /cudf \
     && cd /cudf \
@@ -56,7 +57,9 @@ RUN git clone https://github.com/rapidsai/cudf.git /cudf \
     && git submodule update --init --remote --recursive \
     && mamba env create -q --name gqe --file /config/conda/docker-$(uname -m).yml \
     && source activate gqe \
+    && conda install -y libnvcomp-dev=5.0.0.6 \
     && PARALLEL_LEVEL=${PARALLEL_LEVEL:-$(nproc)} CUDF_CMAKE_CUDA_ARCHITECTURES="80-real;90-real;100-real;120" ./build.sh libcudf --ptds --cmake-args=\" -DCUDF_ENABLE_ARROW_S3=OFF -DBUILD_BENCHMARKS=OFF -DCUDA_ENABLE_LINEINFO=ON \" \
+    && conda install -y libnvcomp-dev=5.2.0.10 \
     && conda clean --all
 
 # Compile MLIR from source

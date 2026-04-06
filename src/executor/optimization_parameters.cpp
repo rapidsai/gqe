@@ -151,6 +151,22 @@ gqe::compression_format parse_nvcomp_compression_format(std::string const& env_v
   }
 }
 
+/**
+ * Acceptable values are "default", "sm", and "de" (case-insensitive).
+ */
+template <>
+gqe::decompression_backend parse_env_variable<gqe::decompression_backend>(
+  std::string const& env_variable, const gqe::decompression_backend default_value)
+{
+  auto const val_str = std::getenv(env_variable.c_str());
+
+  gqe::decompression_backend value =
+    (val_str != nullptr) ? gqe::decompression_backend_from_string(val_str) : default_value;
+
+  GQE_LOG_DEBUG(env_variable + " = " + gqe::decompression_backend_to_string(value));
+  return value;
+}
+
 int parse_nvcomp_chunk_size(std::string const& env_variable, int const default_value)
 {
   auto const val_str = std::getenv(env_variable.c_str());
@@ -266,6 +282,8 @@ optimization_parameters::optimization_parameters(bool only_defaults)
     in_memory_table_secondary_compression_multiplier_threshold =
       parse_env_variable("GQE_IN_MEMORY_TABLE_SECONDARY_COMPRESSION_MULTIPLIER_THRESHOLD",
                          in_memory_table_secondary_compression_multiplier_threshold);
+
+    decompress_backend = parse_env_variable("GQE_DECOMPRESS_BACKEND", decompress_backend);
 
     use_cpu_compression = parse_env_variable("GQE_USE_CPU_COMPRESSION", use_cpu_compression);
 

@@ -27,7 +27,6 @@
 #include <rmm/device_buffer.hpp>
 
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -45,13 +44,13 @@ class compression_manager {
  private:
   gqe::compression_format _comp_format;
   gqe::compression_format _secondary_comp_format;
+  gqe::decompression_backend _decompress_backend;
   int _compression_chunk_size;
   std::string _column_name;
   cudf::data_type _cudf_type;
   double _compression_ratio_threshold;
   double _secondary_compression_ratio_threshold;
   double _secondary_compression_multiplier_threshold;
-  nvcompDecompressBackend_t _decompress_backend;
   bool _use_cpu_compression;
   int _compression_level;
 
@@ -112,12 +111,18 @@ class compression_manager {
    * @brief Constructor for class
    *
    * @param[in] comp_format Compression format to use
-   * @param[in] data_format Data format to use for compression configuration
+   * @param[in] secondary_compression_format Secondary compression format to use
+   * @param[in] decompress_backend Decompression backend to use ("default", "sm", or "de")
    * @param[in] compression_chunk_size Chunk size to use for nvcomp
    * @param[in] stream Stream to use for compression/decompression
    * @param[in] mr Memory resource to use for allocator in nvcomp
    * @param[in] compression_ratio_threshold Compression ratio threshold to decide whether to
    * compress the columns or not.
+   * @param[in] secondary_compression_ratio_threshold Minimum ratio required before secondary
+   * compression is considered.
+   * @param[in] secondary_compression_multiplier_threshold If primary compression also passes its
+   * threshold, secondary is selected only when secondary_ratio >
+   * primary_ratio * secondary_compression_multiplier_threshold.
    * @param[in] use_cpu_compression Whether to use CPU-based compression instead of GPU
    * @param[in] compression_level Compression level (1-12)
    * @param[in] column_name Name of the column being compressed
@@ -125,6 +130,7 @@ class compression_manager {
    */
   compression_manager(gqe::compression_format comp_format,
                       gqe::compression_format secondary_compression_format,
+                      gqe::decompression_backend decompress_backend,
                       int compression_chunk_size,
                       rmm::cuda_stream_view stream,
                       rmm::device_async_resource_ref mr,
@@ -235,6 +241,11 @@ class compression_manager {
   gqe::compression_format get_comp_format() const;
 
   /**
+   * @brief Function to fetch the decompress backend used by the compression manager.
+   * */
+  gqe::decompression_backend get_decompress_backend() const;
+
+  /**
    * @brief Function to fetch the chunk size used by the compression manager.
    * */
   int get_compression_chunk_size() const;
@@ -253,11 +264,6 @@ class compression_manager {
    * @brief Function to fetch the compression ratio threshold used by the compression manager.
    * */
   double get_compression_ratio_threshold() const;
-
-  /**
-   * @brief Function to fetch decompress backend.
-   * */
-  nvcompDecompressBackend_t get_decompress_backend() const;
 
   /**
    * @brief Function to fetch whether CPU compression is enabled.

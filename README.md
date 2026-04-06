@@ -96,6 +96,7 @@ $ protoc --decode substrait.Plan substrait/plan.proto < your_substrait_plan.bin
 | GQE_IO_AUXILIARY_THREADS | 8 | Number of auxiliary threads per worker launched by the customized Parquet reader. |
 | GQE_USE_OPT_TYPE_FOR_SINGLE_CHAR_COL | true | Use optimized char type instead of string type to store single-char columns (currently only for TPC-H dataset) |
 | GQE_IN_MEMORY_TABLE_COMP_FORMAT | none | Compression format for the in-memory table. Supported values are :`none`,`ans`,`lz4`,`snappy`,`cascaded`,`gdeflate`,`deflate`,`zstd`,`gzip`,`bitcomp`,`best_compression_ratio`,`best_decompression_speed`. `best_compression_ratio`, and `best_decompression_speed` autoselects the compression algorithm based on the column type to yield the best compression ratio or decompression speed respectively. |
+| GQE_DECOMPRESS_BACKEND | default | nvCOMP decompression backend selection. Supported values are `default`, `de`, and `sm` (case-insensitive). `default` uses nvCOMP default backend selection behavior. |
 | GQE_COMPRESSION_CHUNK_SIZE | 16 | n in 2^n -- Size in Bytes used for chunking of data for compression. |
 | GQE_IO_BLOCK_SIZE | 2048 | Size in KiB of the block used by the customized Parquet reader when io_uring is enabled. |
 | GQE_IO_ENGINE | IO_URING | The I/O engine used by the customized Parquet reader. Supported values are `IO_URING`, `PSYNC` and `AUTO`. |

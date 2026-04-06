@@ -16,6 +16,7 @@
  */
 
 #include <gqe/context_reference.hpp>
+#include <gqe/device_properties.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/literal.hpp>
@@ -110,6 +111,7 @@ class InMemoryReadTest : public gqe::test::BaseFixtureWithParam<test_parameters>
           return std::make_unique<gqe::storage::compressed_column>(
             std::move(cudf_col),
             comp_format,
+            gqe::decompression_backend::default_,
             cudf::get_default_stream(),
             rmm::mr::get_current_device_resource(),
             chunk_size,
@@ -448,6 +450,7 @@ class InMemoryReadTaskTest : public gqe::test::BaseFixture {
           _query_ctx->parameters.in_memory_table_secondary_compression_multiplier_threshold;
         auto const use_cpu_compression = _query_ctx->parameters.use_cpu_compression;
         auto const compression_level   = _query_ctx->parameters.compression_level;
+        auto const decompress_backend  = _query_ctx->parameters.decompress_backend;
         std::vector<std::unique_ptr<gqe::storage::column_base>> columns;
         std::transform(
           input_table.begin(),
@@ -461,6 +464,7 @@ class InMemoryReadTaskTest : public gqe::test::BaseFixture {
            secondary_compression_multiplier_threshold,
            use_cpu_compression,
            compression_level,
+           decompress_backend,
            try_cascaded,
            this](
             const cudf::column_view& column_view) -> std::unique_ptr<gqe::storage::column_base> {
@@ -469,6 +473,7 @@ class InMemoryReadTaskTest : public gqe::test::BaseFixture {
             } else if (not _use_sliced_compression) {
               return std::make_unique<gqe::storage::compressed_column>(cudf::column(column_view),
                                                                        comp_format,
+                                                                       decompress_backend,
                                                                        cudf::get_default_stream(),
                                                                        *_memory_resource,
                                                                        chunk_size,
@@ -480,6 +485,7 @@ class InMemoryReadTaskTest : public gqe::test::BaseFixture {
                 _memory_kind,
                 comp_format,
                 secondary_compression_format,
+                decompress_backend,
                 chunk_size,
                 compression_ratio_threshold,
                 secondary_compression_ratio_threshold,
@@ -496,6 +502,7 @@ class InMemoryReadTaskTest : public gqe::test::BaseFixture {
                 _memory_kind,
                 comp_format,
                 secondary_compression_format,
+                decompress_backend,
                 chunk_size,
                 compression_ratio_threshold,
                 secondary_compression_ratio_threshold,
@@ -775,6 +782,58 @@ TEST_F(InMemoryReadTaskTest, concatenateSingleRowGroupIfCompressed)
   constexpr cudf::size_type start_offset_in_result = 145;
   auto expected = create_input_table(num_rows_in_result, start_offset_in_result);
   CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), expected->view());
+}
+
+TEST_F(InMemoryReadTaskTest, readWithSmDecompressBackendEnabled)
+{
+  SetUp();
+  // Configure compression and explicitly request SM decompression backend.
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::lz4;
+  _query_ctx->parameters.in_memory_table_secondary_compression_format =
+    gqe::compression_format::cascaded;
+  _query_ctx->parameters.decompress_backend = gqe::decompression_backend::sm;
+
+  std::vector<const gqe::storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.begin() + 1);
+  gqe::storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types);
+
+  task.execute();
+
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), _input_tables[0]);
+}
+
+TEST_F(InMemoryReadTaskTest, readWithDeDecompressBackendEnabled)
+{
+  SetUp();
+  // Configure compression and explicitly request DE decompression backend.
+  _query_ctx->parameters.in_memory_table_compression_format = gqe::compression_format::lz4;
+  _query_ctx->parameters.in_memory_table_secondary_compression_format =
+    gqe::compression_format::cascaded;
+  _query_ctx->parameters.decompress_backend = gqe::decompression_backend::de;
+
+  auto const device_supports_de =
+    gqe::device_properties::instance().get<gqe::device_properties::property::memDecompressSupport>(
+      rmm::get_current_cuda_device());
+
+  if (!device_supports_de) {
+    ASSERT_THROW(create_row_groups(_input_tables.begin(), _input_tables.begin() + 1),
+                 std::invalid_argument);
+    return;
+  }
+
+  std::vector<const gqe::storage::row_group*> row_groups =
+    create_row_groups(_input_tables.begin(), _input_tables.begin() + 1);
+  gqe::storage::in_memory_read_task task =
+    create_read_task(row_groups, _column_indexes, _data_types);
+
+  task.execute();
+
+  ASSERT_TRUE(task.result().has_value());
+  ASSERT_TRUE(*task.is_result_owned());
+  CUDF_TEST_EXPECT_TABLES_EQUAL(*task.result(), _input_tables[0]);
 }
 
 TEST_F(InMemoryReadTaskTest, PruningWithoutCompression)

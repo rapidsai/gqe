@@ -47,6 +47,20 @@ struct CPUHLIFManager {
 namespace gqe {
 namespace storage {
 
+namespace {
+
+nvcompDecompressBackend_t to_nvcomp_decompress_backend(gqe::decompression_backend backend)
+{
+  switch (backend) {
+    case gqe::decompression_backend::de: return NVCOMP_DECOMPRESS_BACKEND_HARDWARE;
+    case gqe::decompression_backend::sm: return NVCOMP_DECOMPRESS_BACKEND_CUDA;
+    case gqe::decompression_backend::default_: return NVCOMP_DECOMPRESS_BACKEND_DEFAULT;
+  }
+  throw std::logic_error("Unknown decompress backend");
+}
+
+}  // namespace
+
 std::unique_ptr<nvcomp_manager_adapter> nvcomp_manager_adapter::create_manager(
   compression_manager const& comp_manager,
   gqe::compression_format comp_format,
@@ -55,6 +69,8 @@ std::unique_ptr<nvcomp_manager_adapter> nvcomp_manager_adapter::create_manager(
   rmm::device_async_resource_ref mr)
 {
   std::unique_ptr<nvcomp::nvcompManagerBase> manager;
+  auto const decompress_backend =
+    to_nvcomp_decompress_backend(comp_manager.get_decompress_backend());
 
   constexpr bool use_de_sort =
     false;  // This flag determins whether or not to sort the chunks before HW
@@ -75,11 +91,8 @@ std::unique_ptr<nvcomp_manager_adapter> nvcomp_manager_adapter::create_manager(
       manager                                = std::make_unique<nvcomp::LZ4Manager>(
         comp_manager.get_compression_chunk_size(),
         nvcompBatchedLZ4CompressOpts_t{data_type, bitshuffle_mode, {0}},
-        nvcompBatchedLZ4DecompressOpts_t{comp_manager.get_decompress_backend(),
-                                         use_de_sort ? 1 : 0,
-                                         data_type,
-                                         bitshuffle_mode,
-                                                                        {0}},
+        nvcompBatchedLZ4DecompressOpts_t{
+          decompress_backend, use_de_sort ? 1 : 0, data_type, bitshuffle_mode, {0}},
         stream,
         nvcomp::NoComputeNoVerify);
       break;
@@ -90,8 +103,7 @@ std::unique_ptr<nvcomp_manager_adapter> nvcomp_manager_adapter::create_manager(
       manager = std::make_unique<nvcomp::SnappyManager>(
         comp_manager.get_compression_chunk_size(),
         nvcompBatchedSnappyCompressOpts_t{{0}},
-        nvcompBatchedSnappyDecompressOpts_t{
-          comp_manager.get_decompress_backend(), use_de_sort ? 1 : 0, {0}},
+        nvcompBatchedSnappyDecompressOpts_t{decompress_backend, use_de_sort ? 1 : 0, {0}},
         stream,
         nvcomp::NoComputeNoVerify);
       break;
@@ -134,8 +146,7 @@ std::unique_ptr<nvcomp_manager_adapter> nvcomp_manager_adapter::create_manager(
       manager = std::make_unique<nvcomp::DeflateManager>(
         comp_manager.get_compression_chunk_size(),
         nvcompBatchedDeflateCompressOpts_t{algorithm, {0}},
-        nvcompBatchedDeflateDecompressOpts_t{
-          comp_manager.get_decompress_backend(), use_de_sort ? 1 : 0, {0}},
+        nvcompBatchedDeflateDecompressOpts_t{decompress_backend, use_de_sort ? 1 : 0, {0}},
         stream,
         nvcomp::NoComputeNoVerify);
       break;

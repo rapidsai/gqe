@@ -752,6 +752,15 @@ enum class compression_format : int8_t {
 };
 
 /**
+ * @brief Indicate which backend is used for nvCOMP decompress.
+ */
+enum class decompression_backend : int8_t {
+  default_,  ///< Use nvCOMP default backend selection behavior
+  sm,        ///< SM-based decompress backend
+  de,        ///< DE decompress engine backend
+};
+
+/**
  * @brief Construct compression_format from string representation
  *
  * @param format_str String representation of compression format
@@ -770,5 +779,30 @@ compression_format compression_format_from_string(std::string const& format_str)
  * @return string representation of compression_format
  */
 std::string compression_format_to_string(compression_format comp_format) noexcept;
+
+/**
+ * @brief Construct decompression_backend from string representation
+ *
+ * Accepted values (case-insensitive):
+ * - "DEFAULT"
+ * - "SM"
+ * - "DE"
+ *
+ * @param backend_str String representation of decompress backend
+ *
+ * @return decompression_backend from string representation
+ *
+ * @throw std::invalid_argument if backend_str is not recognized
+ */
+decompression_backend decompression_backend_from_string(std::string_view backend_str);
+
+/**
+ * @brief Convert decompression_backend to string representation
+ *
+ * @param backend decompression_backend to convert to string representation
+ *
+ * @return string representation of decompression_backend
+ */
+std::string decompression_backend_to_string(decompression_backend backend) noexcept;
 
 }  // namespace gqe

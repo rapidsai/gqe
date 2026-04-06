@@ -430,6 +430,7 @@ std::unique_ptr<rmm::device_buffer> compressed_column::compress(rmm::device_buff
 
 compressed_column::compressed_column(cudf::column&& cudf_column,
                                      compression_format comp_format,
+                                     decompression_backend decompress_backend,
                                      rmm::cuda_stream_view stream,
                                      rmm::device_async_resource_ref mr,
                                      int compression_chunk_size,
@@ -444,6 +445,7 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
     _is_null_mask_compressed(false),
     _nvcomp_manager(comp_format,
                     compression_format::none,
+                    decompress_backend,
                     compression_chunk_size,
                     stream,
                     mr,
@@ -484,6 +486,7 @@ compressed_column::compressed_column(cudf::column&& cudf_column,
 
     _compressed_children.push_back(std::make_unique<compressed_column>(std::move(*child),
                                                                        comp_format,
+                                                                       decompress_backend,
                                                                        stream,
                                                                        mr,
                                                                        compression_chunk_size,
@@ -530,6 +533,7 @@ shared_compressed_column_base::shared_compressed_column_base(
     _is_null_mask_compressed(compressed_column._is_null_mask_compressed),
     _nvcomp_manager(compressed_column._nvcomp_manager.get_comp_format(),
                     compression_format::none,
+                    compressed_column._nvcomp_manager.get_decompress_backend(),
                     compressed_column._nvcomp_manager.get_compression_chunk_size(),
                     stream,
                     mr,
@@ -1888,6 +1892,7 @@ void in_memory_write_task::execute_default()
       get_query_context()->parameters.in_memory_table_secondary_compression_multiplier_threshold;
     auto use_cpu_compression = get_query_context()->parameters.use_cpu_compression;
     auto compression_level   = get_query_context()->parameters.compression_level;
+    auto decompress_backend  = get_query_context()->parameters.decompress_backend;
 
     auto dtype = cudf_column.type().id();
 
@@ -1910,6 +1915,7 @@ void in_memory_write_task::execute_default()
         new_columns[_column_indexes[column_idx]] =
           std::make_unique<compressed_column>(std::move(cudf_column),
                                               comp_format,
+                                              decompress_backend,
                                               stream,
                                               _non_owned_memory_resource,
                                               compression_chunk_size,
@@ -1931,6 +1937,7 @@ void in_memory_write_task::execute_default()
               _memory_kind,
               comp_format,
               secondary_comp_format,
+              decompress_backend,
               compression_chunk_size,
               compression_ratio_threshold,
               secondary_compression_ratio_threshold,
@@ -1948,6 +1955,7 @@ void in_memory_write_task::execute_default()
               _memory_kind,
               comp_format,
               secondary_comp_format,
+              decompress_backend,
               compression_chunk_size,
               compression_ratio_threshold,
               secondary_compression_ratio_threshold,
@@ -1967,6 +1975,7 @@ void in_memory_write_task::execute_default()
                                                      _memory_kind,
                                                      comp_format,
                                                      secondary_comp_format,
+                                                     decompress_backend,
                                                      compression_chunk_size,
                                                      compression_ratio_threshold,
                                                      secondary_compression_ratio_threshold,
@@ -2088,6 +2097,7 @@ void in_memory_write_task::execute_shared_memory()
 
         auto const use_cpu_compression = get_query_context()->parameters.use_cpu_compression;
         auto const compression_level   = get_query_context()->parameters.compression_level;
+        auto const decompress_backend  = get_query_context()->parameters.decompress_backend;
 
         auto dtype = input_column.type().id();
 
@@ -2103,13 +2113,15 @@ void in_memory_write_task::execute_shared_memory()
         // It's only used for logging.
         gqe::storage::compressed_column compressed_column(std::move(cudf_column),
                                                           comp_format,
+                                                          decompress_backend,
                                                           stream,
                                                           rmm::mr::get_current_device_resource(),
                                                           chunk_size,
                                                           compression_ratio_threshold,
                                                           use_cpu_compression,
                                                           compression_level,
-                                                          _column_names[column_idx]);
+                                                          _column_names[column_idx],
+                                                          cudf::data_type{cudf::type_id::EMPTY});
         segment.construct<gqe::storage::shared_compressed_column_base>(shared_column_name.c_str())(
           std::move(compressed_column), segment, stream, _non_owned_memory_resource);
       }

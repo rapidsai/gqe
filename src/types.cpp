@@ -83,6 +83,34 @@ std::string compression_format_to_string(compression_format comp_format) noexcep
   }
 }
 
+decompression_backend decompression_backend_from_string(std::string_view backend_str)
+{
+  std::string normalized(backend_str);
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+
+  if (normalized == "default") {
+    return decompression_backend::default_;
+  } else if (normalized == "sm") {
+    return decompression_backend::sm;
+  } else if (normalized == "de") {
+    return decompression_backend::de;
+  } else {
+    throw std::invalid_argument(std::format("Unrecognized decompress backend: {}", backend_str));
+  }
+}
+
+std::string decompression_backend_to_string(decompression_backend backend) noexcept
+{
+  switch (backend) {
+    case decompression_backend::default_: return "DEFAULT";
+    case decompression_backend::sm: return "SM";
+    case decompression_backend::de: return "DE";
+    default: return "UNKNOWN";
+  }
+}
+
 cpu_set::cpu_set()
 {
   auto cpu_set = CPU_ALLOC(max_count);

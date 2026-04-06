@@ -19,12 +19,11 @@
 
 #include "nvcomp_adapter.hpp"
 
+#include <gqe/device_properties.hpp>
 #include <gqe/utility/cuda.hpp>
 #include <gqe/utility/error.hpp>
 
 #include <cudf/utilities/pinned_memory.hpp>
-
-#include <cuda.h>
 
 #include <cstdio>
 #include <mutex>
@@ -36,6 +35,26 @@ namespace {
 bool is_algorithm_cpu_supported(gqe::compression_format comp_format)
 {
   return comp_format == gqe::compression_format::lz4;
+}
+
+// Validates that the requested decompression backend is supported on the current device,
+// throwing std::invalid_argument if not.
+void validate_decompression_backend(gqe::decompression_backend decompress_backend)
+{
+  if (decompress_backend != gqe::decompression_backend::de) { return; }
+
+  auto const device_id = rmm::get_current_cuda_device();
+  auto const device_supports_decomp =
+    gqe::device_properties::instance().get<gqe::device_properties::property::memDecompressSupport>(
+      device_id);
+  if (!device_supports_decomp) {
+    GQE_LOG_ERROR(
+      "Requested decompress_backend=DE but device {} does not support hardware "
+      "decompression (memDecompressSupport=false).",
+      device_id.value());
+    throw std::invalid_argument(
+      "Requested decompress_backend=DE on device without hardware decompression support");
+  }
 }
 
 // Helper function to dispatch compression to the appropriate adapter
@@ -80,6 +99,7 @@ namespace gqe {
 namespace storage {
 compression_manager::compression_manager(gqe::compression_format comp_format,
                                          gqe::compression_format secondary_compression_format,
+                                         gqe::decompression_backend decompress_backend,
                                          int compression_chunk_size,
                                          rmm::cuda_stream_view supplied_stream,
                                          rmm::device_async_resource_ref mr,
@@ -92,6 +112,7 @@ compression_manager::compression_manager(gqe::compression_format comp_format,
                                          cudf::data_type cudf_type)
   : _comp_format(comp_format),
     _secondary_comp_format(secondary_compression_format),
+    _decompress_backend(decompress_backend),
     _compression_chunk_size(compression_chunk_size),
     _column_name(column_name),
     _cudf_type(cudf_type),
@@ -101,32 +122,15 @@ compression_manager::compression_manager(gqe::compression_format comp_format,
     _use_cpu_compression(use_cpu_compression),
     _compression_level(compression_level)
 {
-  // Try a test allocation to see if we can access on the host
-
-  int device_id = 0;
-  GQE_CUDA_TRY(cudaGetDevice(&device_id));
-
-  int decompressSupportMask = 0;
-  CUresult result           = cuDeviceGetAttribute(
-    &decompressSupportMask, CU_DEVICE_ATTRIBUTE_MEM_DECOMPRESS_ALGORITHM_MASK, device_id);
-  if (result != CUDA_SUCCESS) {
-    const char* error_string = nullptr;
-    cuGetErrorString(result, &error_string);
-    GQE_LOG_ERROR("Failed to get device attribute MEM_DECOMPRESS_ALGORITHM_MASK for device {}: {}",
-                  device_id,
-                  error_string);
-    throw std::runtime_error("Failed to get device attribute MEM_DECOMPRESS_ALGORITHM_MASK");
-  }
-  const bool device_supports_decomp = static_cast<bool>(decompressSupportMask);
-
-  _decompress_backend =
-    device_supports_decomp ? NVCOMP_DECOMPRESS_BACKEND_HARDWARE : NVCOMP_DECOMPRESS_BACKEND_DEFAULT;
+  validate_decompression_backend(decompress_backend);
 
   GQE_LOG_TRACE(
-    "Created compression manager for column '{}': format={}, chunk_size={}, "
-    "cudf_type={}, use_cpu_compression={}, compression_level={}",
+    "Created compression manager for column '{}': format={}, decompress_backend={} (requested={}), "
+    "chunk_size={}, cudf_type={}, use_cpu_compression={}, compression_level={}",
     _column_name,
     gqe::compression_format_to_string(_comp_format),
+    gqe::decompression_backend_to_string(_decompress_backend),
+    gqe::decompression_backend_to_string(decompress_backend),
     _compression_chunk_size,
     _cudf_type,
     _use_cpu_compression,
@@ -609,7 +613,7 @@ double compression_manager::get_compression_ratio_threshold() const
   return _compression_ratio_threshold;
 }
 
-nvcompDecompressBackend_t compression_manager::get_decompress_backend() const
+gqe::decompression_backend compression_manager::get_decompress_backend() const
 {
   return _decompress_backend;
 }

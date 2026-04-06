@@ -47,8 +47,7 @@ option(GQE_ENABLE_QUERY_COMPILER "Enable the query compiler" OFF)
 option(GQE_ENABLE_SUBSTRAIT_PRODUCER "Enable the Substrait producer" OFF)
 option(GQE_ENABLE_FABRIC_SHARED_POOL_TESTS
        "Compile shared NUMA pool fabric-handle tests" OFF)
-# TODO: Update default to ON when GQE is ready for public release
-option(GQE_ENABLE_PUBLIC_BUILD "Enable building for external user" OFF)
+option(GQE_ENABLE_PUBLIC_BUILD "Enable building for external user" ON)
 set(GQE_NVCOMP_LIB_DIR
     ""
     CACHE

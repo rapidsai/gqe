@@ -60,11 +60,26 @@ tpch_queries:
     #- make -j30
     #- ctest --output-on-failure --exclude-regex parquet_reader
     #- popd
-    # Release build
+    #########################################################
+    # First run tests with public build (default)
+    #########################################################
+    - conda install -y libnvcomp-dev=5.2.0.10
     - rm -rf build
     - mkdir build
     - pushd build
     - cmake -DGQE_ENABLE_CUSTOMIZED_PARQUET=ON -G Ninja ..
+    - ninja -j30
+    # Set the initial query memory to 2GiB for the tests.  This is enough and allows greater concurrency for the tests.
+    - GQE_INITIAL_QUERY_MEMORY=$((2*1024*1024*1024)) GQE_MAX_QUERY_MEMORY=$((2*1024*1024*1024)) ctest --output-on-failure --exclude-regex parquet_reader
+    - popd
+    # TPC-H coverage for SF1
+    - GQE_INITIAL_QUERY_MEMORY=$((1024*1024*1024)) GQE_MAX_QUERY_MEMORY=$((2*1024*1024*1024)) GQE_LOG_LEVEL=warn bash ./test/end_to_end/run_tpc.sh h ./build /tpch_scratch/datasets/sf0.01/sf0.01_id64/ /tpch_scratch/reference_results/sf0.01 /tpch_scratch/substrait_plans/sf0.01/df_q%d.bin
+    #########################################################
+    # Repeat tests with private build (explicitly disable public build)
+    #########################################################
+    - conda remove -y libnvcomp
+    - pushd build
+    - cmake -DGQE_ENABLE_CUSTOMIZED_PARQUET=ON -DGQE_ENABLE_PUBLIC_BUILD=OFF -G Ninja ..
     - ninja -j30
     # Set the initial query memory to 2GiB for the tests.  This is enough and allows greater concurrency for the tests.
     - GQE_INITIAL_QUERY_MEMORY=$((2*1024*1024*1024)) GQE_MAX_QUERY_MEMORY=$((2*1024*1024*1024)) ctest --output-on-failure --exclude-regex parquet_reader

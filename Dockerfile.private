@@ -1,0 +1,9 @@
+# This Dockerfile is only intended for internal GQE development. Using it without the appropriate credentials is futile.
+
+# Specify the tag that the main Dockerfile is built under. Please update if not `gqe:public`.
+FROM gqe:public
+WORKDIR /
+
+# Remove nvcomp from the environment to avoid conflicts with the custom nvcomp
+RUN source activate gqe \
+    && conda remove libnvcomp-dev libnvcomp -y

@@ -1,0 +1,18 @@
+/build*/
+.cache/
+.idea/
+.vscode/
+/include/substrait/
+/substrait/proto/
+.devcontainer/*
+!.devcontainer/Dockerfile
+!.devcontainer/setup-devcontainer.sh
+!.devcontainer/aarch64/**/*
+!.devcontainer/x86_64/**/*
+compile_commands.json
+/rust/target/
+/rust/producer/target/
+/rust/output/
+
+# Emacs directory configuration
+.dir-locals.el

@@ -1,0 +1,45 @@
+# Git
+.git
+.gitignore
+.gitmodules
+
+# Build artifacts
+build/
+target/
+*.o
+*.so
+*.a
+*.dylib
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Documentation build
+docs/_build/
+
+# Test artifacts
+test/results/
+
+# Benchmark results
+benchmark/results/
+
+# Rust build artifacts
+rust/target/
+rust/Cargo.lock
+
+#Nsight Systems installer
+nsight-systems-*.deb

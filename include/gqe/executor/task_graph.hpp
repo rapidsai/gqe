@@ -1,0 +1,166 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#pragma once
+
+#include <gqe/catalog.hpp>
+#include <gqe/context_reference.hpp>
+#include <gqe/executor/optimization_parameters.hpp>
+#include <gqe/executor/task.hpp>
+#include <gqe/physical/relation.hpp>
+
+#include <memory>
+#include <unordered_map>
+#include <vector>
+
+namespace gqe {
+
+struct task_graph {
+  /**
+   * @brief Root tasks of the task graph.
+   *
+   * @note The task graph needs to share ownership of the root tasks so that the tasks in the task
+   * graph are not deallocated.
+   */
+  std::vector<std::shared_ptr<task>> root_tasks;
+
+  /**
+   * @brief Root tasks of each stage.
+   *
+   * Each root task represents the start point of a pipeline. The length of the outer vector is
+   * equal to the number of stages.
+   */
+  std::vector<std::vector<std::weak_ptr<task>>> stage_root_tasks;
+};
+
+/**
+ * @brief Execute the task graph on a single GPU.
+ *
+ * After this function call, the result tables of the root tasks in `task_graph_to_execute` are
+ * available to the local GPU.
+ *
+ * @param[in] context Context object containing execution environment info. This should usually be
+ * the same object as passed to the task graph builder.
+ * @param[in] task_graph The task graph to execute.
+ */
+void execute_task_graph_single_gpu(context_reference ctx_ref, task_graph const* task_graph);
+
+/**
+ * @brief Distribute and execute the task graph on multiple processes.
+ *
+ * @param[in] context Context object containing execution environment info. This should usually be
+ * the same object as passed to the task graph builder.
+ * @param[in] task_graph The task graph to execute.
+ */
+void execute_task_graph_multi_process(context_reference ctx_ref, task_graph const* task_graph);
+
+/**
+ * @brief A builder for generating a task graph from a physical plan.
+ */
+class task_graph_builder {
+ public:
+  /**
+   * @brief Construct a task graph builder object.
+   *
+   * @param[in] ctx_ref Context object containing pointers to objects with execution environment
+   * info.
+   * @param[in] catalog Catalog containing file locations and data types of the input tables.
+   */
+  task_graph_builder(context_reference ctx_ref, catalog const* catalog);
+
+  /**
+   * @brief Generate a new task graph.
+   *
+   * @param[in] root_relation Root relation of the physical plan.
+   *
+   * @return The generated task graph.
+   */
+  std::unique_ptr<task_graph> build(physical::relation* root_relation);
+
+ private:
+  // Helper function for generate tasks of a physical relation.
+  std::vector<std::shared_ptr<task>> generate_tasks(physical::relation* relation);
+
+  // Helper function for concatenate the input tasks
+  std::shared_ptr<task> concatenate(std::vector<std::shared_ptr<task>> input_tasks,
+                                    bool is_pipeline_breaker = true);
+
+  // Helper function for generating partition tasks for shuffle join
+  std::vector<std::shared_ptr<task>> generate_partition_tasks(
+    physical::relation* child_relation, std::vector<expression*> const& partition_condition);
+
+  // A physical relation visitor used for generating a task graph for the physical relation and its
+  // descendants.
+  //
+  // Since the visitor stores the generated tasks in the member variable `_generated_tasks`, the
+  // visitor should not be reused.
+  struct generate_task_graph_visitor : public physical::relation_visitor {
+    generate_task_graph_visitor(task_graph_builder* builder) : _builder(builder) {}
+
+    void visit(physical::read_relation* relation) override;
+    void visit(physical::write_relation* relation) override;
+    void visit(physical::broadcast_join_relation* relation) override;
+    void visit(physical::shuffle_join_relation* relation) override;
+    void visit(physical::project_relation* relation) override;
+    void visit(physical::concatenate_sort_relation* relation) override;
+    void visit(physical::filter_relation* relation) override;
+    void visit(physical::concatenate_aggregate_relation* relation) override;
+    void visit(physical::fetch_relation* relation) override;
+    void visit(physical::window_relation* relation) override;
+    void visit(physical::union_all_relation* relation) override;
+    void visit(physical::user_defined_relation* relation) override;
+    void visit(physical::gen_ident_col_relation* relation) override;
+    void visit(physical::shuffle_relation* relation) override;
+
+    // Check the task cache in `_builder`. If the relation is found in the cache, the retrieved
+    // tasks are copied to `_generated_tasks`, and the function returns true. Otherwise, the
+    // function returns false.
+    bool is_cached(physical::relation* relation);
+    // Update the task cache in `_builder` with _generated_tasks.
+    void update_cache(physical::relation* relation);
+
+    task_graph_builder* _builder;
+    std::vector<std::shared_ptr<task>> _generated_tasks;
+  };
+
+  // `root_tasks` contains the tasks passed to the parent relation
+  void insert_pipeline_breaker(std::vector<std::shared_ptr<task>> root_tasks)
+  {
+    std::vector<std::weak_ptr<task>> current_stage_tasks;
+    int32_t pipeline_id = 0;
+    for (auto const& task : root_tasks) {
+      // Checking the stage is necessary because a task from `root_tasks` can belong to a previous
+      // stage.
+      if (task->stage_id() == _current_stage_id) {
+        current_stage_tasks.push_back(task);
+        task->assign_pipeline(pipeline_id++);  // assign pipeline id starting at this task as root
+      }
+    }
+
+    _stage_root_tasks.push_back(std::move(current_stage_tasks));
+    _current_stage_id++;
+  }
+
+  context_reference _ctx_ref;
+  catalog const* _catalog;
+  std::vector<std::vector<std::weak_ptr<task>>> _stage_root_tasks = {};
+  int32_t _current_stage_id                                       = 0;
+  int32_t _current_task_id                                        = 0;
+  std::unordered_map<physical::relation*, std::vector<std::weak_ptr<task>>> _tasks_cache;
+};
+
+}  // namespace gqe

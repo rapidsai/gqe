@@ -1,0 +1,489 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include <gqe/types.hpp>
+
+#include <gqe/device_properties.hpp>
+#include <gqe/query_context.hpp>
+#include <gqe/utility/cuda.hpp>
+#include <gqe/utility/helpers.hpp>
+#include <gqe/utility/linux.hpp>
+
+#include <boost/container_hash/hash.hpp>
+
+#include <sched.h>   // CPU_SET
+#include <unistd.h>  // sysconf
+
+#include <bitset>
+#include <cstring>  // memcpy
+#include <sstream>
+
+namespace gqe {
+
+compression_format compression_format_from_string(std::string const& format_str)
+{
+  if (format_str == "none") {
+    return compression_format::none;
+  } else if (format_str == "ans") {
+    return compression_format::ans;
+  } else if (format_str == "lz4") {
+    return compression_format::lz4;
+  } else if (format_str == "snappy") {
+    return compression_format::snappy;
+  } else if (format_str == "gdeflate") {
+    return compression_format::gdeflate;
+  } else if (format_str == "deflate") {
+    return compression_format::deflate;
+  } else if (format_str == "cascaded") {
+    return compression_format::cascaded;
+  } else if (format_str == "zstd") {
+    return compression_format::zstd;
+  } else if (format_str == "gzip") {
+    return compression_format::gzip;
+  } else if (format_str == "bitcomp") {
+    return compression_format::bitcomp;
+  } else if (format_str == "best_compression_ratio") {
+    return compression_format::best_compression_ratio;
+  } else if (format_str == "best_decompression_speed") {
+    return compression_format::best_decompression_speed;
+  } else {
+    throw std::invalid_argument("Unrecognized compression format: " + format_str);
+  }
+}
+
+std::string compression_format_to_string(compression_format comp_format) noexcept
+{
+  switch (comp_format) {
+    case compression_format::none: return "NONE";
+    case compression_format::lz4: return "LZ4";
+    case compression_format::snappy: return "SNAPPY";
+    case compression_format::ans: return "ANS";
+    case compression_format::cascaded: return "CASCADED";
+    case compression_format::gdeflate: return "GDEFLATE";
+    case compression_format::deflate: return "DEFLATE";
+    case compression_format::zstd: return "ZSTD";
+    case compression_format::bitcomp: return "BITCOMP";
+    case compression_format::best_compression_ratio: return "BEST_COMPRESSION_RATIO";
+    case compression_format::best_decompression_speed: return "BEST_DECOMPRESSION_SPEED";
+    default: return "UNKNOWN";
+  }
+}
+
+decompression_backend decompression_backend_from_string(std::string_view backend_str)
+{
+  std::string normalized(backend_str);
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+
+  if (normalized == "default") {
+    return decompression_backend::default_;
+  } else if (normalized == "sm") {
+    return decompression_backend::sm;
+  } else if (normalized == "de") {
+    return decompression_backend::de;
+  } else {
+    throw std::invalid_argument(std::format("Unrecognized decompress backend: {}", backend_str));
+  }
+}
+
+std::string decompression_backend_to_string(decompression_backend backend) noexcept
+{
+  switch (backend) {
+    case decompression_backend::default_: return "DEFAULT";
+    case decompression_backend::sm: return "SM";
+    case decompression_backend::de: return "DE";
+    default: return "UNKNOWN";
+  }
+}
+
+cpu_set::cpu_set()
+{
+  auto cpu_set = CPU_ALLOC(max_count);
+  CPU_ZERO_S(CPU_ALLOC_SIZE(max_count), cpu_set);
+  _cpu_set = cpu_set;
+}
+
+cpu_set::cpu_set(int cpu_id)
+{
+  assert(cpu_id >= 0 && cpu_id < max_count);
+
+  auto cpu_set = CPU_ALLOC(max_count);
+  CPU_ZERO_S(CPU_ALLOC_SIZE(max_count), cpu_set);
+  CPU_SET_S(cpu_id, CPU_ALLOC_SIZE(max_count), cpu_set);
+
+  _cpu_set = cpu_set;
+}
+
+cpu_set::cpu_set(const cpu_set_t& other, const int32_t num_cpus)
+{
+  assert(num_cpus <= cpu_set::max_count);
+
+  auto cpu_set = CPU_ALLOC(max_count);
+  CPU_ZERO_S(CPU_ALLOC_SIZE(max_count), cpu_set);
+
+  auto bytes = CPU_ALLOC_SIZE(num_cpus);
+  std::memcpy(cpu_set, &other, bytes);
+
+  _cpu_set = cpu_set;
+}
+
+cpu_set::cpu_set(const cpu_set& other)
+{
+  auto cpu_set = CPU_ALLOC(max_count);
+  std::memcpy(cpu_set, other._cpu_set, CPU_ALLOC_SIZE(max_count));
+  _cpu_set = cpu_set;
+}
+
+cpu_set::~cpu_set()
+{
+  CPU_FREE(_cpu_set);
+  _cpu_set = nullptr;
+}
+
+cpu_set& cpu_set::operator=(const cpu_set& other)
+{
+  if (this != &other) { std::memcpy(_cpu_set, other._cpu_set, CPU_ALLOC_SIZE(max_count)); }
+
+  return *this;
+}
+
+cpu_set& cpu_set::add(int cpu_id) noexcept
+{
+  assert(cpu_id >= 0 && cpu_id < max_count);
+
+  CPU_SET_S(cpu_id, CPU_ALLOC_SIZE(max_count), _cpu_set);
+
+  return *this;
+}
+
+cpu_set& cpu_set::zero() noexcept
+{
+  CPU_ZERO(_cpu_set);
+
+  return *this;
+}
+
+bool cpu_set::contains(int cpu_id) const noexcept
+{
+  assert(cpu_id >= 0 && cpu_id < max_count);
+
+  return CPU_ISSET_S(cpu_id, CPU_ALLOC_SIZE(max_count), _cpu_set);
+}
+
+int cpu_set::count() const noexcept { return CPU_COUNT_S(CPU_ALLOC_SIZE(max_count), _cpu_set); }
+
+bool cpu_set::empty() const noexcept { return count() == 0; }
+
+int cpu_set::front() const
+{
+  for (int i = 0; i < max_count; ++i) {
+    if (contains(i)) { return i; }
+  }
+  throw std::logic_error("Undefined behavior: cpu_set::front() called on empty set");
+}
+
+int cpu_set::back() const
+{
+  for (int i = max_count - 1; i >= 0; --i) {
+    if (contains(i)) { return i; }
+  }
+  throw std::logic_error("Undefined behavior: cpu_set::back() called on empty set");
+}
+
+const unsigned long* cpu_set::bits() const noexcept
+{
+  // "man 3 CPU_SET" says that the allocation is rounded up to the next
+  // multiple of sizeof(unsigned long).
+  return reinterpret_cast<const unsigned long*>(_cpu_set);
+}
+
+unsigned long* cpu_set::bits() noexcept
+{
+  // "man 3 CPU_SET" says that the allocation is rounded up to the next
+  // multiple of sizeof(unsigned long).
+  return reinterpret_cast<unsigned long*>(_cpu_set);
+}
+
+std::string cpu_set::pretty_print() const
+{
+  // "man 3 CPU_SET" says that the allocation is rounded up to the next
+  // multiple of sizeof(unsigned long).
+  auto bits = this->bits();
+
+  std::stringstream ss;
+  std::size_t i = qword_count - 1;
+  do {
+    ss << std::bitset<sizeof(unsigned long) * CHAR_BIT>(bits[i]);
+  } while (i-- > 0);
+
+  return ss.str();
+}
+
+bool cpu_set::operator==(cpu_set const& other) const noexcept
+{
+  return CPU_EQUAL_S(CPU_ALLOC_SIZE(max_count), _cpu_set, other._cpu_set);
+}
+
+scoped_cpu_affinity::scoped_cpu_affinity()
+{
+  utility::get_thread_affinity(_prev_mask);
+  utility::set_thread_affinity_fullmask();
+}
+
+scoped_cpu_affinity::~scoped_cpu_affinity() { utility::set_thread_affinity(_prev_mask); }
+
+page_kind::page_kind() {}
+
+page_kind::page_kind(type type) : _type(type) {}
+
+page_kind::type page_kind::value() const noexcept { return _type; };
+
+std::size_t page_kind::size() const noexcept
+{
+  switch (_type) {
+    case type::system_default:
+    case type::small:
+    case type::transparent_huge: return ::sysconf(_SC_PAGESIZE);
+    case type::huge2mb: return std::size_t{1} << 21;
+    case type::huge1gb: return std::size_t{1} << 30;
+  };
+
+  // Should never be reached
+  return 0;
+}
+
+bool memory_kind::is_gpu_accessible(memory_kind::type type)
+{
+  // Check if zero copy is legal
+  auto check_pageable_access =
+    device_properties::instance().get<device_properties::property::pageableMemoryAccess>();
+
+  return std::visit(
+    utility::overloaded{
+      [&](memory_kind::system) { return check_pageable_access; },
+      [&](memory_kind::numa) { return check_pageable_access; },
+      [&](memory_kind::pinned) -> bool {
+        return device_properties::instance().get<device_properties::property::unifiedAddressing>();
+      },
+      [&](memory_kind::numa_pinned) -> bool {
+        return device_properties::instance().get<device_properties::property::unifiedAddressing>();
+      },
+      [](memory_kind::device) { return true; },
+      [&](memory_kind::managed) -> bool {
+        return device_properties::instance().get<device_properties::property::managedMemory>();
+      },
+      [&](memory_kind::boost_shared) -> bool {
+        return device_properties::instance().get<device_properties::property::unifiedAddressing>();
+      },
+      [&](memory_kind::numa_pool) -> bool {
+        return device_properties::instance().get<device_properties::property::unifiedAddressing>();
+      },
+      [&](memory_kind::shared_numa_pool) -> bool {
+        return device_properties::instance().get<device_properties::property::unifiedAddressing>();
+      }},
+    type);
+}
+
+bool memory_kind::is_cpu_accessible(memory_kind::type type)
+{
+  return std::visit(utility::overloaded{
+                      [&](memory_kind::system) { return true; },
+                      [&](memory_kind::numa) { return true; },
+                      [&](memory_kind::pinned) { return true; },
+                      [&](memory_kind::numa_pinned) { return true; },
+                      [&](memory_kind::managed) { return true; },
+                      [&](memory_kind::boost_shared) { return true; },
+                      [&](memory_kind::numa_pool) { return true; },
+                      [&](memory_kind::shared_numa_pool) { return true; },
+                      [&](memory_kind::device) { return false; },
+                    },
+                    type);
+}
+
+bool memory_kind::system::operator==(system const&) const = default;
+
+memory_kind::numa::numa(cpu_set node_set, gqe::page_kind::type pk)
+  : numa_node_set(std::move(node_set)), page_kind(pk)
+{
+}
+
+memory_kind::numa::numa(gqe::page_kind::type pk)
+  : numa_node_set(device_properties::instance().get<device_properties::property::memoryAffinity>()),
+    page_kind(pk)
+{
+}
+
+bool memory_kind::numa::operator==(numa const& other) const
+{
+  return numa_node_set == other.numa_node_set && page_kind == other.page_kind;
+}
+
+bool memory_kind::pinned::operator==(pinned const& other) const = default;
+
+memory_kind::numa_pinned::numa_pinned(cpu_set node_set, gqe::page_kind::type pk)
+  : numa_node_set(std::move(node_set)), page_kind(pk)
+{
+}
+
+memory_kind::numa_pinned::numa_pinned(gqe::page_kind::type pk)
+  : numa_node_set(device_properties::instance().get<device_properties::property::memoryAffinity>()),
+    page_kind(pk)
+{
+}
+
+bool memory_kind::numa_pinned::operator==(numa_pinned const& other) const
+{
+  return numa_node_set == other.numa_node_set && page_kind == other.page_kind;
+}
+
+bool memory_kind::device::operator==(device const& other) const
+{
+  return device_id == other.device_id;
+}
+
+bool memory_kind::managed::operator==(managed const& other) const = default;
+
+bool memory_kind::boost_shared::operator==(boost_shared const& other) const = default;
+
+memory_kind::numa_pool::numa_pool(int numa_node_id) : numa_node_id(numa_node_id) {}
+
+memory_kind::numa_pool::numa_pool()
+  : numa_node_id(device_properties::instance().get<device_properties::hostNumaId>())
+{
+}
+
+bool memory_kind::numa_pool::operator==(numa_pool const& other) const
+{
+  return numa_node_id == other.numa_node_id;
+}
+
+memory_kind::shared_numa_pool::shared_numa_pool(int numa_node_id) : numa_node_id(numa_node_id) {}
+
+memory_kind::shared_numa_pool::shared_numa_pool()
+  : numa_node_id(device_properties::instance().get<device_properties::hostNumaId>())
+{
+}
+
+bool memory_kind::shared_numa_pool::operator==(shared_numa_pool const& other) const
+{
+  return numa_node_id == other.numa_node_id;
+}
+
+std::size_t memory_kind::type_hash::operator()(memory_kind::type const& type) const
+{
+  std::size_t h = boost::hash_value(type.index());
+  std::visit(utility::overloaded{
+               [](system const&) {},
+               [&h](numa const& n) {
+                 boost::hash_combine(h, static_cast<int>(n.page_kind));
+                 for (int i = 0; i < cpu_set::max_count; ++i) {
+                   if (n.numa_node_set.contains(i)) { boost::hash_combine(h, i); }
+                 }
+               },
+               [](pinned const&) {},
+               [&h](numa_pinned const& n) {
+                 boost::hash_combine(h, static_cast<int>(n.page_kind));
+                 for (int i = 0; i < cpu_set::max_count; ++i) {
+                   if (n.numa_node_set.contains(i)) { boost::hash_combine(h, i); }
+                 }
+               },
+               [&h](device const& d) { boost::hash_combine(h, d.device_id.value()); },
+               [](managed const&) {},
+               [](boost_shared const&) {},
+               [&h](numa_pool const& n) { boost::hash_combine(h, n.numa_node_id); },
+               [&h](shared_numa_pool const& n) { boost::hash_combine(h, n.numa_node_id); }},
+             type);
+  return h;
+}
+
+fixed_width_compression_statistics& fixed_width_compression_statistics::operator+=(
+  const fixed_width_compression_statistics& other)
+{
+  num_compressed_row_groups += other.num_compressed_row_groups;
+  compressed_size += other.compressed_size;
+  uncompressed_size += other.uncompressed_size;
+  primary_compressed_size += other.primary_compressed_size;
+  secondary_compressed_size += other.secondary_compressed_size;
+  num_primary_compressed_row_groups += other.num_primary_compressed_row_groups;
+  num_secondary_compressed_row_groups += other.num_secondary_compressed_row_groups;
+  return *this;
+}
+
+string_compression_statistics& string_compression_statistics::operator+=(
+  const string_compression_statistics& other)
+{
+  offsets_stats += other.offsets_stats;
+  chars_stats += other.chars_stats;
+  return *this;
+}
+
+table_statistics::table_statistics(int64_t num_rows_, std::vector<cudf::data_type>& column_types)
+{
+  num_rows    = num_rows_;
+  num_columns = column_types.size();
+  column_stats.reserve(num_columns);
+  for (size_t i = 0; i < column_types.size(); ++i) {
+    const auto& col_type = column_types[i];
+    if (col_type.id() == cudf::type_id::STRING) {
+      column_stats.emplace_back(
+        column_statistics{.column_id = i, .compression_stats = string_compression_statistics{}});
+    } else {
+      column_stats.emplace_back(column_statistics{
+        .column_id = i, .compression_stats = fixed_width_compression_statistics{}});
+    }
+  }
+}
+
+namespace detail {
+void add_compression_stats(column_compression_statistics& lhs,
+                           const column_compression_statistics& rhs)
+{
+  std::visit(
+    [](auto& left, const auto& right) {
+      using LT = std::decay_t<decltype(left)>;
+      using RT = std::decay_t<decltype(right)>;
+
+      if constexpr (std::is_same_v<LT, RT>) {
+        left += right;
+      } else {
+        throw std::logic_error("Type mismatch in compression statistics");
+      }
+    },
+    lhs,
+    rhs);
+}
+}  // namespace detail
+
+void table_statistics::add_column_statistics(const column_statistics& col_stats)
+{
+  auto& target_stats       = column_stats[col_stats.column_id].compression_stats;
+  const auto& source_stats = col_stats.compression_stats;
+
+  detail::add_compression_stats(target_stats, source_stats);
+}
+
+void table_statistics::append_table_statistics(const table_statistics& new_stats)
+{
+  num_rows += new_stats.num_rows;
+  for (size_t i = 0; i < num_columns; ++i) {
+    detail::add_compression_stats(column_stats[i].compression_stats,
+                                  new_stats.column_stats[i].compression_stats);
+  }
+  num_row_groups += 1;
+}
+}  // namespace gqe

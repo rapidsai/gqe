@@ -1,0 +1,86 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#pragma once
+
+#include <gqe/context_reference.hpp>
+#include <gqe/executor/task.hpp>
+#include <gqe/expression/expression.hpp>
+#include <gqe/types.hpp>
+
+#include <cudf/detail/aggregation/aggregation.hpp>
+#include <cudf/rolling.hpp>
+
+#include <memory>
+#include <utility>
+#include <vector>
+
+namespace gqe {
+
+class window_task : public task {
+ public:
+  /**
+   * @brief Construct a window task. Currently only works on a single partition.
+   *
+   * @param[in] ctx_ref The context in which the current task is running in.
+   * @param[in] input Input table containing columns necessary for the window function
+   * @param[in] subquery_relations Subquery relations that are referenced within the given
+   * expressions.
+   * @param[in] aggr_func The mathematical function used to aggregate rows inside the current
+   * window.
+   * @param[in] ident_cols Columns that are processed during the window function before being
+   * prepended to the output column. Used to merge the result back into the result table.
+   * @param[in] arguments Columns on which the window function is to be performed.
+   * @param[in] partition_by Columns which are used to group the input table before windowing.
+   * @param[in] order_by Columns which are used to order the grouped input table before windowing.
+   * @param[in] lower_window_bound Number of rows by which window frame extends beyond the current
+   * row index. Has type window_frame_bound::unbounded if the window extends to the boundary of the
+   * partition and window_frame_bound::bounded otherwise.
+   * @param[in] upper_window_bound Number of rows by which window frame extends above the current
+   * row index. Has type window_frame_bound::unbounded if the window extends to the boundary of the
+   * partition and window_frame_bound::bounded otherwise.
+   */
+  window_task(context_reference ctx_ref,
+              int32_t task_id,
+              int32_t stage_id,
+              std::shared_ptr<task> input,
+              cudf::aggregation::Kind aggr_func,
+              std::vector<std::unique_ptr<expression>> ident_cols,
+              std::vector<std::unique_ptr<expression>> arguments,
+              std::vector<std::unique_ptr<expression>> partition_by,
+              std::vector<std::unique_ptr<expression>> order_by,
+              std::vector<cudf::order> order_dirs,
+              window_frame_bound::type window_lower_bound,
+              window_frame_bound::type window_upper_bound);
+
+  /**
+   * @copydoc gqe::task::execute()
+   */
+  void execute() override;
+
+ private:
+  cudf::aggregation::Kind _aggr_func;
+  std::vector<std::unique_ptr<expression>> _ident_cols;
+  std::vector<std::unique_ptr<expression>> _arguments;
+  std::vector<std::unique_ptr<expression>> _partition_by;
+  std::vector<std::unique_ptr<expression>> _order_by;
+  std::vector<cudf::order> _order_dirs;
+  window_frame_bound::type _window_lower_bound;
+  window_frame_bound::type _window_upper_bound;
+};
+
+}  // namespace gqe

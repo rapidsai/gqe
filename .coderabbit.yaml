@@ -1,0 +1,40 @@
+reviews:
+  profile: chill
+  high_level_summary: false
+  high_level_summary_in_walkthrough: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "^main$"
+    ignore_usernames: []
+  tools:
+    markdownlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    gitleaks:
+      enabled: true
+  sequence_diagrams: false
+  collapse_walkthrough: true
+
+  # Reduce noise from status messages
+  request_changes_workflow: false
+  review_status: false
+
+  # Path-specific review instructions
+  # Note: Detailed C++/CUDA guidelines are in REVIEW_GUIDELINES_CPP.md
+  path_instructions:
+    - path: "docs/**/*"
+      instructions: |
+        For documentation changes, focus on:
+        - Accuracy: Verify code examples against public API
+        - Consistency: Look out for conflicting information
+
+knowledge_base:
+  opt_out: false
+  code_guidelines:
+    filePatterns:
+      - "CONTRIBUTING.md"
+      - "REVIEW_GUIDELINES_CPP.md"

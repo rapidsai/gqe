@@ -1,0 +1,218 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include <gqe/executor/task.hpp>
+
+#include <gqe/context_reference.hpp>
+#include <gqe/qep/shapes/row_count.hpp>
+#include <gqe/qep/state.hpp>
+#include <gqe/query_context.hpp>
+#include <gqe/task_manager_context.hpp>
+#include <gqe/utility/helpers.hpp>
+
+#include <cudf/table/table.hpp>
+#include <cudf/table/table_view.hpp>
+#include <cudf/types.hpp>
+#include <proto/task.pb.h>
+
+#include <cstddef>
+#include <stack>
+#include <stdexcept>
+#include <variant>
+namespace gqe {
+
+task::task(context_reference ctx_ref,
+           int32_t task_id,
+           int32_t stage_id,
+           std::vector<std::shared_ptr<task>> dependencies,
+           std::vector<std::shared_ptr<task>> subqueries)
+  : _ctx_ref(ctx_ref),
+    _task_id(task_id),
+    _stage_id(stage_id),
+    _dependencies(std::move(dependencies)),
+    _subqueries(std::move(subqueries)),
+    _status(status_type::not_started)
+{
+  assert(ctx_ref._task_manager_context != nullptr);
+  assert(ctx_ref._query_context != nullptr);
+}
+
+std::optional<cudf::table_view> task::result() const
+{
+  if (_status != status_type::finished) { return std::nullopt; }
+
+  cudf::table_view view = std::visit(
+    utility::overloaded{[](const result_kind::owned& result) { return result.table->view(); },
+                        [](const result_kind::borrowed& result) { return result.view; },
+                        [](const result_kind::qep_state& result) {
+                          auto view = qep::to_table_view(result.container);
+                          GQE_EXPECTS(
+                            view.has_value(),
+                            "task::result(): qep_state container is not zero-cost convertible to a "
+                            "cudf::table_view");
+                          return *view;
+                        }},
+    _result);
+
+  return {view};
+}
+std::optional<bool> task::is_result_owned() const noexcept
+{
+  if (_status != status_type::finished) { return std::nullopt; }
+  auto owned = std::visit(utility::overloaded{[](const result_kind::owned&) { return true; },
+                                              [](const result_kind::borrowed&) { return false; },
+                                              [](const result_kind::qep_state&) { return false; }},
+                          _result);
+  GQE_LOG_DEBUG("task::is_result_owned() = {}", owned);
+  return {owned};
+}
+
+std::optional<qep::state_container> task::qep_state_result() const
+{
+  if (_status != status_type::finished) { return std::nullopt; }
+
+  // A count-only relation (e.g. `SELECT COUNT(*)`) carries N rows but no data columns. The
+  // legacy executor represents this in two shapes:
+  //   (a) zero-column table with `num_rows() == N`, or
+  //   (b) one phantom column of `type_id::EMPTY` and `size() == N`.
+  // Both must lower to a `[row_count{N}]` state container.
+  auto const as_count_only = [](cudf::table_view const& view) -> std::optional<cudf::size_type> {
+    if (view.num_columns() == 0) { return view.num_rows(); }
+    if (view.num_columns() == 1 && view.column(0).type().id() == cudf::type_id::EMPTY) {
+      return view.column(0).size();
+    }
+    return std::nullopt;
+  };
+
+  return std::visit(
+    utility::overloaded{[&](const result_kind::owned& result) {
+                          auto const view = result.table->view();
+                          if (auto const count = as_count_only(view)) {
+                            return qep::make_row_count_container(*count);
+                          }
+                          return qep::state_container_builder().add_state(view).build();
+                        },
+                        [&](const result_kind::borrowed& result) {
+                          if (auto const count = as_count_only(result.view)) {
+                            return qep::make_row_count_container(*count);
+                          }
+                          return qep::state_container_builder().add_state(result.view).build();
+                        },
+                        [](const result_kind::qep_state& result) {
+                          return qep::make_mutable_state_copy(
+                            qep::state_container_view(result.container));
+                        }},
+    _result);
+}
+
+// The host sync on every `emit_result` overload is load-bearing under PTDS — see the
+// `Result emitters` Doxygen section in `executor/task.hpp` for the rationale. Do not
+// remove without first replacing PTDS with explicit cross-thread stream ordering.
+
+void task::emit_result(std::unique_ptr<cudf::table> new_result)
+{
+  cudf::get_default_stream().synchronize();
+  _result = result_kind::owned{std::move(new_result)};
+  _status = status_type::finished;
+}
+
+void task::emit_result(cudf::table_view new_result)
+{
+  cudf::get_default_stream().synchronize();
+  _result = result_kind::borrowed{new_result};
+  _status = status_type::finished;
+}
+
+void task::emit_result(qep::state_container&& new_result)
+{
+  cudf::get_default_stream().synchronize();
+  _result = result_kind::qep_state{std::move(new_result)};
+  _status = status_type::finished;
+}
+
+void task::fail() { _status = status_type::failed; }
+
+std::vector<task*> task::dependencies() const noexcept
+{
+  return utility::to_raw_ptrs(_dependencies);
+}
+
+std::vector<task*> task::subqueries() const noexcept { return utility::to_raw_ptrs(_subqueries); }
+
+void task::prepare_dependent_tasks(std::vector<std::shared_ptr<task>>& dependent_tasks)
+{
+  for (auto const& dependent_task : dependent_tasks) {
+    auto expected = status_type::not_started;
+    if (dependent_task->_status.compare_exchange_strong(expected, status_type::in_progress)) {
+      if (dependent_task->stage_id() == this->stage_id()) {
+        // If the dependent task belongs to the same stage, it has not been executed by any other
+        // GPUs, so the current GPU executes the task.
+        try {
+          dependent_task->execute();
+        } catch (const std::exception&) {
+          dependent_task->fail();
+          throw;
+        }
+      } else if (dependent_task->stage_id() < this->stage_id()) {
+        // If the dependent task belongs to a previous stage, it has already been executed by
+        // another GPU, so we migrate the result to the current GPU.
+        auto task_manager_context =
+          dynamic_cast<multi_process_task_manager_context*>(_ctx_ref._task_manager_context);
+        if (task_manager_context == nullptr) {
+          throw std::logic_error("Dependent task from previous stage is not executed.");
+        }
+        auto candidate_ranks =
+          task_manager_context->scheduler->get_execution_ranks(dependent_task.get());
+        task_manager_context->migration_client->migrate_result(dependent_task.get(),
+                                                               candidate_ranks);
+      } else {
+        throw std::logic_error("Dependent task belongs to a later stage than the current task");
+      }
+    } else {
+      while (dependent_task->_status != status_type::finished &&
+             dependent_task->_status != status_type::failed) {}
+      if (dependent_task->_status == status_type::failed) {
+        throw std::runtime_error("Dependent task failed execution");
+      }
+    }
+  }
+}
+
+void task::prepare_dependencies()
+{
+  prepare_dependent_tasks(_dependencies);
+  prepare_dependent_tasks(_subqueries);
+}
+
+void task::assign_pipeline(int32_t pipeline_id) noexcept
+{
+  std::stack<task*> tasks;
+  tasks.push(this);
+  while (!tasks.empty()) {
+    auto current_task = tasks.top();
+    tasks.pop();
+    current_task->_pipeline_ids.insert(pipeline_id);
+    for (auto dependency : current_task->dependencies()) {
+      if (dependency->stage_id() == this->stage_id()) { tasks.push(dependency); }
+    }
+    for (auto subquery : current_task->subqueries()) {
+      if (subquery->stage_id() == this->stage_id()) { tasks.push(subquery); }
+    }
+  }
+}
+
+}  // namespace gqe

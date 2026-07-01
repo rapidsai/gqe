@@ -1,0 +1,49 @@
+name: gqe
+channels:
+  - rapidsai
+  - conda-forge
+  - nvidia
+dependencies:
+  - libxml2<2.14
+  - libnuma
+  - numactl
+  - rust
+  - python=3.12
+  - cuda-cccl
+  - cuda-cudart
+  - cuda-cudart-dev
+  - cuda-cupti
+  - cuda-cupti-dev
+  - cuda-nvcc
+  - cuda-nvml-dev
+  - cuda-nvrtc-dev
+  - cuda-nvtx-dev
+  - cuda-version=12.9
+  - cuda-command-line-tools
+  - libcufile-dev
+  - cmake
+  - c-compiler
+  - cxx-compiler
+  - conda-pack
+  - clang-tools=20.1.4
+  - gcc_linux-64=14.*
+  - sysroot_linux-64==2.28
+  - libprotobuf=5.28.*
+  - librmm=26.6.*
+  - pandas
+  - pyarrow==19.0.1
+  - pybind11=2.13.6
+  - thrift-compiler=0.21
+  - libthrift=0.21
+  - zlib>=1.2.13  # libthrift checks zlib during CMake configuration, but conda-forge doesn't install it automatically
+  - libnvcomp-dev==5.2.0.10
+  - libnvjitlink-dev
+  - liburing
+  - libnvshmem-static==3.2.5
+  - spdlog=1.15.3
+  - fmt=11.1.4
+  - tbb-devel
+  - libboost-devel=1.87.0
+  - pre-commit
+  - uv=0.10.4
+  - nccl

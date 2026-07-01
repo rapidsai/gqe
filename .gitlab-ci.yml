@@ -1,0 +1,156 @@
+stages:
+  - test
+
+variables:
+  GQE_DEFAULT_IMAGE: "gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_x86_64"
+  GQE_MR_IMAGE: "gitlab-master.nvidia.com:5005/devtech-compute/gqe:$CI_COMMIT_REF_SLUG"
+
+  # Compiler caches and dep sources on host-mounted runner volumes.
+  # ccache wraps C/C++/CUDA via the CMAKE_*_COMPILER_LAUNCHER hooks in
+  # CMakeLists.txt; sccache wraps rustc via RUSTC_WRAPPER (Rust only).
+  CARGO_HOME: /cargo_home
+  CPM_SOURCE_CACHE: /cpm_cache
+  CCACHE_DIR: /ccache_files
+  SCCACHE_DIR: /sccache_cache
+  RUSTC_WRAPPER: sccache
+  # Long-lived sccache daemon so --show-stats reflects in-memory counters
+  # accurately across stages within a job (default 600s timeout would cause
+  # the daemon to exit between ninja and a later stats query).
+  SCCACHE_IDLE_TIMEOUT: "0"
+
+  FF_ENABLE_JOB_CLEANUP: "true"
+
+  DOCKER_IMAGE: $GQE_DEFAULT_IMAGE
+
+code_style:
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - Dockerfile
+        - conda/docker-aarch64.yml
+        - conda/docker-x86_64.yml
+      variables:
+        DOCKER_IMAGE: $GQE_MR_IMAGE
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  image: $DOCKER_IMAGE
+  before_script:
+    - source /conda/bin/activate gqe
+  script:
+    - pre-commit run --all-files --show-diff-on-failure
+
+tpch_queries:
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - Dockerfile
+        - conda/docker-aarch64.yml
+        - conda/docker-x86_64.yml
+      variables:
+        DOCKER_IMAGE: $GQE_MR_IMAGE
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  image: $DOCKER_IMAGE
+  before_script:
+    - source /conda/bin/activate gqe
+    # `source activate gqe` scrubs/overrides several env vars set in the
+    # `variables:` block (notably CARGO_HOME, CPM_SOURCE_CACHE, RUSTC_WRAPPER).
+    # Re-export them so cargo + CPM see the host-mounted paths.
+    - export CARGO_HOME=/cargo_home CPM_SOURCE_CACHE=/cpm_cache
+    - export CCACHE_DIR=/ccache_files
+    - export SCCACHE_DIR=/sccache_cache RUSTC_WRAPPER=sccache SCCACHE_IDLE_TIMEOUT=0
+    # Start sccache server explicitly so it's long-lived across stages.
+    - sccache --start-server || true
+    # Ensure /dev/shm is large enough for the Flight SQL shared memory segment.
+    - mount -o remount,size=2G /dev/shm || true
+    # NVSHMEM's UID bootstrap uses cuMemCreate (VMM) which requires unlimited memlock.
+    - echo "memlock before:$(ulimit -l)"
+    - ulimit -l unlimited || true
+    - echo "memlock after:$(ulimit -l)"
+  script:
+    - hostname
+    - nvidia-smi
+    # Detect the CUDA architecture of GPUs on this runner. We filter to GPUs
+    # with at least 8 GiB VRAM so we don't target small GPUs (e.g. the A400
+    # on the heterogeneous B40 runner) that we never run tests on.
+    - |
+      CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap,memory.total --format=csv,noheader,nounits \
+        | awk -F', ' '$2 >= 8192 {gsub(/\./, "", $1); print $1"-real"}' \
+        | sort -u \
+        | paste -sd';')
+      echo "Building for CUDA architectures: $CUDA_ARCH"
+    # Ensure CUDA device indices match nvidia-smi (PCI bus ID order). Needed here
+    # because test binaries (e.g. serdes_test, multi_process_test) use NVSHMEM but
+    # run via ctest with gtest's main(), not through node_manager/task_manager.
+    - export CUDA_DEVICE_ORDER=PCI_BUS_ID
+    # Select GPUs with at least 8 GiB of memory (small GPUs can't allocate the NVSHMEM pool).
+    - export CUDA_VISIBLE_DEVICES=$(nvidia-smi --query-gpu=index,memory.total --format=csv,noheader,nounits | awk -F', ' '$2 >= 8192 {printf sep $1; sep=","}')
+    - echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    - df -h /dev/shm
+    # Enable NVTX injection for CUPTI activity profiling. This is required to capture the nvtx markers.
+    - export NVTX_INJECTION64_PATH=/conda/envs/gqe/lib/libcupti.so.12
+    # For https links, the CI does not have access to the ssh keys, so we need to use deploy tokens.
+    # Rather than have multiple deploy tokens for all dependencies, we use a single token for all dependencies, which is stored in the Variables section here: https://gitlab-master.nvidia.com/haog/gqe-python/-/settings/ci_cd.
+    # Currently, the deploy token and username belongs to Yadu Kiran (ykiran)
+    # TODO: Setup runner account for CI.
+    - git config --global --add url."https://${GQE_NVCOMP_DEPLOY_USERNAME}:${GQE_NVCOMP_DEPLOY_TOKEN}@gitlab-master.nvidia.com/".insteadOf "https://gitlab-master.nvidia.com/"
+    - git config --global --add url."https://${GQE_NVCOMP_DEPLOY_USERNAME}:${GQE_NVCOMP_DEPLOY_TOKEN}@gitlab-master.nvidia.com/".insteadOf "ssh://git@gitlab-master.nvidia.com:12051/"
+    # Debug build
+    # Disable the debug build for now because https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/blob/main/src/executor/groupby/hash_groupby.cuh?ref_type=heads#L556 would throw an invalid argument error under debug mode.
+    #- rm -rf build
+    #- mkdir build
+    #- pushd build
+    #- cmake -DCMAKE_BUILD_TYPE=Debug -DGQE_ENABLE_CUSTOMIZED_PARQUET=ON -DCMAKE_VERBOSE_MAKEFILE=ON ..
+    #- make -j30
+    #- ctest --output-on-failure --exclude-regex parquet_reader
+    #- popd
+    #########################################################
+    # First run tests with public build (default)
+    #########################################################
+    # Release build
+    - mkdir -p build
+    - pushd build
+    - cmake -DGQE_ENABLE_CUSTOMIZED_PARQUET=ON -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH} -G Ninja ..
+    - ninja -j30
+    # Set the initial query memory to 2 GiB for the tests. This is enough and allows greater concurrency for the tests.
+    # Set the task manager memory to 1 GiB for the Flight SQL lifecycle and integration tests (SF0.01).
+    - >-
+      GQE_INITIAL_QUERY_MEMORY=$((2*1024*1024*1024))
+      GQE_MAX_QUERY_MEMORY=$((2*1024*1024*1024))
+      GQE_MAX_TASK_MANAGER_MEMORY=$((1*1024*1024*1024))
+      TPCH_DATA_PATH=/tpch_scratch/datasets/sf0.01/sf0.01_id64
+      TPCH_QUERIES=/tpch_scratch/sql
+      TPCH_PHYSICAL_PLANS=/tpch_scratch/physical_plans/sf0.01
+      TPCH_REF_RESULTS=/tpch_scratch/reference_results/sf0.01
+      TPCH_SCHEMA=ci_schema.sql
+      ctest --output-on-failure --exclude-regex parquet_reader
+    - popd
+    # TPC-H coverage for SF1
+    - GQE_INITIAL_QUERY_MEMORY=$((1024*1024*1024)) GQE_MAX_QUERY_MEMORY=$((2*1024*1024*1024)) GQE_LOG_LEVEL=warn bash ./test/end_to_end/run_tpc.sh h ./build /tpch_scratch/datasets/sf0.01/sf0.01_id64/ /tpch_scratch/reference_results/sf0.01 /tpch_scratch/substrait_plans/sf0.01/df_q%d.bin
+    - sccache --show-stats
+    - ccache -s
+    #########################################################
+    # Repeat tests with private build (explicitly disable public build)
+    #########################################################
+    - pushd build
+    - cmake -DGQE_ENABLE_CUSTOMIZED_PARQUET=ON -DGQE_ENABLE_PUBLIC_BUILD=OFF -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH} -G Ninja ..
+    - ninja -j30
+    # Set the initial query memory to 2 GiB for the tests. This is enough and allows greater concurrency for the tests.
+    # Set the task manager memory to 1 GiB for the Flight SQL lifecycle and integration tests (SF0.01).
+    - >-
+      GQE_INITIAL_QUERY_MEMORY=$((2*1024*1024*1024))
+      GQE_MAX_QUERY_MEMORY=$((2*1024*1024*1024))
+      GQE_MAX_TASK_MANAGER_MEMORY=$((1*1024*1024*1024))
+      TPCH_DATA_PATH=/tpch_scratch/datasets/sf0.01/sf0.01_id64
+      TPCH_QUERIES=/tpch_scratch/sql
+      TPCH_PHYSICAL_PLANS=/tpch_scratch/physical_plans/sf0.01
+      TPCH_REF_RESULTS=/tpch_scratch/reference_results/sf0.01
+      TPCH_SCHEMA=ci_schema.sql
+      ctest --output-on-failure --exclude-regex parquet_reader
+    - popd
+    # TPC-H coverage for SF1
+    - GQE_INITIAL_QUERY_MEMORY=$((1024*1024*1024)) GQE_MAX_QUERY_MEMORY=$((2*1024*1024*1024)) GQE_LOG_LEVEL=warn bash ./test/end_to_end/run_tpc.sh h ./build /tpch_scratch/datasets/sf0.01/sf0.01_id64/ /tpch_scratch/reference_results/sf0.01 /tpch_scratch/substrait_plans/sf0.01/df_q%d.bin
+    - sccache --show-stats
+    - ccache -s

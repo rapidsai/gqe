@@ -1,0 +1,162 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package gqe.proto;
+
+import "data_type.proto";
+import "expression.proto";
+
+// --- Window frame bound ---
+
+message WindowFrameBound {
+  bool unbounded = 1;
+  int64 offset = 2;  // Only used when unbounded == false.
+}
+
+// --- Physical relations ---
+
+message PhysicalRelation {
+  oneof relation {
+    ReadRelation read = 1;
+    WriteRelation write = 2;
+    BroadcastJoinRelation broadcast_join = 3;
+    ShuffleJoinRelation shuffle_join = 4;
+    ProjectRelation project = 5;
+    FilterRelation filter = 6;
+    ConcatenateSortRelation concatenate_sort = 7;
+    ConcatenateAggregateRelation concatenate_aggregate = 8;
+    FetchRelation fetch = 9;
+    UnionAllRelation union_all = 10;
+    WindowRelation window = 11;
+    ShuffleRelation shuffle = 12;
+    GenIdentColRelation gen_ident_col = 13;
+  }
+}
+
+message ReadRelation {
+  string table_name = 1;
+  repeated string column_names = 2;
+  repeated DataType data_types = 3;
+  Expression partial_filter = 4;
+  repeated PhysicalRelation subquery_relations = 5;
+}
+
+message WriteRelation {
+  PhysicalRelation child = 1;
+  string table_name = 2;
+  repeated string column_names = 3;
+}
+
+message BroadcastJoinRelation {
+  PhysicalRelation left = 1;
+  PhysicalRelation right = 2;
+  repeated PhysicalRelation subquery_relations = 3;
+  int32 join_type = 4;               // gqe::join_type_type
+  Expression condition = 5;
+  repeated int32 projection_indices = 6;
+  int32 broadcast_policy = 7;        // gqe::physical::broadcast_policy
+  int32 unique_keys_policy = 8;      // gqe::unique_keys_policy
+  bool perfect_hashing = 9;
+  Expression left_filter_condition = 10;
+  Expression right_filter_condition = 11;
+  bool use_hash_map_cache = 12;
+  bool use_mark_join = 13;
+  bool use_like_shift_and = 14;
+}
+
+message ShuffleJoinRelation {
+  PhysicalRelation left = 1;
+  PhysicalRelation right = 2;
+  repeated PhysicalRelation subquery_relations = 3;
+  int32 join_type = 4;
+  Expression condition = 5;
+  repeated int32 projection_indices = 6;
+  int32 unique_keys_policy = 7;
+  bool perfect_hashing = 8;
+  bool use_like_shift_and = 9;
+}
+
+message ProjectRelation {
+  PhysicalRelation child = 1;
+  repeated PhysicalRelation subquery_relations = 2;
+  repeated Expression output_expressions = 3;
+  bool use_like_shift_and = 4;
+}
+
+message FilterRelation {
+  PhysicalRelation child = 1;
+  repeated PhysicalRelation subquery_relations = 2;
+  Expression condition = 3;
+  repeated int32 projection_indices = 4;
+  bool use_like_shift_and = 5;
+}
+
+message ConcatenateSortRelation {
+  PhysicalRelation child = 1;
+  repeated PhysicalRelation subquery_relations = 2;
+  repeated Expression keys = 3;
+  repeated int32 column_orders = 4;     // cudf::order
+  repeated int32 null_precedences = 5;  // cudf::null_order
+  bool use_like_shift_and = 6;
+}
+
+message ConcatenateAggregateRelation {
+  PhysicalRelation child = 1;
+  repeated PhysicalRelation subquery_relations = 2;
+  repeated Expression keys = 3;
+  repeated AggregationValue values = 4;
+  Expression condition = 5;
+  bool perfect_hashing = 6;
+  bool use_like_shift_and = 7;
+}
+
+message FetchRelation {
+  PhysicalRelation child = 1;
+  int64 offset = 2;
+  int64 count = 3;
+}
+
+message UnionAllRelation {
+  PhysicalRelation left = 1;
+  PhysicalRelation right = 2;
+}
+
+message WindowRelation {
+  PhysicalRelation child = 1;
+  repeated PhysicalRelation subquery_relations = 2;
+  int32 aggregation_kind = 3;          // cudf::aggregation::Kind
+  repeated Expression ident_cols = 4;
+  repeated Expression arguments = 5;
+  repeated Expression partition_by = 6;
+  repeated Expression order_by = 7;
+  repeated int32 order_dirs = 8;       // cudf::order
+  WindowFrameBound lower_bound = 9;
+  WindowFrameBound upper_bound = 10;
+  bool use_like_shift_and = 11;
+}
+
+message ShuffleRelation {
+  PhysicalRelation child = 1;
+  repeated PhysicalRelation subquery_relations = 2;
+  repeated Expression shuffle_cols = 3;
+}
+
+message GenIdentColRelation {
+  PhysicalRelation child = 1;
+}

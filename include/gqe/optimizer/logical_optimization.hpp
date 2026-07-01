@@ -1,0 +1,305 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#pragma once
+
+#include <gqe/catalog.hpp>
+#include <gqe/expression/expression.hpp>
+#include <gqe/logical/filter.hpp>
+#include <gqe/logical/join.hpp>
+#include <gqe/logical/project.hpp>
+#include <gqe/logical/read.hpp>
+#include <gqe/logical/relation.hpp>
+#include <gqe/optimizer/estimator.hpp>
+#include <gqe/optimizer/optimization_configuration.hpp>
+#include <gqe/optimizer/relation_properties.hpp>
+#include <gqe/utility/helpers.hpp>
+
+#include <cassert>
+#include <cstddef>
+#include <functional>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace gqe {
+namespace optimizer {
+
+/**
+ * @brief The optimization rule will operate at the logical plan level. The optimization steps
+ * should be overloaded by the rule developer in `apply()`. Each rule's visitor drives its own
+ * tree traversal; the optimizer driver only sequences rules. Helper functions:
+ *  - `replace_child_at(logical::relation*, ...)` replaces a child of the current relation
+ *  - `rewrite_relation_expressions(logical::relation*, ...)` rewrites expressions in a single node
+ */
+class optimization_rule {
+ public:
+  /**
+   * @brief Direction for expression-tree traversal used by `rewrite_relation_expressions`.
+   *
+   * @note This enum governs expression traversal only, not relation-tree traversal.
+   * Relation traversal is self-driven by each rule's `apply_visitor` via `visit_children`.
+   */
+  enum class transform_direction {
+    NONE,  // transform current expression node only
+    UP,    // post-order expression traversal
+    DOWN   // pre-order expression traversal
+  };
+
+  /**
+   * @brief This functor is used to define the modification of the input expressions.
+   *
+   * @note If the functor does not modify the input expression, it should return a `nullptr`.
+   */
+  using expression_modifier_functor = std::function<std::unique_ptr<expression>(
+    expression* expr, std::vector<cudf::data_type> const& column_types)>;
+
+  /**
+   * @brief Construct a new optimization rule object
+   *
+   * @param cat Catalog to be used by the estimator
+   */
+  optimization_rule(catalog const* cat) : _estimator(cat), _catalog(cat) {}
+
+  virtual ~optimization_rule() = default;
+
+  /**
+   * @brief Apply this rule to the logical plan rooted at `root`.
+   *
+   * The rule's internal visitor drives tree traversal via `visit_children`. The returned
+   * relation is the (possibly rewritten) root — most rules return the same root they received;
+   * rules that may strip a node (e.g. projection_pushdown) may return a different root.
+   *
+   * @param root Root of the logical plan to optimize
+   * @param rule_applied Set to true if the rule fired on at least one node
+   * @return The optimized root (may be the same as `root` or a replacement)
+   */
+  virtual std::shared_ptr<logical::relation> apply(std::shared_ptr<logical::relation> root,
+                                                   bool& rule_applied) const = 0;
+
+  [[nodiscard]] virtual logical_optimization_rule_type type() const noexcept = 0;
+
+ protected:
+  /**
+   * @brief Replace the input relation's child at index `child_idx`
+   *
+   * @param relation Relation to replace child for
+   * @param child_idx Index of child to replace
+   * @param child The new relation child to be used for replacement
+   */
+  static void replace_child_at(logical::relation* relation,
+                               std::size_t child_idx,
+                               std::shared_ptr<logical::relation> child);
+
+  /**
+   * @brief Clear the `partial_filter` expression on a `read_relation`.
+   *
+   * `read_relation::_partial_filter` is private; only `optimization_rule` (declared as friend
+   * of `read_relation`) and its nested members can mutate it directly. This helper exposes
+   * that operation to derived rules via inherited protected-member access.
+   *
+   * @param read Read relation whose partial filter to clear
+   */
+  static void clear_partial_filter(logical::read_relation* read);
+
+  /**
+   * @brief Clear the subquery relations attached to `relation`.
+   *
+   * @param relation Relation whose subqueries to clear
+   */
+  static void clear_subqueries(logical::relation* relation);
+
+  /**
+   * @brief Replace the projection indices of a `join_relation`.
+   *
+   * @param join Join relation whose projection indices to replace
+   * @param projection_indices The new projection indices
+   */
+  static void set_join_projection_indices(logical::join_relation* join,
+                                          std::vector<cudf::size_type> projection_indices);
+
+  /**
+   * @brief Rewrite a standalone expression tree using the procedure defined in `f`.
+   *
+   * Counterpart of `rewrite_relation_expressions` for an expression that is not yet owned by a
+   * relation (e.g. a clone being adapted before insertion into a new node). Mutates `expr` in
+   * place and returns a replacement for the root node, or `nullptr` if the root is unchanged.
+   *
+   * @param expr Expression tree to rewrite
+   * @param f Functor defining how to rewrite each expression
+   * @param direction How to traverse the expression tree
+   * @return Replacement for the root expression, or `nullptr` if the root is unchanged
+   */
+  std::unique_ptr<expression> rewrite_expression(expression* expr,
+                                                 expression_modifier_functor f,
+                                                 transform_direction direction) const;
+
+  /**
+   * @brief Rewrite all expression members of relation using procedure defined in`f`
+   *
+   * @param relation Relation to modify the expression(s) for
+   * @param f Functor defining how to rewrite each expression
+   * @param direction In case of a nested expressions, how to traverse the expression tree
+   */
+  void rewrite_relation_expressions(logical::relation* relation,
+                                    expression_modifier_functor f,
+                                    transform_direction direction) const;
+
+  /**
+   * @brief Add column property to specified column index in the input relation
+   *
+   * @param relation Relation to set column property for
+   * @param col_idx Index of the column that has this property
+   * @param prop Type of column property to set
+   */
+  static void set_relation_property(logical::relation* relation,
+                                    std::size_t col_idx,
+                                    column_property::property_id prop);
+
+  static void add_relation_unique_key(logical::relation* relation,
+                                      std::vector<cudf::size_type> key);
+
+  estimator get_estimator() const noexcept { return _estimator; }
+
+  catalog const* get_catalog() const noexcept { return _catalog; }
+
+ private:
+  class rewrite_expressions_visitor;
+
+  /**
+   * @brief Optimize/rewrite the input expression non-recursively
+   *
+   * @note This function gets called when the `transform_direction` in
+   * `rewrite_relation_expressions` is NONE
+   *
+   * @param expr Expression to be rewritten
+   * @param f How to rewrite
+   * @return The rewritten expression or null pointer if the rewrite has not been applied
+   */
+  static std::unique_ptr<expression> _expression_rewrite(
+    expression* expr,
+    std::vector<cudf::data_type> const& column_types,
+    expression_modifier_functor f);
+
+  /**
+   * @brief Optimize/rewrite the input expression recursively
+   *
+   * @note This function gets called when the `transform_direction` in
+   * `rewrite_relation_expressions` is DOWN
+   *
+   * @param expr Expression to be rewritten
+   * @param f How to rewrite
+   * @return The rewritten expression or null pointer if the rewrite has not been applied
+   */
+  static std::unique_ptr<expression> _expression_rewrite_down(
+    expression* expr,
+    std::vector<cudf::data_type> const& column_types,
+    expression_modifier_functor f);
+
+  /**
+   * @brief Optimize/rewrite the input expression recursively
+   *
+   * @note This function gets called when the `transform_direction` in
+   * `rewrite_relation_expressions` is UP
+   *
+   * @param expr Expression to be rewritten
+   * @param f How to rewrite
+   * @return The rewritten expression or null pointer if the rewrite has not been applied
+   */
+  static std::unique_ptr<expression> _expression_rewrite_up(
+    expression* expr,
+    std::vector<cudf::data_type> const& column_types,
+    expression_modifier_functor f);
+
+  estimator _estimator;
+  catalog const* _catalog;
+};
+
+class logical_optimizer {
+ public:
+  logical_optimizer() {}
+
+  logical_optimizer(optimization_configuration* config, catalog const* cat)
+    : _config(std::move(config))
+  {
+    // Instantiate rules enabled in config
+    for (auto on_rule : _config->on_rules()) {
+      _rules.push_back(_make_rule(on_rule, cat));
+    }
+  }
+
+  virtual ~logical_optimizer() = default;
+
+  /**
+   * @brief Call optimization traversal and attempt to optimize based on each rule definition and
+   * direction
+   *
+   * @param logical_relation The root of the logical query plan to optimize
+   * @return Optimized logical plan. If no enabled rules are applicable, then the return plan will
+   * be the same as the input plan.
+   */
+  std::shared_ptr<logical::relation> optimize(std::shared_ptr<logical::relation> logical_relation);
+
+  /**
+   * @brief Return the raw pointers of on-rule objects
+   */
+  std::vector<optimization_rule*> rules_unsafe() { return gqe::utility::to_raw_ptrs(_rules); }
+
+  /**
+   * @brief Return pointer to the rule object with specified rule type if enabled
+   *
+   * @param rule_type Type of optimization rule to look for
+   * @return Pointer to the rule object if enabled, `nullptr` otherwise
+   */
+  optimization_rule* get_rule_unsafe(logical_optimization_rule_type rule_type) const
+  {
+    for (auto& rule : _rules) {
+      if (rule->type() == rule_type) return rule.get();
+    }
+    return nullptr;
+  }
+
+  /**
+   * @brief Return how many times the specified rule was actually applied
+   *
+   * @param rule_to_check The rule to get the count on
+   * @return Number of rule application
+   */
+  size_t get_rule_count(gqe::optimizer::logical_optimization_rule_type rule_to_check)
+  {
+    return _applied_rule_counts[rule_to_check];
+  }
+
+ private:
+  /**
+   * @brief Instantiate optimization rule
+   *
+   * @param rule_type The type of rule to instantiate
+   * @param cat The catalog to be used by the estimator if applicable
+   * @return The instantiated rule
+   */
+  std::unique_ptr<optimization_rule> _make_rule(logical_optimization_rule_type rule_type,
+                                                catalog const* cat);
+
+  optimization_configuration* _config;
+  std::vector<std::unique_ptr<optimization_rule>> _rules;
+  std::unordered_map<gqe::optimizer::logical_optimization_rule_type, size_t> _applied_rule_counts;
+};
+
+}  // namespace optimizer
+}  // namespace gqe

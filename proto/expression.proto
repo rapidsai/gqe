@@ -1,0 +1,104 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package gqe.proto;
+
+import "data_type.proto";
+
+// Maps 1:1 to gqe::expression types. Enum values for cudf operators
+// (binary_operator, unary_operator, aggregation::Kind, datetime_component,
+// etc.) are stored as int32 and cast on deserialization.
+
+message Expression {
+  oneof expr {
+    ColumnReferenceExpr column_reference = 1;
+    LiteralExpr literal = 2;
+    IsNullExpr is_null = 3;
+    CastExpr cast = 4;
+    BinaryOpExpr binary_op = 5;
+    UnaryOpExpr unary_op = 6;
+    IfThenElseExpr if_then_else = 7;
+    ScalarFunctionExpr scalar_function = 8;
+    InPredicateExpr in_predicate = 9;
+  }
+}
+
+message ColumnReferenceExpr {
+  int32 column_idx = 1;
+  string column_name = 2;
+}
+
+message LiteralExpr {
+  DataType data_type = 1;
+  bytes value = 2;     // Little-endian for fixed-width types, UTF-8 for strings.
+  bool is_null = 3;
+}
+
+message IsNullExpr {
+  Expression input = 1;
+}
+
+message CastExpr {
+  Expression input = 1;
+  DataType target_type = 2;
+}
+
+message BinaryOpExpr {
+  int32 op = 1;  // cudf::binary_operator
+  Expression left = 2;
+  Expression right = 3;
+}
+
+message UnaryOpExpr {
+  int32 op = 1;  // cudf::unary_operator
+  Expression input = 2;
+}
+
+message IfThenElseExpr {
+  Expression condition = 1;
+  Expression then_expr = 2;
+  Expression else_expr = 3;
+}
+
+// Scalar functions: datepart, like, substr, round.
+message ScalarFunctionExpr {
+  int32 function_kind = 1;  // scalar_function_expression::function_kind
+
+  // Function-specific parameters (only the relevant fields are set).
+  int32 datetime_component = 2;  // datepart: cudf::datetime::datetime_component
+  string pattern = 3;            // like: pattern string
+  string escape_character = 4;   // like: escape character
+  bool ignore_case = 5;          // like: ILIKE flag
+  int32 decimal_places = 6;      // round: decimal places
+  int32 start = 7;               // substr: start index
+  int32 length = 8;              // substr: length
+
+  repeated Expression arguments = 10;
+}
+
+message InPredicateExpr {
+  int32 relation_index = 1;          // Index into parent's subquery_relations.
+  repeated Expression needles = 2;   // Needle expressions.
+}
+
+// Aggregation kind + expression pair, used in aggregate relations.
+message AggregationValue {
+  int32 aggregation_kind = 1;  // cudf::aggregation::Kind
+  Expression expression = 2;
+}

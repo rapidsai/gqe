@@ -1,0 +1,195 @@
+# Contributing to GQE
+
+Contributions to GQE fall into the following categories:
+
+1. To report a bug, request a new feature, or report a problem with documentation, please file an
+   [issue](https://github.com/rapidsai/gqe/issues/new/choose) describing the problem or new feature in detail. The GQE team
+   evaluates and triages issues, and schedules them for a release. If you believe the issue needs
+   priority attention, please comment on the issue to notify the team.
+2. To propose and implement a new feature, please file a new feature request
+   [issue](https://github.com/rapidsai/gqe/issues/new/choose). Describe the intended feature and
+   discuss the design and implementation with the team and community. Once the team agrees that the
+   plan looks good, go ahead and implement it, using the [code contributions](#code-contributions)
+   guide below.
+3. To implement a feature or bug fix for an existing issue, please follow the [code
+   contributions](#code-contributions) guide below. If you need more context on a particular issue,
+   please ask in a comment.
+
+## Code contributions
+
+### Initiating contribution
+
+Currently, GQE development is internally driven. Public contributions to GQE should be initiated as exploratory discussions with the team to evaluate the proposed improvement or fix. Should public code contributions be deemed advisable through these discussions, the following guidelines are recommended.
+
+### Your first issue
+
+1. Follow the guide at the bottom of this page for
+   [Setting up your build environment](#setting-up-your-build-environment).
+2. Find an issue to work on. The best way is to look for the
+   [good first issue](https://github.com/rapidsai/gqe/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+   or [help wanted](https://github.com/rapidsai/gqe/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22)
+   labels.
+3. Comment on the issue stating that you are going to work on it.
+4. Create a fork of the GQE repository and check out a branch with a name that
+   describes your planned work. For example, `fix-documentation`.
+5. Write code to address the issue or implement the feature.
+6. Add unit tests and unit benchmarks.
+7. [Create your pull request](https://github.com/rapidsai/gqe/compare). To run continuous integration (CI) tests without requesting review, open a draft pull request.
+8. Verify that CI passes all [status checks](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/about-status-checks).
+   Fix if needed.
+9. Wait for other developers to review your code and update code as needed.
+   Changes require approval from GQE maintainers before merging.
+10. Once reviewed and approved, a GQE developer will merge your pull request.
+
+If you are unsure about anything, don't hesitate to comment on issues and ask for clarification!
+
+### Seasoned developers
+
+Once you have gotten your feet wet and are more comfortable with the code, you can look at the
+prioritized issues for our next release in our
+[project boards](https://github.com/rapidsai/gqe/projects).
+
+Look at the unassigned issues, and find an issue to which you are comfortable contributing. Start
+with _Step 3_ above, commenting on the issue to let others know you are working on it. If you have
+any questions related to the implementation of the issue, ask them in the issue instead of the PR.
+
+## Setting up your build environment
+1. Begin by cloning the GQE repository in your workspace:
+   ```bash
+   git clone <GQE_REPO>
+   ```
+2. The easiest way to set up the GQE build environment is by building the GQE Dockerfile and running the resulting image which has all dependencies installed. Follow the [Docker Engine install instructions](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository) if you need to install Docker. If needed, [install](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#installing-with-apt) and [configure](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#configuring-docker) the NVIDIA container toolkit. With Docker set up, build the GQE container image:
+   ```bash
+   docker build -t gqe .
+   ```
+3. Launch the GQE container:
+   ```bash
+   docker run -it --rm --gpus all \
+            -v gqe:</gqe> \
+            -v <HOST_DIR>:<CONTAINER_DIR> \
+            <GQE_DOCKER_IMAGE>
+   ```
+4. Build GQE inside the container:
+   ```bash
+   mkdir /gqe/build
+   cd $_
+   cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ..
+   cmake --build .
+   ```
+   Use `-DCMAKE_BUILD_TYPE=Debug` or `RelWithDebInfo` if you need unoptimized builds or debug symbols.
+5. Build the `gqe-cli` SQL client (used by the client-server mode described in the [README](README.md#run-gqe)):
+   ```bash
+   cd /gqe/rust
+   cargo build --release -p gqe-cli
+   ```
+   This produces `/gqe/rust/target/release/gqe-cli`.
+6. Run test cases to make sure setup is successsful:
+   ```bash
+   ctest --output-on-failure
+   ```
+   The Flight SQL integration tests fail unless a TPC-H dataset is available. To run them, point `ctest` at the data, queries, and reference results:
+   ```bash
+   TPCH_DATA_PATH=/path/to/tpch/sf1 \
+   TPCH_QUERIES=/path/to/tpch/sql \
+   TPCH_REF_RESULTS=/path/to/tpch/reference_results/sf1 \
+     ctest --output-on-failure
+   ```
+
+> **_NOTE:_** GQE relies on libcudf's per-thread default stream to overlap H2D transfers with compute. The supplied Dockerfile builds libcudf with this option; if you build libcudf from source yourself, pass `--ptds` to [`build.sh`](https://github.com/rapidsai/cudf/blob/branch-25.10/CONTRIBUTING.md#build-cudf-from-source).
+
+## Developer Guidelines
+For high-level design issues like interfaces, class hierarchies, recourse management, error handling etc., we will follow [C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines). Given that GQE uses libcudf extensively, we will also follow [libcudf's developer guide](https://github.com/rapidsai/cudf/blob/main/cpp/doxygen/developer_guide/DEVELOPER_GUIDE.md) where relevant.
+
+### Naming convention
+We generally use [snake_case](https://en.wikipedia.org/wiki/Snake_case) in accordance with [libcudf convention](https://github.com/rapidsai/cudf/blob/main/cpp/doxygen/developer_guide/DEVELOPER_GUIDE.md#code-and-documentation-style-and-formatting). The main exception is in query compiler code, where [camelCase](https://en.wikipedia.org/wiki/Camel_case) is desirable for readability particularly when mixing with MLIR library code and/or using TableGen. See [LLVM Coding Standards](https://llvm.org/docs/CodingStandards.html#name-types-functions-variables-and-enumerators-properly) for more details.
+
+### Pre-commit Hooks
+
+This project uses [pre-commit](https://pre-commit.com/) to enforce code style. The hooks include:
+- **clang-format** for C++/CUDA formatting
+- **cmake-format** for CMake formatting
+
+#### Setup
+
+Install the pre-commit hooks (one-time setup):
+
+```bash
+pre-commit install
+```
+
+Note: `pre-commit` is included in the conda environment.
+
+To avoid warnings from the copyright check hook, set the target branch:
+
+```bash
+git config rapidsai.baseBranch main
+```
+
+#### Usage
+
+The hooks will run automatically on `git commit`. To run manually on all files:
+
+```bash
+pre-commit run --all-files
+```
+
+To run a specific hook:
+
+```bash
+pre-commit run clang-format --all-files
+pre-commit run cmake-format --all-files
+```
+
+## Signing Your Work
+
+We require that all contributors "sign-off" on their commits. This certifies that the contribution is your original work, or you have rights to submit it under the same license, or a compatible license.
+
+  * Any contribution which contains commits that are not Signed-Off will not be accepted.
+
+To sign off on a commit you simply use the `--signoff` (or `-s`) option when committing your changes:
+  ```bash
+  $ git commit -s -m "Add cool feature."
+  ```
+  This will append the following to your commit message:
+  ```
+  Signed-off-by: Your Name <your@email.com>
+  ```
+
+Full text of the DCO:
+
+  ```
+    Developer Certificate of Origin
+    Version 1.1
+
+    Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+
+    Everyone is permitted to copy and distribute verbatim copies of this
+    license document, but changing it is not allowed.
+
+
+    Developer's Certificate of Origin 1.1
+
+    By making a contribution to this project, I certify that:
+
+    (a) The contribution was created in whole or in part by me and I
+        have the right to submit it under the open source license
+        indicated in the file; or
+
+    (b) The contribution is based upon previous work that, to the best
+        of my knowledge, is covered under an appropriate open source
+        license and I have the right under that license to submit that
+        work with modifications, whether created in whole or in part
+        by me, under the same open source license (unless I am
+        permitted to submit under a different license), as indicated
+        in the file; or
+
+    (c) The contribution was provided directly to me by some other
+        person who certified (a), (b) or (c) and I have not modified
+        it.
+
+    (d) I understand and agree that this project and the contribution
+        are public and that a record of the contribution (including all
+        personal information I submit with it, including my sign-off) is
+        maintained indefinitely and may be redistributed consistent with
+        this project or the open source license(s) involved.
+  ```

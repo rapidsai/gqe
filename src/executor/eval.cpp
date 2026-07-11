@@ -24,10 +24,12 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/datetime.hpp>
+#include <cudf/strings/case.hpp>
 #include <cudf/strings/contains.hpp>
 #include <cudf/strings/slice.hpp>
 #include <cudf/transform.hpp>
 #include <cudf/unary.hpp>
+#include <cudf/utilities/default_stream.hpp>
 
 #include <algorithm>
 #include <stdexcept>
@@ -279,21 +281,39 @@ expression_evaluator::evaluate(bool use_like_shift_and) const
             case gqe::scalar_function_expression::function_kind::like: {
               auto const like_expr = dynamic_cast<gqe::like_expression*>(scalar_func);
 
+              auto input_column = table.column(col_ref->column_idx());
+              auto pattern      = like_expr->pattern();
+              auto escape       = like_expr->escape_character();
+
+              // ILIKE: lowercase the input column, pattern, and escape character with the same
+              // cuDF kernel so their case mappings agree, then match with the regular LIKE paths.
+              // The `%` and `_` wildcards have no case, so the pattern structure is preserved.
+              std::unique_ptr<cudf::column> lowered_input;
               if (like_expr->ignore_case()) {
-                throw std::logic_error("Evaluating ILIKE expression not implemented");
+                auto const to_lower_host = [](std::string const& s) {
+                  auto const column = cudf::make_column_from_scalar(cudf::string_scalar{s}, 1);
+                  auto const lowered =
+                    cudf::strings::to_lower(cudf::strings_column_view{column->view()});
+                  auto const element = cudf::get_element(lowered->view(), 0);
+                  return static_cast<cudf::string_scalar const&>(*element).to_string(
+                    cudf::get_default_stream());
+                };
+
+                lowered_input = cudf::strings::to_lower(cudf::strings_column_view{input_column});
+                input_column  = lowered_input->view();
+                pattern       = to_lower_host(pattern);
+                if (!escape.empty()) { escape = to_lower_host(escape); }
               }
 
-              cudf::string_scalar const escape_char{like_expr->escape_character()};
+              cudf::string_scalar const escape_char{escape};
 
               if (use_like_shift_and) {
                 // if filter_use_like_shift_and is true,
                 // we use the like_shift_and kernel for better performance
-                append_result(gqe::like(
-                  table.column(col_ref->column_idx()), like_expr->pattern(), escape_char));
+                append_result(gqe::like(input_column, pattern, escape_char));
               } else {
-                append_result(cudf::strings::like(table.column(col_ref->column_idx()),
-                                                  std::string_view{like_expr->pattern()},
-                                                  std::string_view{like_expr->escape_character()}));
+                append_result(cudf::strings::like(
+                  input_column, std::string_view{pattern}, std::string_view{escape}));
               }
               break;
             }

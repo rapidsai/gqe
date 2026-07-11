@@ -506,6 +506,107 @@ TEST_P(EvalExpressionsTest, ScalarFunctionLikePrefix)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
 }
 
+TEST_P(EvalExpressionsTest, ScalarFunctionIlike)
+{
+  auto c_0   = cudf::test::strings_column_wrapper{"Widget", "WIDGET", "widget", "gadget"};
+  auto table = cudf::table_view{{c_0}};
+
+  auto ilike_expr =
+    gqe::like_expression(std::make_shared<gqe::column_reference_expression>(0), "%WIdg%", "", true);
+  std::vector<gqe::expression const*> expressions = {&ilike_expr};
+
+  auto expected = column_wrapper<bool>{true, true, true, false};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+TEST_P(EvalExpressionsTest, ScalarFunctionIlikeWildcards)
+{
+  auto c_0   = cudf::test::strings_column_wrapper{"azAA", "ABabAabba", "aAxa"};
+  auto table = cudf::table_view{{c_0}};
+
+  auto ilike_expr =
+    gqe::like_expression(std::make_shared<gqe::column_reference_expression>(0), "%A_aA%", "", true);
+  std::vector<gqe::expression const*> expressions = {&ilike_expr};
+
+  auto expected = column_wrapper<bool>{true, true, false};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+TEST_P(EvalExpressionsTest, ScalarFunctionIlikeInputNullable)
+{
+  auto c_0 = cudf::test::strings_column_wrapper(
+    {"azAa", "aBAbaABba", "AAxA", "abaBaaXXXXxxxxBB", "ABabaabx"},
+    {false, true, false, true, true});
+
+  auto table = cudf::table_view{{c_0}};
+
+  auto ilike_expr = gqe::like_expression(
+    std::make_shared<gqe::column_reference_expression>(0), "ab%a_aa%b", "", true);
+  std::vector<gqe::expression const*> expressions = {&ilike_expr};
+
+  auto expected =
+    column_wrapper<bool>({true, false, true, true, false}, {false, true, false, true, true});
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+TEST_P(EvalExpressionsTest, ScalarFunctionIlikeEscape)
+{
+  auto c_0   = cudf::test::strings_column_wrapper{"MOSTLY% DONE", "mostly done", "Mostly% Done"};
+  auto table = cudf::table_view{{c_0}};
+
+  // `^%` is an escaped literal percent sign; case-insensitive match of the surrounding letters.
+  auto ilike_expr = gqe::like_expression(
+    std::make_shared<gqe::column_reference_expression>(0), "mostly^%%", "^", true);
+  std::vector<gqe::expression const*> expressions = {&ilike_expr};
+
+  auto expected = column_wrapper<bool>{true, false, true};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+TEST_P(EvalExpressionsTest, ScalarFunctionIlikeUtf8)
+{
+  auto c_0   = cudf::test::strings_column_wrapper{"Ärger", "ärger", "arger"};
+  auto table = cudf::table_view{{c_0}};
+
+  auto ilike_expr = gqe::like_expression(
+    std::make_shared<gqe::column_reference_expression>(0), "%Ärger%", "", true);
+  std::vector<gqe::expression const*> expressions = {&ilike_expr};
+
+  auto expected = column_wrapper<bool>{true, true, false};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
+TEST_P(EvalExpressionsTest, ScalarFunctionLikeRemainsCaseSensitive)
+{
+  auto c_0   = cudf::test::strings_column_wrapper{"Widget", "widget", "WIDGET"};
+  auto table = cudf::table_view{{c_0}};
+
+  auto like_expr = gqe::like_expression(
+    std::make_shared<gqe::column_reference_expression>(0), "widget%", "", false);
+  std::vector<gqe::expression const*> expressions = {&like_expr};
+
+  auto expected = column_wrapper<bool>{false, true, false};
+  auto [evaluated_results, column_cache] =
+    gqe::evaluate_expressions(this->optimization_params, table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_results[0]);
+}
+
 TEST_P(EvalExpressionsTest, ScalarFunctionSubstr)
 {
   auto c_0   = cudf::test::strings_column_wrapper{"azaa", "ababaabba", "aaxa"};

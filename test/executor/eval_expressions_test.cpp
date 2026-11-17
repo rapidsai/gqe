@@ -1517,6 +1517,42 @@ TEST_P(EvalExpressionsTest, ScalarFunctionLikePrefix)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated.evaluated_result[0]);
 }
 
+TEST_P(EvalExpressionsTest, ScalarFunctionLikeWithoutMultiWildcard)
+{
+  auto c_0 = cudf::test::strings_column_wrapper(
+    {"Widget", "WIDGET", "widget", "wIdGeT-Pro", "Gadget", "gizmo", "WidgetX", "midget", ""},
+    {true, true, true, true, true, true, true, true, false});
+  auto table = cudf::table_view{{c_0}};
+
+  // Without a '%', the pattern must match the whole string
+  auto like_expr =
+    gqe::like_expression(std::make_shared<gqe::column_reference_expression>(0), "w_dget", "");
+  std::vector<gqe::expression const*> expressions = {&like_expr};
+
+  auto expected =
+    column_wrapper<bool>({false, false, true, false, false, false, false, false, false},
+                         {true, true, true, true, true, true, true, true, false});
+  auto evaluated = gqe::evaluate_expressions(this->optimization_params, table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated.evaluated_result[0]);
+}
+
+TEST_P(EvalExpressionsTest, ScalarFunctionLikePrefixSuffixOverlap)
+{
+  auto c_0   = cudf::test::strings_column_wrapper{"aba", "abba", "ab", "abxba", "a", ""};
+  auto table = cudf::table_view{{c_0}};
+
+  // The prefix "ab" and the suffix "ba" must not share characters of the string
+  auto like_expr =
+    gqe::like_expression(std::make_shared<gqe::column_reference_expression>(0), "ab%ba", "");
+  std::vector<gqe::expression const*> expressions = {&like_expr};
+
+  auto expected  = column_wrapper<bool>{false, true, false, true, false, false};
+  auto evaluated = gqe::evaluate_expressions(this->optimization_params, table, expressions);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated.evaluated_result[0]);
+}
+
 TEST_P(EvalExpressionsTest, ScalarFunctionSubstr)
 {
   auto c_0   = cudf::test::strings_column_wrapper{"azaa", "ababaabba", "aaxa"};

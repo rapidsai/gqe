@@ -182,6 +182,8 @@ __device__ bool check_multi_pattern_match_bytewise(char const* string_ptr,
  * @param middle_lengths The lengths of the middle patterns
  * @param num_middle_patterns The number of middle patterns
  * @param total_pattern_len The total length of the pattern
+ * @param exact_length Whether the string must be exactly as long as the prefix and suffix, i.e.
+ * the pattern has no unescaped multi_wildcard
  * @param results The results of the pattern matching
  */
 template <typename MASK_TYPE>
@@ -194,6 +196,7 @@ __global__ void like_fn_shift_and_kernel(cudf::column_device_view d_strings,
                                          size_t const* middle_lengths,
                                          size_t num_middle_patterns,
                                          size_t total_pattern_len,
+                                         bool exact_length,
                                          bool* results)
 {
   static_assert(std::is_integral<MASK_TYPE>::value, "MASK_TYPE must be an integral type");
@@ -218,20 +221,27 @@ __global__ void like_fn_shift_and_kernel(cudf::column_device_view d_strings,
     string_len = d_str.size_bytes();
   }
 
+  // The prefix and suffix are matched byte by byte, so use their size in bytes
+  size_t const prefix_len = d_prefix.size_bytes();
+  size_t const suffix_len = d_suffix.size_bytes();
+
+  // The prefix and suffix must not overlap, and without a multi_wildcard nothing can come after
+  // the prefix. This also keeps the suffix and middle ranges below inside the string.
+  size_t const min_len = prefix_len + suffix_len;
+  if (exact_length ? string_len != min_len : string_len < min_len) { result = false; }
+
   // Check for prefix
-  size_t prefix_len = d_prefix.length();
   if (prefix_len > 0) {
     char const* prefix = d_prefix.data();
-    if (result && (string_len >= prefix_len)) {
+    if (result) {
       result = check_exact_pattern_match(string_ptr, prefix, prefix_wildcard_flags, prefix_len);
     }
   }
 
   // Check for suffix
-  size_t suffix_len = d_suffix.length();
   if (suffix_len > 0) {
     char const* suffix = d_suffix.data();
-    if (result && ((string_len - prefix_len) >= suffix_len)) {
+    if (result) {
       result = check_exact_pattern_match(
         string_ptr + string_len - suffix_len, suffix, suffix_wildcard_flags, suffix_len);
     }
@@ -329,6 +339,8 @@ std::vector<MASK_TYPE> generate_shift_and_mask_tables(
  * @param suffix The suffix of the pattern
  * @param prefix_wildcard_flags The wildcard flags for the prefix
  * @param suffix_wildcard_flags The wildcard flags for the suffix
+ * @param exact_length Whether the pattern has no unescaped multi_wildcard, so the string must
+ * match the prefix exactly
  * @param results The results of the pattern matching
  * @param stream The CUDA stream
  * @param mr The device memory resource
@@ -341,6 +353,7 @@ void run_string_match(cudf::strings_column_view const& input,
                       std::string const& suffix,
                       std::vector<uint8_t> const& prefix_wildcard_flags,
                       std::vector<uint8_t> const& suffix_wildcard_flags,
+                      bool exact_length,
                       cudf::mutable_column_view results,
                       rmm::cuda_stream_view stream,
                       rmm::device_async_resource_ref mr)
@@ -448,6 +461,7 @@ void run_string_match(cudf::strings_column_view const& input,
     d_middle_lengths != nullptr ? d_middle_lengths->data() : nullptr,
     num_middle_patterns,
     total_pattern_len,
+    exact_length,
     results.data<bool>());
 }
 
@@ -468,6 +482,7 @@ void run_string_match(cudf::strings_column_view const& input,
  * @param max_mid_pattern_len The maximum length of the middle patterns
  * @param escape_character The escape character
  * @param has_single_wildcard Whether the pattern contains a single wildcard
+ * @param has_multi_wildcard Whether the pattern contains an unescaped multi wildcard
  */
 void preprocess_like(std::string const& pattern,
                      std::string& prefix,
@@ -478,7 +493,8 @@ void preprocess_like(std::string const& pattern,
                      std::vector<std::vector<uint8_t>>& middle_wildcard_flags,
                      size_t& max_mid_pattern_len,
                      char const escape_character,
-                     bool& has_single_wildcard)
+                     bool& has_single_wildcard,
+                     bool& has_multi_wildcard)
 {
   size_t const pattern_len = pattern.length();
 
@@ -489,12 +505,20 @@ void preprocess_like(std::string const& pattern,
   std::vector<uint8_t> tmp_wildcard_flags;
 
   bool escaped = false;
-  size_t curr  = 0;
+  // Whether the first and the last pattern chars are unescaped multi_wildcards
+  bool starts_with_multi_wildcard = false;
+  bool ends_with_multi_wildcard   = false;
+  size_t curr                     = 0;
   while (curr < pattern_len) {
     char curr_char = pattern[curr];
     escaped        = (curr_char == escape_character);
     // get the next char by ignoring the escaped char
     auto const pattern_char = escaped && (curr < pattern_len - 1) ? pattern[++curr] : curr_char;
+
+    bool const is_multi_wildcard = !escaped && pattern_char == multi_wildcard;
+    if (curr == 0) { starts_with_multi_wildcard = is_multi_wildcard; }
+    ends_with_multi_wildcard = is_multi_wildcard;
+    has_multi_wildcard       = has_multi_wildcard || is_multi_wildcard;
 
     if (escaped || pattern_char != multi_wildcard) {
       // push back the pattern_char into tmp_string when
@@ -522,18 +546,17 @@ void preprocess_like(std::string const& pattern,
   }
 
   // Check the prefix, we only need to consider if the first char is not multi_wildcard
-  if (all_patterns.size() > 0 && pattern[0] != multi_wildcard) {
+  if (all_patterns.size() > 0 && !starts_with_multi_wildcard) {
     prefix                = all_patterns[0];
     prefix_wildcard_flags = all_wildcard_flags[0];
     all_patterns.erase(all_patterns.begin());
     all_wildcard_flags.erase(all_wildcard_flags.begin());
   }
 
-  // To check the suffix, we also need to consider the escaped character case
-  // when the last char is multi_wildcard
-  if (all_patterns.size() > 0 &&
-      (pattern[pattern_len - 1] != multi_wildcard ||
-       (pattern_len > 1 && pattern[pattern_len - 2] == escape_character))) {
+  // Check the suffix, we only need to consider if the last char is not multi_wildcard. An escaped
+  // multi_wildcard at the end belongs to the suffix, but one after an escaped escape character
+  // (e.g. "%a^^%" with escape '^') does not.
+  if (all_patterns.size() > 0 && !ends_with_multi_wildcard) {
     suffix                = all_patterns[all_patterns.size() - 1];
     suffix_wildcard_flags = all_wildcard_flags[all_wildcard_flags.size() - 1];
     all_patterns.pop_back();
@@ -629,6 +652,8 @@ std::unique_ptr<cudf::column> like_impl(cudf::strings_column_view const& input,
   // For UTF-8 bytewise: check if pattern contains '_' wildcard (which requires character-aware
   // matching) For ASCII: skip the check since ASCII can handle single-byte wildcards
   bool has_single_wildcard = (encoding != detail::EncodingTag::utf8Bytewise);
+  // Without a multi_wildcard the whole pattern is the prefix and must match the whole string
+  bool has_multi_wildcard = false;
 
   // extract the pattern into prefix, suffix, and middle patterns here
   gqe::detail::preprocess_like(pattern,
@@ -640,7 +665,8 @@ std::unique_ptr<cudf::column> like_impl(cudf::strings_column_view const& input,
                                middle_wildcard_flags,
                                max_mid_pattern_len,
                                esc_char,
-                               has_single_wildcard);
+                               has_single_wildcard,
+                               has_multi_wildcard);
 
   // For UTF-8 bytewise only: if single wildcard detected, fall back to character-aware matching
   if constexpr (encoding == detail::EncodingTag::utf8Bytewise) {
@@ -660,6 +686,7 @@ std::unique_ptr<cudf::column> like_impl(cudf::strings_column_view const& input,
                                                      suffix,
                                                      prefix_wildcard_flags,
                                                      suffix_wildcard_flags,
+                                                     !has_multi_wildcard,
                                                      results->mutable_view(),
                                                      stream,
                                                      mr);
@@ -671,6 +698,7 @@ std::unique_ptr<cudf::column> like_impl(cudf::strings_column_view const& input,
                                                       suffix,
                                                       prefix_wildcard_flags,
                                                       suffix_wildcard_flags,
+                                                      !has_multi_wildcard,
                                                       results->mutable_view(),
                                                       stream,
                                                       mr);
@@ -682,6 +710,7 @@ std::unique_ptr<cudf::column> like_impl(cudf::strings_column_view const& input,
                                                       suffix,
                                                       prefix_wildcard_flags,
                                                       suffix_wildcard_flags,
+                                                      !has_multi_wildcard,
                                                       results->mutable_view(),
                                                       stream,
                                                       mr);
@@ -693,6 +722,7 @@ std::unique_ptr<cudf::column> like_impl(cudf::strings_column_view const& input,
                                                       suffix,
                                                       prefix_wildcard_flags,
                                                       suffix_wildcard_flags,
+                                                      !has_multi_wildcard,
                                                       results->mutable_view(),
                                                       stream,
                                                       mr);

@@ -25,10 +25,15 @@
 
 #include <cuda/std/chrono>
 #include <cudf/column/column.hpp>
+#include <cudf/copying.hpp>
+#include <cudf/strings/contains.hpp>
 #include <cudf/table/table_view.hpp>
 
 #include <memory>
+#include <ostream>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 template <typename T>
@@ -365,4 +370,227 @@ TEST(LikeExpressionTest, ScalarLikeUtf8EscapedVsWildcardUnderscore)
   auto evaluated_result = gqe::like_utf8(table.column(0), like_expr.pattern(), escape_char);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, evaluated_result->view());
+}
+
+/**
+ * @brief A LIKE pattern with its input rows and expected results
+ *
+ * A `nullptr` input row is a null row, and its expected value is ignored.
+ */
+struct like_pattern_case {
+  std::string name;
+  std::string pattern;
+  std::string escape_character;
+  std::vector<char const*> input;
+  std::vector<bool> expected;
+};
+
+// Keep gtest from printing the bytes of the struct when a test fails
+void PrintTo(like_pattern_case const& test_case, std::ostream* os)
+{
+  *os << "LIKE '" << test_case.pattern << "' ESCAPE '" << test_case.escape_character << "'";
+}
+
+class LikePatternTest : public ::testing::TestWithParam<like_pattern_case> {};
+
+TEST_P(LikePatternTest, MatchesCudf)
+{
+  auto const& test_case = GetParam();
+
+  std::vector<std::string> values;
+  std::vector<bool> valids;
+  for (auto const* row : test_case.input) {
+    values.emplace_back(row != nullptr ? row : "");
+    valids.push_back(row != nullptr);
+  }
+  auto c_0 = cudf::test::strings_column_wrapper(values.begin(), values.end(), valids.begin());
+  auto expected =
+    column_wrapper<bool>(test_case.expected.begin(), test_case.expected.end(), valids.begin());
+  cudf::strings_column_view const input{c_0};
+  cudf::string_scalar const escape_char{test_case.escape_character};
+
+  // The expected results must be the ones of the reference implementation
+  auto const reference_result = cudf::strings::like(
+    input, std::string_view{test_case.pattern}, std::string_view{test_case.escape_character});
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, reference_result->view());
+
+  // `like` and `like_utf8_bytewise` share the shift-and kernel and the pattern preprocessing
+  auto const like_result = gqe::like(input, test_case.pattern, escape_char);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, like_result->view());
+
+  auto const bytewise_result = gqe::like_utf8_bytewise(input, test_case.pattern, escape_char);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, bytewise_result->view());
+
+  auto const utf8_result = gqe::like_utf8(input, test_case.pattern, escape_char);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, utf8_result->view());
+}
+
+// Patterns that are not enclosed in '%' on both ends: a pattern without an unescaped '%' must match
+// the whole string, and the prefix and the suffix must not overlap.
+INSTANTIATE_TEST_SUITE_P(
+  UnanchoredPatterns,
+  LikePatternTest,
+  ::testing::Values(
+    // The example of issue #4
+    like_pattern_case{
+      "SingleWildcardWithoutMultiWildcard",
+      "w_dget",
+      "",
+      {"Widget", "WIDGET", "widget", "wIdGeT-Pro", "Gadget", "gizmo", "WidgetX", "midget", nullptr},
+      {false, false, true, false, false, false, false, false, false}},
+    like_pattern_case{"NoWildcard",
+                      "widget",
+                      "",
+                      {"widget", "widgetX", "widge", "", "Widget", nullptr},
+                      {true, false, false, false, false, false}},
+    like_pattern_case{
+      "OnlySingleWildcards", "__", "", {"", "a", "ab", "abc"}, {false, false, true, false}},
+    like_pattern_case{
+      "EmptyPattern", "", "", {"", "a", "abc", nullptr}, {true, false, false, false}},
+    like_pattern_case{"PrefixSuffixOverlap",
+                      "ab%ba",
+                      "",
+                      {"aba", "abba", "ab", "ba", "abxba", "a", "", "abab"},
+                      {false, true, false, false, true, false, false, false}},
+    like_pattern_case{
+      "PrefixSuffixSameChar", "a%a", "", {"a", "aa", "aba", ""}, {false, true, true, false}},
+    like_pattern_case{"StringShorterThanPrefix",
+                      "abc%",
+                      "",
+                      {"a", "ab", "abc", "abcd", "", "xbc"},
+                      {false, false, true, true, false, false}},
+    like_pattern_case{"StringShorterThanPrefixWithMiddle",
+                      "ab%z%",
+                      "",
+                      {"a", "xyz", "abz", "abxz", "ab", nullptr},
+                      {false, false, true, true, false, false}},
+    like_pattern_case{"StringShorterThanPrefixAndSuffix",
+                      "ab%cdef",
+                      "",
+                      {"a", "ab", "abc", "abcdef", "abxcdef", "cdef"},
+                      {false, false, false, true, true, false}},
+    like_pattern_case{"StringShorterThanPrefixMiddleAndSuffix",
+                      "ab%cd%ef",
+                      "",
+                      // "f" ends with "ef" if the suffix check starts before the string
+                      {"xe", "f", "abcdef", "abcdxef", "abcef", "ef", "a"},
+                      {false, false, true, true, false, false, false}},
+    like_pattern_case{"SuffixOnly",
+                      "%dget",
+                      "",
+                      {"et", "dget", "gadget", "t", "", "dgetX"},
+                      {false, true, true, false, false, false}},
+    like_pattern_case{"SuffixOnlyWithSingleWildcard",
+                      "%d_et",
+                      "",
+                      {"et", "dget", "gadxet", ""},
+                      {false, true, true, false}},
+    like_pattern_case{"EscapedSingleWildcard",
+                      "w^_dget",
+                      "^",
+                      {"w_dget", "w_dgetX", "widget", "w_dge", ""},
+                      {true, false, false, false, false}},
+    like_pattern_case{"EscapedMultiWildcard",
+                      "w^%dget",
+                      "^",
+                      {"w%dget", "w%dgetX", "widget", "w%", ""},
+                      {true, false, false, false, false}},
+    like_pattern_case{"EscapedTrailingMultiWildcard",
+                      "%a^%",
+                      "^",
+                      {"xa%", "xa%y", "a", "%", "a%"},
+                      {true, false, false, false, true}},
+    like_pattern_case{"EscapedEscapeBeforeTrailingMultiWildcard",
+                      "%a^^%",
+                      "^",
+                      {"xa^y", "xa^", "a^", "xa", "a^^", "^a^"},
+                      {true, true, true, false, true, true}},
+    like_pattern_case{"OnlyEscapedEscapeBetweenMultiWildcards",
+                      "%^^%",
+                      "^",
+                      {"x^y", "^", "x^", "xy"},
+                      {true, true, true, false}},
+    like_pattern_case{"EscapedBackslashBeforeTrailingMultiWildcard",
+                      "%a\\\\%",
+                      "\\",
+                      {"xa\\y", "xa\\", "xa"},
+                      {true, true, false}},
+    like_pattern_case{"EscapeCharacterIsMultiWildcard",
+                      "%w%%",
+                      "%",
+                      {"w%", "xw%", "w%x", "w", ""},
+                      {true, false, false, false, false}},
+    like_pattern_case{
+      "Utf8Prefix", "é%", "", {"é", "è", "e", "éx", ""}, {true, false, false, true, false}},
+    like_pattern_case{
+      "Utf8Suffix", "%é", "", {"é", "xè", "xé", "è", ""}, {true, false, true, false, false}},
+    like_pattern_case{"Utf8NoWildcard", "éé", "", {"éé", "éè", "é"}, {true, false, false}}),
+  [](auto const& info) { return info.param.name; });
+
+// Run the shift-and kernel with several thread blocks, on a sliced column, and with middle patterns
+// that need the 16, 32 and 64 bit masks
+TEST(LikeExpressionTest, ScalarLikeManyRowsAndSlicedColumn)
+{
+  std::vector<char const*> const base_rows = {"Widget",
+                                              "widget",
+                                              "gizmo",
+                                              "WidgetX",
+                                              nullptr,
+                                              "aba",
+                                              "the quick brown fox",
+                                              "the quick brown fox jumps over",
+                                              "",
+                                              "the quick brown fox jumps over the lazy dog"};
+  // Each pattern with its expected results for `base_rows`
+  std::vector<std::pair<std::string, std::vector<bool>>> const patterns = {
+    {"w_dget", {false, true, false, false, false, false, false, false, false, false}},
+    {"%dget", {true, true, false, false, false, false, false, false, false, false}},
+    {"the quick brown fox", {false, false, false, false, false, false, true, false, false, false}},
+    // Middle pattern of 11, 21 and 35 bytes
+    {"%quick brown%", {false, false, false, false, false, false, true, true, false, true}},
+    {"the%quick brown fox jumps%",
+     {false, false, false, false, false, false, false, true, false, true}},
+    {"%quick brown fox jumps over the lazy%",
+     {false, false, false, false, false, false, false, false, false, true}}};
+
+  // 1000 rows, so 4 blocks of 256 threads, and a slice that starts inside the first copy
+  constexpr int num_copies              = 100;
+  constexpr cudf::size_type slice_begin = 3;
+  constexpr cudf::size_type slice_end   = 703;
+
+  std::vector<std::string> values;
+  std::vector<bool> valids;
+  for (int i = 0; i < num_copies; ++i) {
+    for (auto const* row : base_rows) {
+      values.emplace_back(row != nullptr ? row : "");
+      valids.push_back(row != nullptr);
+    }
+  }
+  auto c_0 = cudf::test::strings_column_wrapper(values.begin(), values.end(), valids.begin());
+  auto const sliced = cudf::slice(c_0, {slice_begin, slice_end}).front();
+  cudf::string_scalar const escape_char{""};
+
+  for (auto const& [pattern, base_expected] : patterns) {
+    SCOPED_TRACE("LIKE '" + pattern + "'");
+    std::vector<bool> expected;
+    for (int i = 0; i < num_copies; ++i) {
+      expected.insert(expected.end(), base_expected.begin(), base_expected.end());
+    }
+    auto const expected_full =
+      column_wrapper<bool>(expected.begin(), expected.end(), valids.begin());
+    auto const expected_sliced = column_wrapper<bool>(
+      expected.begin() + slice_begin, expected.begin() + slice_end, valids.begin() + slice_begin);
+
+    for (auto const& [input_column, expected_column] :
+         {std::pair{cudf::column_view{c_0}, cudf::column_view{expected_full}},
+          std::pair{sliced, cudf::column_view{expected_sliced}}}) {
+      cudf::strings_column_view const input{input_column};
+      CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_column,
+                                     gqe::like(input, pattern, escape_char)->view());
+      CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_column,
+                                     gqe::like_utf8_bytewise(input, pattern, escape_char)->view());
+      CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_column,
+                                     gqe::like_utf8(input, pattern, escape_char)->view());
+    }
+  }
 }

@@ -79,7 +79,7 @@ std::unique_ptr<cudf::column> like(
  * correct UTF-8 character matching.
  *
  * @param input The column of strings to evaluate.
- * @param pattern The LIKE pattern string (must start and end with '%').
+ * @param pattern The LIKE pattern string (may include wildcards).
  * @param escape_character A string scalar representing the escape character.
  * @param stream CUDA stream on which to perform the operation.
  * @param mr Device memory resource used to allocate the result.

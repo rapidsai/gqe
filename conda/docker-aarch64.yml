@@ -1,0 +1,60 @@
+name: gqe
+channels:
+  - rapidsai
+  - conda-forge
+  - nvidia
+dependencies:
+  # Keep aligned with the Dockerfile base image's glibc.
+  # The image build verifies this match.
+  - sysroot_linux-aarch64==2.39
+  # No libxml2 pin: CUDA 13 NVSHMEM 3.7 needs libxml2 2.14+ (via libhwloc).
+  - libnuma
+  - numactl
+  - rust
+  - python=3.12
+  - cuda-cccl
+  - cuda-cudart
+  - cuda-cudart-dev
+  - cuda-cupti
+  - cuda-cupti-dev
+  - cuda-nvcc
+  - cuda-nvml-dev
+  - cuda-nvrtc-dev
+  - cuda-nvtx-dev
+  - cuda-version=13.4
+  - cuda-command-line-tools
+  - libcufile-dev
+  - cmake=4.4.3
+  # Arrow builds its own gflags when it cannot find one, and that copy declares
+  # cmake_minimum_required < 3.5, which CMake 4 rejects.
+  - gflags=2.3.1
+  - c-compiler
+  - cxx-compiler
+  - conda-pack
+  - clang-tools=20.1.8
+  - gcc_linux-aarch64=14.*
+  # These two must always match; gqe-bench takes its protobuf
+  # runtime from here rather than declaring its own.
+  - libprotobuf=6.33.*
+  - protobuf=6.33.*
+  - libgrpc=1.78.1
+  - librmm=26.10.*
+  - pandas
+  - pyarrow==19.0.1
+  - pybind11=2.13.6
+  - thrift-compiler=0.22
+  - libthrift=0.22
+  - zlib>=1.2.13  # libthrift checks zlib during CMake configuration, but conda-forge doesn't install it automatically
+  - libnvcomp-dev==5.2.0.10
+  - libnvjitlink-dev
+  - liburing
+  # liblz4 for GQE's CPU compression path.
+  - lz4-c=1.10.0
+  - libnvshmem-static==3.7.2
+  - spdlog=1.15.3
+  - fmt=11.1.4
+  - tbb-devel
+  - libboost-devel=1.92.0
+  - pre-commit
+  - uv=0.10.4
+  - nccl

@@ -1,0 +1,130 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package gqe.proto;
+
+import "physical_plan.proto";
+import "statistics.proto";
+import "storage.proto";
+import "uuid.proto";
+
+message SessionOptionValue {
+  oneof option_value {
+    string string_value = 1;
+    bool   bool_value   = 2;
+    int64  int64_value  = 3;
+    double double_value = 4;
+  }
+}
+
+message OptimizationParameters {
+  map<string, SessionOptionValue> options = 1;
+}
+
+// Service exposed by each task manager, called by the node manager.
+service TaskManagerService {
+  rpc ExecutePlan(ExecutePlanRequest) returns (ExecutePlanResponse) {}
+  rpc RefreshStatsTables(RefreshStatsRequest) returns (RefreshStatsResponse) {}
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse) {}
+  rpc GenerateNvshmemUid(GenerateUidRequest) returns (GenerateUidResponse) {}
+  rpc InitNvshmem(InitNvshmemRequest) returns (InitNvshmemResponse) {}
+  rpc SetPeerInfo(SetPeerInfoRequest) returns (SetPeerInfoResponse) {}
+}
+
+// One statistics table's freshly-projected contents to materialize into shared memory.
+message StatsTableWrite {
+  string table_name = 1;  // Name of the (shared_segment_memory) statistics table to overwrite.
+  bytes  arrow_ipc  = 2;  // Projected rows as a single Arrow IPC stream batch. Empty => clear only.
+}
+
+// Replace the contents of one or more shared_segment_memory statistics tables. Dispatched to all ranks;
+// rank 0 writes the shared-memory copy. The node waits for all ranks before issuing the dependent
+// read, which provides the cross-rank visibility barrier.
+message RefreshStatsRequest {
+  repeated StatsTableWrite    writes                  = 1;
+  Uuid                        query_id                = 2;
+  repeated StorageDescriptor  table_catalog           = 3;  // Descriptors for the stats tables.
+  uint64                      epoch                   = 4;  // Mixed into shared-object names.
+}
+
+message RefreshStatsResponse {
+  bool   success       = 1;
+  string error_message = 2;
+  int32  rank          = 3;
+  bool   node_fatal    = 4;  // See ExecutePlanResponse.node_fatal.
+  bool   rank_fatal    = 5;  // See ExecutePlanResponse.rank_fatal.
+}
+
+message ExecutePlanRequest {
+  PhysicalRelation      physical_plan           = 1;
+  Uuid                  query_id                = 2;
+  repeated StorageDescriptor table_catalog      = 3;
+  OptimizationParameters optimization_parameters = 4;
+}
+
+message ExecutePlanResponse {
+  bytes arrow_ipc_result = 1;
+  string error_message = 2;
+  bool success = 3;
+  // Set when this rank cannot serve further queries, for example after a sticky CUDA error. Only
+  // meaningful when success is false. Only this rank is broken, so the node manager restarts every
+  // task manager and keeps serving.
+  bool rank_fatal = 4;
+  int32 rank = 5;
+  TableStatistics write_statistics = 6;
+  // Set when the shared-memory segment is unrecoverable, because a process died while holding one of
+  // its locks. Every process on the node shares the segment, so the whole node must stop, not only
+  // this rank. The node manager tears down the node and exits with status 101 instead of restarting
+  // task managers. Implies success == false and takes precedence over rank_fatal and over the
+  // operation's own error.
+  bool node_fatal = 7;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  int32 rank = 2;
+}
+
+message GenerateUidRequest {}
+message GenerateUidResponse { bytes unique_id = 1; }
+
+message InitNvshmemRequest {
+  bytes unique_id = 1;    // 128-byte nvshmemx_uniqueid_t
+  int32 rank = 2;
+  int32 num_ranks = 3;
+}
+message InitNvshmemResponse {
+  bool success = 1;
+  string error_message = 2;
+  fixed64 pgas_base_ptr = 3;
+  string grpc_address = 4;    // task migration gRPC address
+}
+
+message PeerInfo {
+  int32 rank = 1;
+  fixed64 pgas_base_ptr = 2;
+  string grpc_address = 3;
+}
+message SetPeerInfoRequest { repeated PeerInfo peers = 1; }
+message SetPeerInfoResponse {
+  bool success = 1;
+  string error_message = 2;
+}

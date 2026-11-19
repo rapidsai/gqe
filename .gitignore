@@ -1,0 +1,21 @@
+/build*/
+.cache/
+.idea/
+.vscode/
+/include/substrait/
+/substrait/proto/
+.devcontainer/*
+!.devcontainer/Dockerfile
+!.devcontainer/initialize-devcontainer.sh
+!.devcontainer/setup-devcontainer.sh
+!.devcontainer/cmake-env.sh
+!.devcontainer/cmake-kits.json
+!.devcontainer/aarch64/**/*
+!.devcontainer/x86_64/**/*
+compile_commands.json
+/rust/target/
+/rust/producer/target/
+/rust/output/
+
+# Emacs directory configuration
+.dir-locals.el

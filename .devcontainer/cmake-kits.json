@@ -1,0 +1,13 @@
+[
+    {
+        "name": "GQE (conda gqe)",
+        "compilers": {
+            "C": "/conda/envs/gqe/bin/gcc",
+            "CXX": "/conda/envs/gqe/bin/g++"
+        },
+        "environmentSetupScript": "/workspace/.devcontainer/cmake-env.sh",
+        "preferredGenerator": {
+            "name": "Ninja"
+        }
+    }
+]

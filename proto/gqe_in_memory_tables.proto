@@ -1,0 +1,83 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package gqe.proto;
+
+import "data_type.proto";
+
+// Version of the on-disk serialization format. Every metadata header carries one, and a reader
+// checks it before interpreting anything else in the header. Shared by all header messages so the
+// two readers cannot drift apart on how the version is spelled.
+message FormatVersion {
+  int32 major_version = 1;
+  int32 minor_version = 2;
+}
+
+// Metadata header for one serialized compressed-sliced column. The bulk compressed partition
+// payloads are appended raw after this message.
+// The format is strictly versioned: readers reject any version mismatch or unknown field, so any
+// change here is a breaking format change that must bump the serialization version.
+//
+// The submessages below are organized per buffer, matching both the storage class and the order
+// the raw payloads are appended in.
+message ColumnMetadata {
+  // Every repeated array/field in this message carries one entry per partition, which is
+  // ceil(layout.num_rows / layout.partition_size).
+
+  message Layout {
+    gqe.proto.DataType type = 1;
+    int64 num_rows          = 2;
+    uint64 partition_size   = 3;
+  }
+
+  message DataBufferMetadata {
+    string compression_format      = 1;
+    repeated int32 partition_sizes = 2;
+  }
+
+  message NullMaskMetaData {
+    string compression_format      = 1;
+    repeated int32 partition_sizes = 2;
+    repeated int32 null_counts     = 3;
+  }
+
+  message StringBuffers {
+    bool large_offsets                    = 1;
+    string offsets_compression_format     = 2;
+    repeated int32 offset_partition_sizes = 3;
+    repeated int32 char_array_sizes       = 4;
+  }
+
+  FormatVersion version      = 1;
+  Layout layout              = 2;
+  DataBufferMetadata data    = 3;
+  NullMaskMetaData null_mask = 4;
+  StringBuffers strings      = 5;
+}
+
+
+message ZoneMapMetadata {
+  FormatVersion version = 1;
+  int32 partition_size  = 2;
+  int64 num_rows        = 3;
+  int32 num_columns     = 4;
+  int32 num_partitions  = 5;
+  // Flattened row-major (partition, column) null counts of length num_partitions * num_columns.
+  repeated int32 null_counts = 6;
+}

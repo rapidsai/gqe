@@ -1,0 +1,149 @@
+stages:
+  # Build changed images before jobs select them through .arch_rules.
+  - build_image
+  - build_test
+
+variables:
+  GQE_DEFAULT_X86_IMAGE: "gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_x86_64"
+  GQE_DEFAULT_AARCH64_IMAGE: "gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_aarch64"
+  GQE_MR_X86_IMAGE: "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
+  GQE_MR_AARCH64_IMAGE: "$CI_REGISTRY_IMAGE:${CI_COMMIT_REF_SLUG}_aarch64"
+  GQE_CHANGED_IMAGE: "$GQE_MR_X86_IMAGE"
+  GQE_LATEST_IMAGE: "$GQE_DEFAULT_X86_IMAGE"
+
+  FF_ENABLE_JOB_CLEANUP: "true"
+  # The Computelab runner submits each job through this Slurm frontend.
+  CI_SLURM_FRONTEND: "computelab-sc-01"
+  # TPC-H SQL is maintained separately from the read-only dataset tree.
+  GQE_CI_TPCH_SQL_DIR: "/home/gqe/ci/sql"
+
+  DOCKER_IMAGE: "$GQE_DEFAULT_X86_IMAGE"
+  # Refresh external dependencies even when the image's repository inputs match.
+  GQE_CI_FORCE_IMAGE_REBUILD: "false"
+
+.computelab_docker:
+  tags:
+    - computelab
+  timeout: 4h
+
+.computelab_x86:
+  extends: .computelab_docker
+  variables:
+    CI_CRUN_QUERY: "gpu.chip=*"
+    CI_CRUN_PARTITIONS: "a100-80gb-pcie@cr+mp/h12sswnt/1gpu-16cpu-128gb,l40s@cr+mp/romed8nl/1gpu-32cpu-128gb,l40s@qs1/romed8nl/1gpu-32cpu-128gb,l40@cr+mp/romed8nl/1gpu-32cpu-128gb"
+
+.computelab_image_x86:
+  extends: .computelab_docker
+  variables:
+    # Docker image creation is CPU-bound and does not execute GPU workloads;
+    # use the L40S partition for its larger host CPU allocation.
+    CI_CRUN_QUERY: "gpu.chip=*"
+    CI_CRUN_PARTITIONS: "l40s@cr+mp/romed8nl/1gpu-32cpu-128gb"
+
+.computelab_arm:
+  extends: .computelab_docker
+  variables:
+    CI_CRUN_QUERY: "gpu.chip=*"
+    CI_CRUN_PARTITIONS: "gh200-480gb@evt/lego-cg1@qs/1gpu-72cpu-575gb"
+
+.arch_rules:
+  rules:
+    - &mr_force_image_rule
+      if: $CI_PIPELINE_SOURCE == "merge_request_event" && $GQE_CI_FORCE_IMAGE_REBUILD == "true"
+      variables:
+        DOCKER_IMAGE: "$GQE_CHANGED_IMAGE"
+        GQE_CI_BUILD_TEST: "true"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: &image_changes
+        - Dockerfile
+        - .dockerignore
+        - conda/*.yml
+        - scripts/ci/build_image.sh
+      variables:
+        DOCKER_IMAGE: "$GQE_CHANGED_IMAGE"
+        GQE_CI_BUILD_TEST: "true"
+    # Documentation-only changes still run lint in each architecture's job.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: &non_markdown_changes
+        # Match filenames that do not end in .md. GitLab uses Ruby fnmatch,
+        # which supports brace alternatives but not shell !(...) patterns.
+        - "**/*{[^d],[^m]d,[^.]md}"
+        # Include short filenames not covered by the suffix alternatives.
+        - "**/{d,md}"
+      variables:
+        GQE_CI_BUILD_TEST: "true"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      variables:
+        GQE_CI_BUILD_TEST: "false"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *non_markdown_changes
+      variables:
+        GQE_CI_BUILD_TEST: "true"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      variables:
+        GQE_CI_BUILD_TEST: "false"
+
+.image_build_rules:
+  # Check native x86/ARM images when inputs change or a rebuild is requested.
+  # build_image.sh reuses the published image if its input fingerprint matches.
+  # A merge request publishes an MR-tagged image for its own jobs; the default
+  # branch republishes the latest_* tags that every other pipeline pulls.
+  rules:
+    - *mr_force_image_rule
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GQE_CI_FORCE_IMAGE_REBUILD == "true"
+      variables:
+        DOCKER_IMAGE: "$GQE_LATEST_IMAGE"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: *image_changes
+      variables:
+        DOCKER_IMAGE: "$GQE_CHANGED_IMAGE"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *image_changes
+      variables:
+        DOCKER_IMAGE: "$GQE_LATEST_IMAGE"
+
+build_image_x86:
+  extends:
+    - .computelab_image_x86
+    - .image_build_rules
+  stage: build_image
+  variables:
+    # Limit native dependency compilation to fit the x86 builder's 128 GB of host memory.
+    GQE_DOCKER_BUILD_PARALLEL_LEVEL: "8"
+  script:
+    - bash scripts/ci/build_image.sh
+
+build_image_arm:
+  extends:
+    - .computelab_arm
+    - .image_build_rules
+  stage: build_image
+  variables:
+    GQE_CHANGED_IMAGE: "$GQE_MR_AARCH64_IMAGE"
+    GQE_LATEST_IMAGE: "$GQE_DEFAULT_AARCH64_IMAGE"
+    # The GH200 builder's 575 GB of host memory supports higher parallelism.
+    GQE_DOCKER_BUILD_PARALLEL_LEVEL: "16"
+  script:
+    - bash scripts/ci/build_image.sh
+
+build_test_x86:
+  extends:
+    - .computelab_x86
+    - .arch_rules
+  stage: build_test
+  variables:
+    GQE_CI_BUILD_PUBLIC_VARIANT: "true"
+  script:
+    - bash scripts/ci/run_arch.sh
+
+build_test_arm:
+  extends:
+    - .computelab_arm
+    - .arch_rules
+  stage: build_test
+  variables:
+    DOCKER_IMAGE: "$GQE_DEFAULT_AARCH64_IMAGE"
+    GQE_CHANGED_IMAGE: "$GQE_MR_AARCH64_IMAGE"
+    GQE_CI_BUILD_PUBLIC_VARIANT: "false"
+  script:
+    - bash scripts/ci/run_arch.sh

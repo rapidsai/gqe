@@ -1,0 +1,51 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#pragma once
+
+#include <gqe/physical/relation.hpp>
+
+namespace gqe {
+namespace physical {
+
+class union_all_relation : public relation {
+ public:
+  union_all_relation(std::shared_ptr<relation> lhs, std::shared_ptr<relation> rhs)
+    : relation({std::move(lhs), std::move(rhs)}, {})
+  {
+  }
+
+  [[nodiscard]] relation_type type() const noexcept override { return relation_type::union_all; }
+
+  /**
+   * @copydoc gqe::physical::relation::accept(relation_visitor&)
+   */
+  void accept(relation_visitor& visitor) override { visitor.visit(this); }
+
+  /**
+   * @copydoc relation::output_data_types()
+   */
+  [[nodiscard]] std::vector<cudf::data_type> output_data_types() const override;
+
+  /**
+   * @copydoc relation::to_string()
+   */
+  [[nodiscard]] std::string to_string() const override;
+};
+
+}  // namespace physical
+}  // namespace gqe

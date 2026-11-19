@@ -1,0 +1,58 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package gqe.proto;
+
+/**
+ * @brief Typed value for a single WITH (...) option.
+ *
+ * Scalar strings (storage_kind, page_kind) use string_val.
+ * Scalar integers (device_id, numa_node_id) use int_val.
+ * Integer lists (numa_node_set) use int_list_val.
+ */
+message StorageOptionValue {
+  message IntList {
+    repeated int64 values = 1;
+  }
+  oneof value {
+    string  string_val   = 1;
+    int64   int_val      = 2;
+    IntList int_list_val = 3;
+  }
+}
+
+/**
+ * @brief GQE extension carried in substrait.DdlRel.advanced_extension.enhancement
+ * as a google.protobuf.Any with type_url = "type.googleapis.com/gqe.proto.CreateTableExtension".
+ */
+message CreateTableExtension {
+  // A set of column positions that together form one UNIQUE / PRIMARY KEY.
+  // Each entry is one key: size 1 = single-column unique, size >= 2 = composite unique.
+  message UniqueKey {
+    repeated uint32 column_indices = 1;
+  }
+  repeated UniqueKey unique_keys = 1;
+
+  // Key-value pairs from the SQL WITH (...) clause.
+  // The key "storage_kind" selects the storage backend; other keys supply
+  // parameters for that backend (e.g. "device_id" for storage_kind =
+  // "device_memory", "numa_node_id" for storage_kind = "numa_pool_memory",
+  // "numa_node_set" and "page_kind" for storage_kind = "numa_memory").
+  map<string, StorageOptionValue> storage_options = 2;
+}
